@@ -1171,5 +1171,57 @@ CREATE TABLE `kb_chunk` (
 SET FOREIGN_KEY_CHECKS = 1;
 
 -- ============================================================================
--- DDL脚本执行完毕，共创建47张业务表
+-- 9.15 Agent 调度（T-107：任务状态机 / 队列）
+-- ============================================================================
+
+-- Agent 任务表（状态机：queued → running → pending_confirm → done / failed / escalated / cancelled / rolled_back）
+DROP TABLE IF EXISTS `agent_task`;
+CREATE TABLE `agent_task` (
+    `id`                 BIGINT       NOT NULL AUTO_INCREMENT COMMENT '任务ID',
+    `task_no`            VARCHAR(30)  NOT NULL                COMMENT '任务单号（唯一，T-101 编码引擎 AGT 规则）',
+    `capability_code`    VARCHAR(50)  NOT NULL                COMMENT '路由到的能力点',
+    `instruction`        VARCHAR(2000) NOT NULL               COMMENT '用户原始指令',
+    `params`             JSON         DEFAULT NULL            COMMENT '扩展参数',
+    `status`             VARCHAR(20)  NOT NULL DEFAULT 'queued' COMMENT '状态（queued/running/pending_confirm/done/failed/escalated/cancelled/rolled_back）',
+    `caller_user_id`     BIGINT       NOT NULL                COMMENT '发起用户ID',
+    `agent_instance_key` VARCHAR(100) DEFAULT NULL            COMMENT '执行实例标识（ASSISTANT 代理时）',
+    `intent_confidence`  DOUBLE       DEFAULT NULL            COMMENT '意图识别置信度（0~1）',
+    `result_text`        MEDIUMTEXT   DEFAULT NULL            COMMENT '执行结果（AI 生成内容必带标注）',
+    `ai_generated`       TINYINT      DEFAULT 0               COMMENT '结果是否 AI 生成（0否 1是）',
+    `error_msg`          VARCHAR(500) DEFAULT NULL            COMMENT '失败原因（收敛后）',
+    `executed_by`        VARCHAR(100) DEFAULT NULL            COMMENT '实际执行者（agent:{userId}:{能力编号} 或 user:{userId}）',
+    `started_at`         DATETIME     DEFAULT NULL            COMMENT '开始执行时间',
+    `finished_at`        DATETIME     DEFAULT NULL            COMMENT '结束时间',
+    `create_time`        DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `update_time`        DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    `deleted`            TINYINT      DEFAULT 0               COMMENT '逻辑删除（0未删除 1已删除）',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_task_no` (`task_no`),
+    KEY                `idx_status` (`status`),
+    KEY                `idx_caller` (`caller_user_id`),
+    KEY                `idx_capability` (`capability_code`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Agent任务表';
+
+-- Agent 任务事件表（任务状态流转留痕，供工作台时间线展示）
+DROP TABLE IF EXISTS `agent_task_event`;
+CREATE TABLE `agent_task_event` (
+    `id`          BIGINT       NOT NULL AUTO_INCREMENT COMMENT '事件ID',
+    `task_id`     BIGINT       NOT NULL                COMMENT '任务ID',
+    `from_status` VARCHAR(20)  DEFAULT NULL            COMMENT '原状态',
+    `to_status`   VARCHAR(20)  NOT NULL                COMMENT '目标状态',
+    `operator`    VARCHAR(100) NOT NULL                COMMENT '操作者（user:{id}/agent:{key}/system）',
+    `detail`      VARCHAR(500) DEFAULT NULL            COMMENT '事件说明',
+    `create_time` DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '发生时间',
+    PRIMARY KEY (`id`),
+    KEY           `idx_task` (`task_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Agent任务事件表';
+
+-- 编码规则：Agent 任务单号
+INSERT INTO `sys_code_rule` (`rule_code`, `rule_name`, `pattern`, `date_pattern`, `status`, `remark`) VALUES
+('AGTT', 'Agent任务单号', 'AGTT-{yyyyMMdd}-{seq:4}', 'yyyyMMdd', 1, 'T-107 MasterAgent 任务单');
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- DDL脚本执行完毕，共创建49张业务表
 -- ============================================================================
