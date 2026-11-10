@@ -1615,8 +1615,95 @@ INSERT INTO `sys_code_rule` (`rule_code`, `rule_name`, `pattern`, `date_pattern`
 ('IO', '出入库单编号', 'IO-{yyyyMM}-{seq:4}', 'yyyyMM', 1, 'W4 扫码过账出入库单')
 ON DUPLICATE KEY UPDATE `pattern` = VALUES(`pattern`);
 
+-- ============================================================================
+-- 9.20 W6 交付域（T-206：发货/物流/施工日志/分级验收，BR-02/03/04/05 硬卡点）
+-- BR-02 整机厂首次发货必须持有 PASS 的 FAI 报告；BR-03 工程量 30% 自动触发中期验收；
+-- BR-04 工程量 85% 自动触发后期验收；BR-05 验收单三方签字（业主+监理+我方）齐备才生效
+-- ============================================================================
+
+-- 发货单（BR-02 提交入口拦截）
+DROP TABLE IF EXISTS `shipment`;
+CREATE TABLE `shipment` (
+    `id`           BIGINT        NOT NULL AUTO_INCREMENT COMMENT '发货单ID',
+    `shipment_no`  VARCHAR(30)   NOT NULL                COMMENT '发货单号（SP 编码引擎）',
+    `project_id`   BIGINT        NOT NULL                COMMENT '项目ID',
+    `workorder_id` BIGINT        DEFAULT NULL            COMMENT '关联工单ID',
+    `batch_no`     VARCHAR(30)   DEFAULT NULL            COMMENT '批次号',
+    `qty`          INT           NOT NULL DEFAULT 1      COMMENT '发货台数',
+    `carrier`      VARCHAR(100)  DEFAULT NULL            COMMENT '承运商',
+    `status`       VARCHAR(20)   NOT NULL DEFAULT 'DRAFT' COMMENT '状态（DRAFT草稿/SUBMITTED已发运）',
+    `shipped_at`   DATETIME      DEFAULT NULL            COMMENT '发运时间',
+    `remark`       VARCHAR(500)  DEFAULT NULL            COMMENT '备注',
+    `create_time`  DATETIME      DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `update_time`  DATETIME      DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    `deleted`      TINYINT       DEFAULT 0               COMMENT '逻辑删除（0未删除 1已删除）',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_shipment_no` (`shipment_no`),
+    KEY `idx_project` (`project_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='发货单';
+
+-- 物流跟踪记录
+DROP TABLE IF EXISTS `logistics_record`;
+CREATE TABLE `logistics_record` (
+    `id`          BIGINT       NOT NULL AUTO_INCREMENT COMMENT '记录ID',
+    `shipment_id` BIGINT       NOT NULL                COMMENT '发货单ID',
+    `event_type`  VARCHAR(20)  NOT NULL                COMMENT '事件（DISPATCH发运/TRANSIT在途/ARRIVED到货/INSTALL进场安装）',
+    `event_time`  DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '事件时间',
+    `location`    VARCHAR(200) DEFAULT NULL            COMMENT '位置',
+    `description` VARCHAR(500) DEFAULT NULL            COMMENT '说明',
+    `operator`    VARCHAR(50)  DEFAULT NULL            COMMENT '记录人',
+    `create_time` DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    PRIMARY KEY (`id`),
+    KEY `idx_shipment` (`shipment_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='物流跟踪记录';
+
+-- 施工日志（progress_pct 为当日累计完成工程量快照，项目当前工程量取最大值）
+DROP TABLE IF EXISTS `construction_log`;
+CREATE TABLE `construction_log` (
+    `id`              BIGINT        NOT NULL AUTO_INCREMENT COMMENT '日志ID',
+    `project_id`      BIGINT        NOT NULL                COMMENT '项目ID',
+    `log_date`        DATE          NOT NULL                COMMENT '日志日期',
+    `weather`         VARCHAR(20)   DEFAULT NULL            COMMENT '天气',
+    `personnel_count` INT           DEFAULT NULL            COMMENT '在场人数',
+    `work_content`    TEXT          DEFAULT NULL            COMMENT '施工内容',
+    `progress_pct`    DECIMAL(5,2)  NOT NULL DEFAULT 0      COMMENT '累计完成工程量%（当日快照）',
+    `issues`          VARCHAR(500)  DEFAULT NULL            COMMENT '当日问题',
+    `recorder`        VARCHAR(50)   DEFAULT NULL            COMMENT '记录人',
+    `create_time`     DATETIME      DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    PRIMARY KEY (`id`),
+    KEY `idx_project_date` (`project_id`, `log_date`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='施工日志';
+
+-- 分级验收单（BR-05 三方签字齐备生效；BR-03/04 工程量自动触发）
+DROP TABLE IF EXISTS `acceptance`;
+CREATE TABLE `acceptance` (
+    `id`                  BIGINT        NOT NULL AUTO_INCREMENT COMMENT '验收单ID',
+    `project_id`          BIGINT        NOT NULL                COMMENT '项目ID',
+    `stage`               VARCHAR(10)   NOT NULL                COMMENT '阶段（FIRST首台/MID中期/LATE后期/FINAL终验）',
+    `status`              VARCHAR(20)   NOT NULL DEFAULT 'TRIGGERED' COMMENT '状态（TRIGGERED已触发/PENDING_SIGN待签字/PASS生效/FAIL不通过）',
+    `progress_pct`        DECIMAL(5,2)  DEFAULT NULL            COMMENT '触发时工程量%',
+    `acceptor_owner`      VARCHAR(50)   DEFAULT NULL            COMMENT '我方验收人',
+    `acceptor_supervisor` VARCHAR(50)   DEFAULT NULL            COMMENT '监理验收人',
+    `acceptor_client`     VARCHAR(50)   DEFAULT NULL            COMMENT '业主验收人',
+    `signed_owner`        TINYINT       NOT NULL DEFAULT 0      COMMENT '我方签字（0/1）',
+    `signed_supervisor`   TINYINT       NOT NULL DEFAULT 0      COMMENT '监理签字（0/1）',
+    `signed_client`       TINYINT       NOT NULL DEFAULT 0      COMMENT '业主签字（0/1）',
+    `accepted_at`         DATETIME      DEFAULT NULL            COMMENT '三方签字齐备（生效）时间',
+    `comment`             VARCHAR(500)  DEFAULT NULL            COMMENT '验收意见',
+    `triggered_by`        VARCHAR(10)   NOT NULL DEFAULT 'MANUAL' COMMENT '触发方式（MANUAL/AGENT）',
+    `create_time`         DATETIME      DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `update_time`         DATETIME      DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    PRIMARY KEY (`id`),
+    KEY `idx_project_stage` (`project_id`, `stage`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='分级验收单';
+
+-- 编码规则：SP 发货单号
+INSERT INTO `sys_code_rule` (`rule_code`, `rule_name`, `pattern`, `date_pattern`, `status`, `remark`) VALUES
+('SP', '发货单编号', 'SP-{yyyyMM}-{seq:4}', 'yyyyMM', 1, 'W6 交付域发货单')
+ON DUPLICATE KEY UPDATE `pattern` = VALUES(`pattern`);
+
 SET FOREIGN_KEY_CHECKS = 1;
 
 -- ============================================================================
--- DDL脚本执行完毕，共创建67张业务表
+-- DDL脚本执行完毕，共创建71张业务表
 -- ============================================================================
