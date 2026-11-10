@@ -2,6 +2,8 @@ package com.dept.gateway.provider;
 
 import com.dept.gateway.entity.AiProviderConfig;
 
+import java.util.List;
+
 /**
  * AI Provider 抽象：屏蔽底层模型协议差异，统一对话调用契约
  *
@@ -29,5 +31,21 @@ public interface AiProvider {
      * 调用结果（全文 + Token 用量；用量拿不到时置 0）
      */
     record ProviderResult(String content, int totalTokens) {
+    }
+
+    /**
+     * 文本向量化（T-106 RAG）：返回与输入顺序一致的向量列表
+     * 默认实现：不支持向量化的通道抛 UnsupportedOperationException
+     *
+     * @param config 通道配置（明文 Key 已填充）
+     * @param texts  文本列表
+     */
+    default List<List<Double>> embed(AiProviderConfig config, List<String> texts) throws Exception {
+        throw new UnsupportedOperationException("通道 " + type() + " 不支持向量化");
+    }
+
+    /** 向量化模型标识（供审计与 embedding_model 列记录） */
+    default String embedModel(AiProviderConfig config) {
+        return config.getModel();
     }
 }

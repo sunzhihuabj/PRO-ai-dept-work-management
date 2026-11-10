@@ -1130,5 +1130,46 @@ CREATE TABLE `sys_ai_call_log` (
 SET FOREIGN_KEY_CHECKS = 1;
 
 -- ============================================================================
--- DDL脚本执行完毕，共创建45张业务表
+-- 9.14 知识库 RAG 基础（T-106：文档 / 分块 / 向量）
+-- ============================================================================
+
+-- 知识文档表（SOP/制度/规范/案例首批语料载体）
+DROP TABLE IF EXISTS `kb_document`;
+CREATE TABLE `kb_document` (
+    `id`            BIGINT       NOT NULL AUTO_INCREMENT COMMENT '文档ID',
+    `title`         VARCHAR(200) NOT NULL                COMMENT '文档标题',
+    `source_type`   VARCHAR(20)  NOT NULL DEFAULT 'TEXT' COMMENT '来源类型（PDF/WORD/TXT/MD/TEXT）',
+    `origin_name`   VARCHAR(200) DEFAULT NULL            COMMENT '原始文件名（上传时）',
+    `char_count`    INT          NOT NULL DEFAULT 0      COMMENT '提取后的正文字符数',
+    `chunk_count`   INT          NOT NULL DEFAULT 0      COMMENT '分块数量',
+    `status`        VARCHAR(20)  NOT NULL DEFAULT 'DRAFT' COMMENT '状态（DRAFT解析中/INDEXED已索引/FAILED失败）',
+    `fail_reason`   VARCHAR(500) DEFAULT NULL            COMMENT '解析失败原因（收敛后）',
+    `content`       MEDIUMTEXT   DEFAULT NULL            COMMENT '提取后的正文全文（检索展示用）',
+    `create_time`   DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `update_time`   DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    `deleted`       TINYINT      DEFAULT 0               COMMENT '逻辑删除（0未删除 1已删除）',
+    PRIMARY KEY (`id`),
+    KEY             `idx_status` (`status`),
+    KEY             `idx_create_time` (`create_time`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='知识文档表';
+
+-- 知识分块表（向量以 JSON 数组存储，双精度；pgvector 实现见 T-106 抽象层，可配置切换）
+DROP TABLE IF EXISTS `kb_chunk`;
+CREATE TABLE `kb_chunk` (
+    `id`               BIGINT      NOT NULL AUTO_INCREMENT COMMENT '块ID',
+    `document_id`      BIGINT      NOT NULL                COMMENT '所属文档ID',
+    `chunk_index`      INT         NOT NULL                COMMENT '块序号（文档内从0起）',
+    `content`          TEXT        NOT NULL                COMMENT '块正文',
+    `char_count`       INT         NOT NULL DEFAULT 0      COMMENT '块字符数',
+    `embedding_model`  VARCHAR(100) DEFAULT NULL           COMMENT '向量化模型标识（mock/真实模型名）',
+    `embedding`        JSON        DEFAULT NULL            COMMENT '向量（JSON 数组，双精度）',
+    `create_time`      DATETIME    DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    PRIMARY KEY (`id`),
+    KEY                `idx_document` (`document_id`, `chunk_index`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='知识分块表';
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- DDL脚本执行完毕，共创建47张业务表
 -- ============================================================================

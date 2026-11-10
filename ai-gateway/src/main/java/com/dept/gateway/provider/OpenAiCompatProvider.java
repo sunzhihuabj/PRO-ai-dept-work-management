@@ -76,4 +76,42 @@ public class OpenAiCompatProvider implements AiProvider {
         }
         return new ProviderResult(content, tokens);
     }
+
+    /**
+     * OpenAI 兼容向量化：POST {endpoint}/embeddings  body: {model, input:[...]}
+     * 响应：data[i].embedding（与 input 顺序一致）
+     */
+    @Override
+    @SuppressWarnings("unchecked")
+    public List<List<Double>> embed(AiProviderConfig config, List<String> texts) throws Exception {
+        if (!StringUtils.hasText(config.getEndpoint())) {
+            throw new IllegalArgumentException("通道 endpoint 未配置");
+        }
+        String apiKey = config.resolveApiKey();
+        if (!StringUtils.hasText(apiKey)) {
+            throw new IllegalArgumentException("通道 API Key 未配置");
+        }
+        RestClient client = RestClient.builder()
+                .baseUrl(config.getEndpoint())
+                .defaultHeader(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey)
+                .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
+                .build();
+        Map<String, Object> resp = client.post()
+                .uri("/embeddings")
+                .body(Map.of("model", config.getModel(), "input", texts))
+                .retrieve()
+                .body(Map.class);
+        if (resp == null || resp.get("data") == null) {
+            throw new IllegalStateException("向量化返回空响应");
+        }
+        List<Map<String, Object>> data = (List<Map<String, Object>>) resp.get("data");
+        if (data == null || data.size() != texts.size()) {
+            throw new IllegalStateException("向量化返回数量与输入不一致");
+        }
+        // data[i].embedding，按 index 排序保证顺序一致
+        return data.stream()
+                .sorted(java.util.Comparator.comparingInt(d -> ((Number) d.get("index")).intValue()))
+                .map(d -> (List<Double>) d.get("embedding"))
+                .toList();
+    }
 }

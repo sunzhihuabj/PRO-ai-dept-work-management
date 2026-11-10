@@ -10,6 +10,7 @@ import org.springframework.util.StringUtils;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
 
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -35,6 +36,40 @@ public class AiGatewayClient {
                 .defaultHeader("X-API-Key", apiKey)
                 .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
                 .build();
+    }
+
+    /**
+     * 调用网关向量化（T-106 RAG）
+     *
+     * @param texts 文本列表
+     * @param userId 调用用户ID（审计用）
+     * @return embed.model 与 embed.embeddings（与输入顺序一致）
+     */
+    @SuppressWarnings("unchecked")
+    public Map<String, Object> embed(List<String> texts, Long userId) {
+        Map<String, Object> body = Map.of(
+                "texts", texts,
+                "callerId", userId == null ? "" : String.valueOf(userId));
+        try {
+            Map<String, Object> resp = client.post()
+                    .uri("/v1/gateway/embed")
+                    .body(body)
+                    .retrieve()
+                    .body(Map.class);
+            if (resp == null || resp.get("embeddings") == null) {
+                throw new BusinessException(503, "向量化服务返回空内容");
+            }
+            return resp;
+        } catch (RestClientResponseException e) {
+            int status = e.getStatusCode().value();
+            log.warn("向量化调用失败: status={}", status);
+            throw new BusinessException(503, "向量化服务不可用：请检查 AI 通道配置（需 embeddings 支持）");
+        } catch (BusinessException be) {
+            throw be;
+        } catch (Exception e) {
+            log.error("向量化连接失败: {}", baseUrl, e);
+            throw new BusinessException(503, "向量化服务连接失败，请检查网关是否启动");
+        }
     }
 
     /**

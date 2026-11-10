@@ -1,4 +1,4 @@
-﻿package com.dept.mgmt.platform.identity;
+package com.dept.mgmt.platform.identity;
 
 import com.dept.mgmt.platform.identity.dto.AgentGrantDTO;
 import com.dept.mgmt.platform.identity.dto.PermissionCheckResult;
