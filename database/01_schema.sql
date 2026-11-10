@@ -1367,5 +1367,180 @@ INSERT INTO `design_template` (`template_name`, `scene`, `template_text`, `spec_
 SET FOREIGN_KEY_CHECKS = 1;
 
 -- ============================================================================
--- DDL脚本执行完毕，共创建56张业务表
+-- 9.18 W4 样机域（T-201：齐套/PO/到货/交底/工单/FAI/质检/整改，BR-01/02/08/09 硬卡点）
+-- ============================================================================
+
+-- 齐套审查表（BR-08：齐套率<95% 工单禁止开工）
+DROP TABLE IF EXISTS `kitting_check`;
+CREATE TABLE `kitting_check` (
+    `id`           BIGINT        NOT NULL AUTO_INCREMENT COMMENT '审查ID',
+    `project_id`   BIGINT        NOT NULL                COMMENT '项目ID',
+    `workorder_id` BIGINT        DEFAULT NULL            COMMENT '关联工单ID（可先于工单）',
+    `kit_rate`     DECIMAL(5,2)  NOT NULL                COMMENT '齐套率%（0~100）',
+    `result`       VARCHAR(10)   NOT NULL                COMMENT '结果（PASS通过/BLOCK不满足）',
+    `detail_json`  LONGTEXT      DEFAULT NULL            COMMENT '缺料明细 JSON',
+    `checker`      VARCHAR(20)   DEFAULT 'AGT-13'        COMMENT '审查方（AGT-13/MANUAL）',
+    `create_time`  DATETIME      DEFAULT CURRENT_TIMESTAMP COMMENT '审查时间',
+    `update_time`  DATETIME      DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    `deleted`      TINYINT       DEFAULT 0               COMMENT '逻辑删除（0未删除 1已删除）',
+    PRIMARY KEY (`id`),
+    KEY `idx_project` (`project_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='齐套审查表';
+
+-- 采购订单（PO，编码引擎 PO 规则）
+DROP TABLE IF EXISTS `purchase_order`;
+CREATE TABLE `purchase_order` (
+    `id`            BIGINT         NOT NULL AUTO_INCREMENT COMMENT 'PO ID',
+    `po_no`         VARCHAR(30)    NOT NULL                COMMENT 'PO 编号',
+    `project_id`    BIGINT         NOT NULL                COMMENT '项目ID',
+    `material_code` VARCHAR(30)    NOT NULL                COMMENT '物料编码',
+    `material_name` VARCHAR(100)   DEFAULT NULL            COMMENT '物料名称（冗余）',
+    `qty`           DECIMAL(12,2)  NOT NULL                COMMENT '采购数量',
+    `arrived_qty`   DECIMAL(12,2)  NOT NULL DEFAULT 0      COMMENT '已到货数量',
+    `supplier`      VARCHAR(100)   DEFAULT NULL            COMMENT '供应商',
+    `status`        VARCHAR(20)    NOT NULL DEFAULT 'SUBMITTED' COMMENT '状态（DRAFT草稿/SUBMITTED已下达/CLOSED完结）',
+    `create_time`   DATETIME       DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `update_time`   DATETIME       DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    `deleted`       TINYINT        DEFAULT 0               COMMENT '逻辑删除（0未删除 1已删除）',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_po_no` (`po_no`),
+    KEY `idx_project` (`project_id`),
+    KEY `idx_material` (`material_code`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='采购订单表';
+
+-- 到货跟踪（物料到货登记，AGT-15 数据源）
+DROP TABLE IF EXISTS `arrival_record`;
+CREATE TABLE `arrival_record` (
+    `id`            BIGINT         NOT NULL AUTO_INCREMENT COMMENT '记录ID',
+    `po_id`         BIGINT         NOT NULL                COMMENT 'PO ID',
+    `project_id`    BIGINT         NOT NULL                COMMENT '项目ID',
+    `material_code` VARCHAR(30)    NOT NULL                COMMENT '物料编码',
+    `qty`           DECIMAL(12,2)  NOT NULL                COMMENT '到货数量',
+    `arrived_at`    DATETIME       DEFAULT CURRENT_TIMESTAMP COMMENT '到货时间',
+    `operator`      VARCHAR(50)    DEFAULT NULL            COMMENT '登记人',
+    `remark`        VARCHAR(200)   DEFAULT NULL            COMMENT '备注',
+    `create_time`   DATETIME       DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    PRIMARY KEY (`id`),
+    KEY `idx_po` (`po_id`),
+    KEY `idx_project` (`project_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='到货跟踪记录';
+
+-- 技术交底记录（BR-09：未签字禁止开工）
+DROP TABLE IF EXISTS `disclosure_record`;
+CREATE TABLE `disclosure_record` (
+    `id`           BIGINT        NOT NULL AUTO_INCREMENT COMMENT '记录ID',
+    `project_id`   BIGINT        NOT NULL                COMMENT '项目ID',
+    `workorder_id` BIGINT        DEFAULT NULL            COMMENT '关联工单ID',
+    `discloser`    VARCHAR(50)   NOT NULL                COMMENT '交底人',
+    `receivers`    VARCHAR(500)  DEFAULT NULL            COMMENT '被交底人（逗号分隔）',
+    `signed`       TINYINT       NOT NULL DEFAULT 0      COMMENT '是否签字确认（0未签 1已签）',
+    `sign_time`    DATETIME      DEFAULT NULL            COMMENT '签字时间',
+    `content`      TEXT          DEFAULT NULL            COMMENT '交底内容',
+    `create_time`  DATETIME      DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `update_time`  DATETIME      DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    `deleted`      TINYINT       DEFAULT 0               COMMENT '逻辑删除（0未删除 1已删除）',
+    PRIMARY KEY (`id`),
+    KEY `idx_project` (`project_id`),
+    KEY `idx_workorder` (`workorder_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='技术交底记录';
+
+-- 生产工单（WO，编码引擎 WO 规则；BR-01/08/09 开工卡点内嵌）
+DROP TABLE IF EXISTS `work_order`;
+CREATE TABLE `work_order` (
+    `id`           BIGINT        NOT NULL AUTO_INCREMENT COMMENT '工单ID',
+    `wo_no`        VARCHAR(30)   NOT NULL                COMMENT '工单编号',
+    `project_id`   BIGINT        NOT NULL                COMMENT '项目ID',
+    `order_type`   VARCHAR(20)   NOT NULL DEFAULT 'PROTOTYPE' COMMENT '类型（PROTOTYPE样机/BATCH批量）',
+    `qty`          INT           NOT NULL DEFAULT 1      COMMENT '台数',
+    `status`       VARCHAR(20)   NOT NULL DEFAULT 'DRAFT' COMMENT '状态（DRAFT/STARTED已开工/CLOSED已完工）',
+    `started_at`   DATETIME      DEFAULT NULL            COMMENT '开工时间',
+    `closed_at`    DATETIME      DEFAULT NULL            COMMENT '完工时间',
+    `remark`       VARCHAR(500)  DEFAULT NULL            COMMENT '备注',
+    `create_time`  DATETIME      DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `update_time`  DATETIME      DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    `deleted`      TINYINT       DEFAULT 0               COMMENT '逻辑删除（0未删除 1已删除）',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_wo_no` (`wo_no`),
+    KEY `idx_project` (`project_id`, `order_type`),
+    KEY `idx_status` (`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='生产工单表';
+
+-- FAI 首件检验报告（BR-02：整机厂首次发货必须持有，W6 发货拦截时引用）
+DROP TABLE IF EXISTS `fai_report`;
+CREATE TABLE `fai_report` (
+    `id`           BIGINT        NOT NULL AUTO_INCREMENT COMMENT '报告ID',
+    `workorder_id` BIGINT        NOT NULL                COMMENT '工单ID',
+    `project_id`   BIGINT        NOT NULL                COMMENT '项目ID',
+    `result`       VARCHAR(10)   NOT NULL                COMMENT '结论（PASS/FAIL）',
+    `inspector`    VARCHAR(50)   NOT NULL                COMMENT '检验员',
+    `checked_at`   DATETIME      DEFAULT CURRENT_TIMESTAMP COMMENT '检验时间',
+    `content`      TEXT          DEFAULT NULL            COMMENT '检验记录',
+    `create_time`  DATETIME      DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    PRIMARY KEY (`id`),
+    KEY `idx_workorder` (`workorder_id`),
+    KEY `idx_project` (`project_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='FAI首件检验报告';
+
+-- 质检记录（工序质检）
+DROP TABLE IF EXISTS `quality_check`;
+CREATE TABLE `quality_check` (
+    `id`           BIGINT        NOT NULL AUTO_INCREMENT COMMENT '记录ID',
+    `workorder_id` BIGINT        NOT NULL                COMMENT '工单ID',
+    `stage`        VARCHAR(50)   NOT NULL                COMMENT '工序',
+    `result`       VARCHAR(10)   NOT NULL                COMMENT '结果（PASS/FAIL）',
+    `checker`      VARCHAR(50)   NOT NULL                COMMENT '质检员',
+    `remark`       VARCHAR(500)  DEFAULT NULL            COMMENT '备注（FAIL 时必填缺陷描述）',
+    `create_time`  DATETIME      DEFAULT CURRENT_TIMESTAMP COMMENT '质检时间',
+    PRIMARY KEY (`id`),
+    KEY `idx_workorder` (`workorder_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='工序质检记录';
+
+-- 整改单（质检/验收 FAIL 派生）
+DROP TABLE IF EXISTS `rectification`;
+CREATE TABLE `rectification` (
+    `id`           BIGINT        NOT NULL AUTO_INCREMENT COMMENT '整改单ID',
+    `project_id`   BIGINT        NOT NULL                COMMENT '项目ID',
+    `source`       VARCHAR(20)   NOT NULL                COMMENT '来源（QC质检/ACCEPT验收）',
+    `source_id`    BIGINT        NOT NULL                COMMENT '来源记录ID',
+    `issue`        VARCHAR(500)  NOT NULL                COMMENT '问题描述',
+    `owner`        VARCHAR(50)   DEFAULT NULL            COMMENT '责任人',
+    `due_date`     DATE          DEFAULT NULL            COMMENT '整改期限',
+    `status`       VARCHAR(20)   NOT NULL DEFAULT 'OPEN' COMMENT '状态（OPEN/CLOSED）',
+    `close_note`   VARCHAR(500)  DEFAULT NULL            COMMENT '关闭说明',
+    `create_time`  DATETIME      DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `update_time`  DATETIME      DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    `deleted`      TINYINT       DEFAULT 0               COMMENT '逻辑删除（0未删除 1已删除）',
+    PRIMARY KEY (`id`),
+    KEY `idx_project` (`project_id`),
+    KEY `idx_source` (`source`, `source_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='整改单';
+
+-- 样机验收（BR-01：技改项目样机验收 PASS 后才允许创建批量工单）
+DROP TABLE IF EXISTS `prototype_acceptance`;
+CREATE TABLE `prototype_acceptance` (
+    `id`           BIGINT        NOT NULL AUTO_INCREMENT COMMENT '验收ID',
+    `project_id`   BIGINT        NOT NULL                COMMENT '项目ID',
+    `workorder_id` BIGINT        NOT NULL                COMMENT '样机工单ID',
+    `result`       VARCHAR(10)   NOT NULL                COMMENT '结论（PENDING/PASS/FAIL）',
+    `acceptor`     VARCHAR(50)   DEFAULT NULL            COMMENT '验收人',
+    `accepted_at`  DATETIME      DEFAULT NULL            COMMENT '验收时间',
+    `comment`      VARCHAR(500)  DEFAULT NULL            COMMENT '验收意见',
+    `create_time`  DATETIME      DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `update_time`  DATETIME      DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    `deleted`      TINYINT       DEFAULT 0               COMMENT '逻辑删除（0未删除 1已删除）',
+    PRIMARY KEY (`id`),
+    KEY `idx_project` (`project_id`),
+    KEY `idx_workorder` (`workorder_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='样机验收表';
+
+-- 编码规则：PO / WO
+INSERT INTO `sys_code_rule` (`rule_code`, `rule_name`, `pattern`, `date_pattern`, `status`, `remark`) VALUES
+('PO', '采购订单编号', 'PO-{yyyyMM}-{seq:4}', 'yyyyMM', 1, 'W4 样机域采购订单'),
+('WO', '生产工单编号', 'WO-{yyyyMM}-{seq:4}', 'yyyyMM', 1, 'W4 样机域生产工单')
+ON DUPLICATE KEY UPDATE `pattern` = VALUES(`pattern`);
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- DDL脚本执行完毕，共创建64张业务表
 -- ============================================================================
