@@ -293,7 +293,8 @@ public class InventoryService {
             }
         }
         TplusReconciliation batch = new TplusReconciliation();
-        batch.setBatchNo("REC-" + DateTimeFormatter.ofPattern("yyyyMMddHHmmss").format(LocalDateTime.now()));
+        // 毫秒级批次号：同秒多次对账（如连续导入）不冲突
+        batch.setBatchNo("REC-" + DateTimeFormatter.ofPattern("yyyyMMddHHmmssSSS").format(LocalDateTime.now()));
         batch.setReconcileDate(LocalDate.now());
         batch.setLocalCount(pushed.size());
         batch.setTplusCount(tplus.size());

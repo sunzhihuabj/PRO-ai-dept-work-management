@@ -30,6 +30,14 @@ import java.util.Map;
 public class InventoryController {
 
     private final InventoryService inventoryService;
+    private final com.dept.mgmt.workshop.service.TplusFileAdapterService tplusFileAdapterService;
+
+    @PostMapping("/tplus/import")
+    @Operation(summary = "T+ 每日导出文件导入+对账（文件适配器，支持 xlsx/csv，T-211）")
+    @OperLog(title = "扫码过账", businessType = 3)
+    public R<Map<String, Object>> importTplus(@RequestBody Map<String, Object> body) {
+        return R.ok("导入+对账完成", tplusFileAdapterService.importAndReconcile((String) body.get("filePath")));
+    }
 
     @PostMapping("/scan")
     @Operation(summary = "扫码过账（IN 入库须关联 PO 不超收；OUT 出库须关联工单）")
