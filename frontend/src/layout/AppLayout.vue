@@ -75,6 +75,10 @@
           <el-icon><MagicStick /></el-icon>
           <span>AI 服务配置</span>
         </el-menu-item>
+        <el-menu-item index="/agent">
+          <el-icon><ChatDotRound /></el-icon>
+          <span>Agent 工作台</span>
+        </el-menu-item>
         <el-menu-item v-if="userStore.isAdmin" index="/bonus">
           <el-icon><Money /></el-icon>
           <span>奖金管理</span>

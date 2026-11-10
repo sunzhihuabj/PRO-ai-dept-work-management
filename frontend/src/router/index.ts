@@ -128,6 +128,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: 'AI 服务配置', icon: 'MagicStick' }
       },
       {
+        path: 'agent',
+        name: 'AgentWorkbench',
+        component: () => import('@/views/agent/AgentWorkbench.vue'),
+        meta: { title: 'Agent 工作台', icon: 'ChatDotRound' }
+      },
+      {
         path: 'bonus',
         name: 'BonusManage',
         component: () => import('@/views/bonus/BonusManage.vue'),
