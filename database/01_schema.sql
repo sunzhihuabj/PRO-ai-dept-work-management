@@ -1270,8 +1270,102 @@ CREATE TABLE `contract_approval` (
     KEY           `idx_contract` (`contract_id`, `node`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='合同审批记录表';
 
+-- ============================================================================
+-- 9.17 W3 设计域（T-115：模板库 / 勘测记录 / 方案版本 / BOM 校验 / 受控发布）
+-- ============================================================================
+
+-- 方案模板库（AGT-09 匹配源）
+DROP TABLE IF EXISTS `design_template`;
+CREATE TABLE `design_template` (
+    `id`            BIGINT        NOT NULL AUTO_INCREMENT COMMENT '模板ID',
+    `template_name` VARCHAR(100)  NOT NULL                COMMENT '模板名称',
+    `scene`         VARCHAR(50)   NOT NULL                COMMENT '适用场景（塔筒/机舱/基础环/电气等，匹配键）',
+    `template_text` LONGTEXT      NOT NULL                COMMENT '模板正文（含占位符 {{projectName}}/{{customerName}} 等）',
+    `spec_refs`     VARCHAR(500)  DEFAULT NULL            COMMENT '引用规范（如 GB/T 19072-2018）',
+    `enabled`       TINYINT       NOT NULL DEFAULT 1      COMMENT '启用（1启用 0停用）',
+    `create_time`   DATETIME      DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `update_time`   DATETIME      DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    `deleted`       TINYINT       DEFAULT 0               COMMENT '逻辑删除（0未删除 1已删除）',
+    PRIMARY KEY (`id`),
+    KEY `idx_scene` (`scene`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='方案模板库';
+
+-- 勘测记录
+DROP TABLE IF EXISTS `design_survey`;
+CREATE TABLE `design_survey` (
+    `id`          BIGINT        NOT NULL AUTO_INCREMENT COMMENT '记录ID',
+    `project_id`  BIGINT        NOT NULL                COMMENT '项目ID',
+    `site_name`   VARCHAR(100)  NOT NULL                COMMENT '勘测点位',
+    `survey_date` DATE          DEFAULT NULL            COMMENT '勘测日期',
+    `surveyor`    VARCHAR(50)   DEFAULT NULL            COMMENT '勘测人',
+    `wind_class`  VARCHAR(20)   DEFAULT NULL            COMMENT '风区等级',
+    `content`     TEXT          DEFAULT NULL            COMMENT '勘测结论',
+    `create_time` DATETIME      DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `update_time` DATETIME      DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    `deleted`     TINYINT       DEFAULT 0               COMMENT '逻辑删除（0未删除 1已删除）',
+    PRIMARY KEY (`id`),
+    KEY `idx_project` (`project_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='勘测记录';
+
+-- 方案版本（AI 起草与人工编写共存；受控发布后不可修改）
+DROP TABLE IF EXISTS `design_scheme`;
+CREATE TABLE `design_scheme` (
+    `id`           BIGINT        NOT NULL AUTO_INCREMENT COMMENT '方案ID',
+    `project_id`   BIGINT        NOT NULL                COMMENT '项目ID',
+    `contract_id`  BIGINT        DEFAULT NULL            COMMENT '关联合同ID',
+    `version_no`   INT           NOT NULL DEFAULT 1      COMMENT '版本号（项目内递增）',
+    `title`        VARCHAR(200)  NOT NULL                COMMENT '方案标题',
+    `content`      LONGTEXT      NOT NULL                COMMENT '方案正文',
+    `gen_type`     VARCHAR(10)   NOT NULL DEFAULT 'MANUAL' COMMENT '生成方式（MANUAL人工/AI起草）',
+    `status`       VARCHAR(20)   NOT NULL DEFAULT 'DRAFT' COMMENT '状态（DRAFT草稿/RELEASED已受控发布/ARCHIVED已归档）',
+    `release_note` VARCHAR(500)  DEFAULT NULL            COMMENT '发布说明',
+    `release_time` DATETIME      DEFAULT NULL            COMMENT '发布时间',
+    `released_by`  VARCHAR(50)   DEFAULT NULL            COMMENT '发布人',
+    `create_time`  DATETIME      DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `update_time`  DATETIME      DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    `deleted`      TINYINT       DEFAULT 0               COMMENT '逻辑删除（0未删除 1已删除）',
+    PRIMARY KEY (`id`),
+    KEY `idx_project` (`project_id`, `version_no`),
+    KEY `idx_status` (`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='设计方案版本表';
+
+-- BOM 明细（方案附属，AGT-11 校验对象）
+DROP TABLE IF EXISTS `design_bom_item`;
+CREATE TABLE `design_bom_item` (
+    `id`            BIGINT         NOT NULL AUTO_INCREMENT COMMENT '明细ID',
+    `scheme_id`     BIGINT         NOT NULL                COMMENT '方案ID',
+    `material_code` VARCHAR(30)    NOT NULL                COMMENT '物料编码（WL-XXXXXX）',
+    `material_name` VARCHAR(100)   NOT NULL                COMMENT '物料名称',
+    `spec_model`    VARCHAR(100)   DEFAULT NULL            COMMENT '规格型号',
+    `qty`           DECIMAL(12,2)  NOT NULL DEFAULT 1      COMMENT '数量',
+    `unit`          VARCHAR(20)    DEFAULT NULL            COMMENT '计量单位',
+    `remark`        VARCHAR(200)   DEFAULT NULL            COMMENT '备注',
+    `create_time`   DATETIME       DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    PRIMARY KEY (`id`),
+    KEY `idx_scheme` (`scheme_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='方案BOM明细';
+
+-- BOM 校验记录（AGT-11 输出留痕）
+DROP TABLE IF EXISTS `design_bom_check_log`;
+CREATE TABLE `design_bom_check_log` (
+    `id`          BIGINT       NOT NULL AUTO_INCREMENT COMMENT '记录ID',
+    `scheme_id`   BIGINT       NOT NULL                COMMENT '方案ID',
+    `passed`      TINYINT      NOT NULL DEFAULT 0      COMMENT '是否通过（0有缺陷 1通过）',
+    `total_items` INT          DEFAULT NULL            COMMENT '校验明细数',
+    `result_json` LONGTEXT     DEFAULT NULL            COMMENT '违规明细 JSON',
+    `checker`     VARCHAR(20)  DEFAULT 'AGT-11'        COMMENT '校验方（AGT-11/MANUAL）',
+    `create_time` DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '校验时间',
+    PRIMARY KEY (`id`),
+    KEY `idx_scheme` (`scheme_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='BOM校验记录';
+
+-- 模板库种子（匹配率演示）
+INSERT INTO `design_template` (`template_name`, `scene`, `template_text`, `spec_refs`) VALUES
+('塔筒制造方案模板', '塔筒', '# {{projectName}} 塔筒制造方案\n\n## 一、项目概况\n客户：{{customerName}}；依据勘测记录与设计规范编制。\n\n## 二、制造工艺\n卷板→纵缝焊接→组对→环缝焊接→法兰焊接→喷锌防腐。\n\n## 三、质量控制\n焊缝 100% UT 探伤；几何尺寸按图纸公差执行。\n\n## 四、引用规范\n{{specRefs}}', 'GB/T 19072-2018,GB/T 1591'),
+('机舱装配方案模板', '机舱', '# {{projectName}} 机舱装配方案\n\n## 一、装配流程\n底架就位→偏航系统→传动链→发电机→罩壳。\n\n## 二、力矩要求\n螺栓按 GB/T 1231 分级力矩紧固。\n\n## 三、引用规范\n{{specRefs}}', 'GB/T 19568,GB/T 1231');
+
 SET FOREIGN_KEY_CHECKS = 1;
 
 -- ============================================================================
--- DDL脚本执行完毕，共创建51张业务表
+-- DDL脚本执行完毕，共创建56张业务表
 -- ============================================================================
