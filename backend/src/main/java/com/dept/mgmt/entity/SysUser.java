@@ -48,6 +48,9 @@ public class SysUser extends BaseEntity {
     /** 角色编码列表（JSON数组） */
     private String roleCodes;
 
+    /** 三身份（T-102）：EXPERT专家/WORKER工作者；ASSISTANT为AI虚拟身份不落人类账号 */
+    private String identity;
+
     /** 状态（0停用 1正常） */
     private Integer status;
 

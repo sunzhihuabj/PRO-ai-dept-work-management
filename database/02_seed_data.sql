@@ -337,3 +337,21 @@ INSERT INTO `sys_code_rule` (`rule_code`, `rule_name`, `pattern`, `date_pattern`
 INSERT INTO `sys_notification_template` (`template_code`, `title_template`, `content_template`, `message_type`, `status`) VALUES
 ('GENERIC_REMIND', '【{title}】', '{content}', '系统通知', 1),
 ('AUDIT_RESULT',   '审核结果：{bizName}', '您提交的「{bizName}」审核{result}，{comment}', '审核通知', 1);
+
+-- ============================================================================
+-- T-102 三身份权限模型种子数据
+-- ============================================================================
+
+-- 能力点注册（deny by default：未登记的能力点一律拒绝；is_never=1 仅拦截 Agent 不拦人类）
+INSERT INTO `sys_capability` (`capability_code`, `capability_name`, `category`, `allowed_identities`, `is_never`, `status`, `remark`) VALUES
+('CAP_CONTRACT_APPROVE', '合同会签审批',              'base',       'EXPERT',                  1, 1, '审批类永久禁止Agent自动化'),
+('CAP_PAYMENT_HANDLE',   '资金/收款操作',              'base',       'EXPERT',                  1, 1, '资金类永久禁止Agent自动化'),
+('CAP_MASTERDATA_CREATE','主数据建档',                'base',       'EXPERT,WORKER',           1, 1, '建档类永久禁止Agent自动化'),
+('CAP_DATA_DELETE',      '删除类操作',                'base',       'EXPERT',                  1, 1, '删除类永久禁止Agent自动化'),
+('CAP_CONTRACT_EXTRACT', '合同要素提取',              'agent',      'EXPERT,WORKER,ASSISTANT', 0, 1, '预登记 AGT-06'),
+('CAP_DOC_DRAFT',        '方案文档起草',              'agent',      'EXPERT,WORKER,ASSISTANT', 0, 1, '预登记 AGT-09'),
+('CAP_MATERIAL_IMPORT',  '物料清单批量导入',          'workflow',   'EXPERT,WORKER',           0, 1, '对应 /v1/materials/import'),
+('CAP_REPORT_VIEW',      '报表看板查看',              'base',       'EXPERT,WORKER',           0, 1, '看板/报表类查询');
+
+-- 种子用户身份初始化：部门领导 sunzhihua 设为 EXPERT，其余保持默认 WORKER
+UPDATE `sys_user` SET `identity` = 'EXPERT' WHERE `username` = 'sunzhihua';

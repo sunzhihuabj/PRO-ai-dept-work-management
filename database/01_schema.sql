@@ -31,6 +31,7 @@ CREATE TABLE `sys_user` (
     `wx_openid`     VARCHAR(64)  DEFAULT NULL            COMMENT '微信openid',
     UNIQUE KEY `uk_wx_openid` (`wx_openid`),
     `role_codes`    JSON         DEFAULT NULL            COMMENT '角色编码列表（JSON数组）',
+    `identity`      VARCHAR(20)  NOT NULL DEFAULT 'WORKER' COMMENT '三身份（T-102）：EXPERT专家/WORKER工作者；ASSISTANT为AI虚拟身份不落人类账号',
     `status`        TINYINT      DEFAULT 1               COMMENT '状态（0停用 1正常）',
     `login_ip`      VARCHAR(50)  DEFAULT NULL            COMMENT '最后登录IP',
     `login_date`    DATETIME     DEFAULT NULL            COMMENT '最后登录时间',
@@ -1035,5 +1036,46 @@ CREATE TABLE `mdm_material` (
 SET FOREIGN_KEY_CHECKS = 1;
 
 -- ============================================================================
--- DDL脚本执行完毕，共创建41张业务表
+-- 9.12 三身份权限模型（T-102：能力点注册表 / Agent 代理授权表）
+-- ============================================================================
+
+-- 能力点注册表（deny by default：未登记的能力点一律拒绝）
+DROP TABLE IF EXISTS `sys_capability`;
+CREATE TABLE `sys_capability` (
+    `id`                  BIGINT       NOT NULL AUTO_INCREMENT COMMENT '能力点ID',
+    `capability_code`     VARCHAR(50)  NOT NULL                COMMENT '能力点编码（唯一，如 CAP_CONTRACT_EXTRACT / AGT-06）',
+    `capability_name`     VARCHAR(100) NOT NULL                COMMENT '能力点名称',
+    `category`            VARCHAR(50)  DEFAULT NULL            COMMENT '分类（base基础/agent智能体/workflow工作流）',
+    `allowed_identities`  VARCHAR(50)  NOT NULL                COMMENT '允许身份，逗号分隔：EXPERT,WORKER,ASSISTANT',
+    `is_never`            TINYINT      NOT NULL DEFAULT 0      COMMENT '永久禁止Agent自动化（1=审批/资金/主数据建档/删除四类红线，仅拦截Agent不拦人类）',
+    `status`              TINYINT      NOT NULL DEFAULT 1      COMMENT '状态（1启用 0停用）',
+    `remark`              VARCHAR(200) DEFAULT NULL            COMMENT '备注',
+    `create_time`         DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `update_time`         DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    `deleted`             TINYINT      DEFAULT 0               COMMENT '逻辑删除（0未删除 1已删除）',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_capability_code` (`capability_code`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='能力点注册表';
+
+-- Agent 代理授权表（ASSISTANT 以被代理人名义执行的能力白名单，规划 72h TTL）
+DROP TABLE IF EXISTS `sys_agent_grant`;
+CREATE TABLE `sys_agent_grant` (
+    `id`                 BIGINT       NOT NULL AUTO_INCREMENT COMMENT '授权ID',
+    `agent_instance_key` VARCHAR(100) NOT NULL                COMMENT 'Agent 实例标识（规范 agent:{userId}:{能力编号}）',
+    `principal_user_id`  BIGINT       NOT NULL                COMMENT '被代理人用户ID',
+    `capability_code`    VARCHAR(50)  NOT NULL                COMMENT '能力点编码',
+    `status`             TINYINT      NOT NULL DEFAULT 1      COMMENT '状态（1有效 0撤销）',
+    `expire_time`        DATETIME     NOT NULL                COMMENT '过期时间（默认72小时）',
+    `create_time`        DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `update_time`        DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    `deleted`            TINYINT      DEFAULT 0               COMMENT '逻辑删除（0未删除 1已删除）',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_agent_capability` (`agent_instance_key`, `capability_code`),
+    KEY                  `idx_principal` (`principal_user_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Agent代理授权表';
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- DDL脚本执行完毕，共创建43张业务表
 -- ============================================================================
