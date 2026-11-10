@@ -1540,8 +1540,83 @@ INSERT INTO `sys_code_rule` (`rule_code`, `rule_name`, `pattern`, `date_pattern`
 ('WO', '生产工单编号', 'WO-{yyyyMM}-{seq:4}', 'yyyyMM', 1, 'W4 样机域生产工单')
 ON DUPLICATE KEY UPDATE `pattern` = VALUES(`pattern`);
 
+-- ============================================================================
+-- 9.19 W4 扫码过账链路（T-204：出入库记录→T+推送队列→对账，AGT-16 Auto）
+-- 本机无 T+ 系统：推送走文件适配器 outbox 落盘，T+ 回执由 inbound 目录模拟（T-211 替换为真实解析）
+-- ============================================================================
+
+-- 出入库记录（扫码过账落库，IO 编码引擎；tplus_status 跟踪推送状态）
+DROP TABLE IF EXISTS `inventory_record`;
+CREATE TABLE `inventory_record` (
+    `id`                BIGINT         NOT NULL AUTO_INCREMENT COMMENT '记录ID',
+    `record_no`         VARCHAR(30)    NOT NULL                COMMENT '出入库单号（IO 编码引擎）',
+    `project_id`        BIGINT         NOT NULL                COMMENT '项目ID',
+    `workorder_id`      BIGINT         DEFAULT NULL            COMMENT '关联工单ID（出库必填）',
+    `po_id`             BIGINT         DEFAULT NULL            COMMENT '关联PO ID（入库必填）',
+    `material_code`     VARCHAR(30)    NOT NULL                COMMENT '物料编码',
+    `material_name`     VARCHAR(100)   DEFAULT NULL            COMMENT '物料名称（冗余）',
+    `direction`         VARCHAR(10)    NOT NULL                COMMENT '方向（IN采购入库/OUT生产出库）',
+    `qty`               DECIMAL(12,2)  NOT NULL                COMMENT '数量',
+    `barcode`           VARCHAR(64)    DEFAULT NULL            COMMENT '扫码条码内容',
+    `source`            VARCHAR(10)    NOT NULL DEFAULT 'SCAN' COMMENT '来源（SCAN扫码/MANUAL手工）',
+    `operator`          VARCHAR(50)    DEFAULT NULL            COMMENT '操作人',
+    `scanned_at`        DATETIME       DEFAULT CURRENT_TIMESTAMP COMMENT '扫码时间',
+    `tplus_status`      VARCHAR(20)    NOT NULL DEFAULT 'PENDING' COMMENT 'T+推送状态（PENDING待推送/PUSHED已推送/FAILED失败）',
+    `tplus_push_time`   DATETIME       DEFAULT NULL            COMMENT 'T+推送时间',
+    `tplus_voucher_no`  VARCHAR(30)    DEFAULT NULL            COMMENT 'T+凭证号',
+    `remark`            VARCHAR(200)   DEFAULT NULL            COMMENT '备注',
+    `create_time`       DATETIME       DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `update_time`       DATETIME       DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    `deleted`           TINYINT        DEFAULT 0               COMMENT '逻辑删除（0未删除 1已删除）',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_record_no` (`record_no`),
+    KEY `idx_project` (`project_id`),
+    KEY `idx_material` (`material_code`),
+    KEY `idx_tplus_status` (`tplus_status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='出入库记录表';
+
+-- T+ 推送队列（出入库单→T+ 单向推送；失败留痕可重试）
+DROP TABLE IF EXISTS `tplus_push_queue`;
+CREATE TABLE `tplus_push_queue` (
+    `id`           BIGINT       NOT NULL AUTO_INCREMENT COMMENT '队列ID',
+    `record_id`    BIGINT       NOT NULL                COMMENT '出入库记录ID',
+    `record_no`    VARCHAR(30)  NOT NULL                COMMENT '出入库单号（冗余）',
+    `payload_json` LONGTEXT     NOT NULL                COMMENT 'T+推送报文 JSON',
+    `status`       VARCHAR(20)  NOT NULL DEFAULT 'PENDING' COMMENT '状态（PENDING/PUSHED/FAILED）',
+    `retry_count`  INT          NOT NULL DEFAULT 0      COMMENT '重试次数',
+    `pushed_at`    DATETIME     DEFAULT NULL            COMMENT '推送成功时间',
+    `error_msg`    VARCHAR(500) DEFAULT NULL            COMMENT '失败原因',
+    `create_time`  DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '入队时间',
+    `update_time`  DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    PRIMARY KEY (`id`),
+    KEY `idx_status` (`status`),
+    KEY `idx_record` (`record_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='T+推送队列';
+
+-- T+ 对账批次（本地已推送 ↔ T+ 导出回执 逐单核对，差异清单落库）
+DROP TABLE IF EXISTS `tplus_reconciliation`;
+CREATE TABLE `tplus_reconciliation` (
+    `id`             BIGINT       NOT NULL AUTO_INCREMENT COMMENT '批次ID',
+    `batch_no`       VARCHAR(30)  NOT NULL                COMMENT '对账批次号',
+    `reconcile_date` DATE         NOT NULL                COMMENT '对账日期',
+    `local_count`    INT          NOT NULL DEFAULT 0      COMMENT '本地已推送单数',
+    `tplus_count`    INT          NOT NULL DEFAULT 0      COMMENT 'T+ 回执单数',
+    `matched_count`  INT          NOT NULL DEFAULT 0      COMMENT '核对一致单数',
+    `diff_count`     INT          NOT NULL DEFAULT 0      COMMENT '差异单数',
+    `diff_json`      LONGTEXT     DEFAULT NULL            COMMENT '差异明细 JSON',
+    `status`         VARCHAR(20)  NOT NULL DEFAULT 'DONE' COMMENT '状态（DONE）',
+    `create_time`    DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '对账时间',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_batch_no` (`batch_no`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='T+对账批次表';
+
+-- 编码规则：IO 出入库单号
+INSERT INTO `sys_code_rule` (`rule_code`, `rule_name`, `pattern`, `date_pattern`, `status`, `remark`) VALUES
+('IO', '出入库单编号', 'IO-{yyyyMM}-{seq:4}', 'yyyyMM', 1, 'W4 扫码过账出入库单')
+ON DUPLICATE KEY UPDATE `pattern` = VALUES(`pattern`);
+
 SET FOREIGN_KEY_CHECKS = 1;
 
 -- ============================================================================
--- DDL脚本执行完毕，共创建64张业务表
+-- DDL脚本执行完毕，共创建67张业务表
 -- ============================================================================
