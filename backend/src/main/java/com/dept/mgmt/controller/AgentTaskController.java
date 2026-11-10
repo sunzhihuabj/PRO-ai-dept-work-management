@@ -75,4 +75,44 @@ public class AgentTaskController {
         masterAgentService.cancel(id, user.getUserId());
         return R.ok("已取消", null);
     }
+
+    @PostMapping("/{id}/feedback")
+    @Operation(summary = "结果三态反馈（采纳/修改/驳回，驱动渐进自主升降级）")
+    public R<Void> feedback(@PathVariable Long id, @RequestBody Map<String, String> body) {
+        LoginUser user = LoginUser.current();
+        if (user == null) {
+            throw new BusinessException(401, "未登录");
+        }
+        String feedback = body.get("feedback");
+        masterAgentService.feedback(id, user.getUserId(), feedback);
+        return R.ok("反馈已记录", null);
+    }
+
+    @GetMapping("/autonomy/policies")
+    @Operation(summary = "能力自主策略列表（四级状态机+三态统计）")
+    public R<Object> autonomyPolicies() {
+        return R.ok(masterAgentService.autonomyPolicies());
+    }
+
+    @PostMapping("/autonomy/{capabilityCode}/level")
+    @Operation(summary = "手动调整自主级别（仅部门领导；永久禁止类能力封顶建议级）")
+    public R<Void> adjustLevel(@PathVariable String capabilityCode, @RequestBody Map<String, Object> body) {
+        LoginUser user = LoginUser.current();
+        if (user == null) {
+            throw new BusinessException(401, "未登录");
+        }
+        int level = Integer.parseInt(String.valueOf(body.get("level")));
+        masterAgentService.adjustLevel(capabilityCode, level, user.getUserId());
+        return R.ok("级别已调整", null);
+    }
+
+    @PostMapping("/autonomy/evaluate")
+    @Operation(summary = "手动触发升降级评估（默认每日02:00自动执行）")
+    public R<Object> evaluate() {
+        LoginUser user = LoginUser.current();
+        if (user == null) {
+            throw new BusinessException(401, "未登录");
+        }
+        return R.ok(masterAgentService.evaluateAll(user.getUserId()));
+    }
 }

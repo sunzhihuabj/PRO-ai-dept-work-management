@@ -20,6 +20,12 @@ public class DocSummaryHandler implements CapabilityHandler {
         return "CAP_DOC_SUMMARY";
     }
 
+    /** 只读生成（不写业务数据），可自动执行 */
+    @Override
+    public boolean requireConfirm() {
+        return false;
+    }
+
     @Override
     public String execute(String instruction, Long userId) {
         String scene = instruction.contains("周报") ? "weekly"

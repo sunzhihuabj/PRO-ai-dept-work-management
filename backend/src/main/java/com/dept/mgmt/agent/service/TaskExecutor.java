@@ -40,17 +40,20 @@ public class TaskExecutor {
     private final MasterAgentService masterAgentService;
     private final EffectivePermissionService effectivePermissionService;
     private final EventBusService eventBusService;
+    private final com.dept.mgmt.agent.service.AutonomyService autonomyService;
     private final Semaphore slots;
     private final Map<String, CapabilityHandler> handlers;
 
     public TaskExecutor(AgentTaskMapper taskMapper, MasterAgentService masterAgentService,
                         EffectivePermissionService effectivePermissionService,
                         EventBusService eventBusService,
+                        com.dept.mgmt.agent.service.AutonomyService autonomyService,
                         List<CapabilityHandler> handlerBeans) {
         this.taskMapper = taskMapper;
         this.masterAgentService = masterAgentService;
         this.effectivePermissionService = effectivePermissionService;
         this.eventBusService = eventBusService;
+        this.autonomyService = autonomyService;
         this.slots = new Semaphore(MAX_CONCURRENCY);
         this.handlers = handlerBeans.stream()
                 .collect(Collectors.toMap(CapabilityHandler::capabilityCode, Function.identity()));
@@ -110,6 +113,21 @@ public class TaskExecutor {
                         TaskStatus.PENDING_CONFIRM.getCode(), executedBy, "能力点无自动执行处理器，转待确认");
                 return;
             }
+            // T-110 渐进自主：自主级别低于自动级（含管理员手动降档）或能力声明需确认 → 转待确认；
+            // 用户已确认的任务（confirm 标记）跳过级别拦截，直接执行本次
+            boolean needConfirm = !MasterAgentService.isConfirmed(task)
+                    && (autonomyService.levelOf(task.getCapabilityCode()).getCode() < 2
+                    || handler.requireConfirm());
+            if (needConfirm) {
+                task.setStatus(TaskStatus.PENDING_CONFIRM.getCode());
+                task.setResultText("该能力当前为建议级（需人工确认后执行）。请审阅指令后在 Agent 工作台确认执行。");
+                task.setAiGenerated(0);
+                task.setFinishedAt(LocalDateTime.now());
+                taskMapper.updateById(task);
+                masterAgentService.transition(task.getId(), TaskStatus.RUNNING.getCode(),
+                        TaskStatus.PENDING_CONFIRM.getCode(), executedBy, "建议级能力等待人工确认");
+                return;
+            }
             // T-102 权限引擎校验（人类用户路径）
             var check = effectivePermissionService.checkForUser(task.getCallerUserId(), task.getCapabilityCode());
             if (!check.isAllowed()) {
@@ -134,6 +152,8 @@ public class TaskExecutor {
             // 跨域通知走事件总线（T-108）：Agent 域不直接调用通知域
             eventBusService.publish(com.dept.mgmt.event.model.DomainEventType.AGENT_TASK_FINISHED,
                     Map.of("taskId", task.getId(), "taskNo", task.getTaskNo(), "callerUserId", task.getCallerUserId()));
+            // T-110：记录一次成功执行（采纳率/错误率统计数据源）
+            autonomyService.recordExecution(task.getCapabilityCode(), true);
         } catch (Exception e) {
             log.error("任务执行异常: taskNo={}", task.getTaskNo(), e);
             task.setStatus(TaskStatus.FAILED.getCode());
@@ -142,6 +162,8 @@ public class TaskExecutor {
             taskMapper.updateById(task);
             masterAgentService.transition(task.getId(), TaskStatus.RUNNING.getCode(), TaskStatus.FAILED.getCode(),
                     executedBy, "执行异常");
+            // T-110：记录一次失败执行
+            autonomyService.recordExecution(task.getCapabilityCode(), false);
         }
     }
 }

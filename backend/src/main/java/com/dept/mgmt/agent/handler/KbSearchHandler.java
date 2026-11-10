@@ -26,6 +26,12 @@ public class KbSearchHandler implements CapabilityHandler {
         return "CAP_KB_SEARCH";
     }
 
+    /** 只读检索，无副作用，可自动执行 */
+    @Override
+    public boolean requireConfirm() {
+        return false;
+    }
+
     @Override
     public String execute(String instruction, Long userId) {
         // 1. 混合检索（向量+关键词，RRF 融合）

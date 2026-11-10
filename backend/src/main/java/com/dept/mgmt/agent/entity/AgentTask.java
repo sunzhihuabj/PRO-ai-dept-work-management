@@ -49,6 +49,9 @@ public class AgentTask extends BaseEntity {
     /** 结果是否 AI 生成 */
     private Integer aiGenerated;
 
+    /** 结果反馈（ACCEPTED采纳/MODIFIED修改/REJECTED驳回，T-110 渐进自主数据源） */
+    private String resultFeedback;
+
     /** 失败原因（收敛后） */
     private String errorMsg;
 

@@ -23,9 +23,10 @@ public interface CapabilityHandler {
     String execute(String instruction, Long userId) throws Exception;
 
     /**
-     * 是否需要人工确认后才执行（建议级能力返回 true → 任务进入 pending_confirm）
+     * 是否需要人工确认后才执行（安全优先默认 true：写操作类能力必须显式声明 false 才可自动执行；
+     * 是否真正跳过确认由 T-110 自主策略级别共同决定：requireConfirm() && level<2 → 待确认）
      */
     default boolean requireConfirm() {
-        return false;
+        return true;
     }
 }

@@ -40,6 +40,8 @@ public class MasterAgentService {
     private final AgentTaskMapper taskMapper;
     private final AgentTaskEventMapper eventMapper;
     private final CodeEngineService codeEngineService;
+    private final AutonomyService autonomyService;
+    private final com.fasterxml.jackson.databind.ObjectMapper objectMapper;
 
     /**
      * 提交指令 → 意图识别 → 建任务单（queued）
@@ -108,7 +110,7 @@ public class MasterAgentService {
     }
 
     /**
-     * 确认执行（pending_confirm → queued 重新排队）
+     * 确认执行（pending_confirm → queued 重新排队；params 打已确认标记，执行器跳过级别拦截）
      */
     @Transactional(rollbackFor = Exception.class)
     public void confirm(Long taskId, Long userId) {
@@ -117,9 +119,38 @@ public class MasterAgentService {
             throw new BusinessException(400, "任务当前状态不可确认: " + task.getStatus());
         }
         task.setStatus(TaskStatus.QUEUED.getCode());
+        task.setParams(mergeConfirmed(task.getParams()));
         taskMapper.updateById(task);
         transition(taskId, TaskStatus.PENDING_CONFIRM.getCode(), TaskStatus.QUEUED.getCode(),
-                "user:" + userId, "用户确认执行");
+                "user:" + userId, "用户确认执行（本次跳过级别拦截）");
+    }
+
+    /** 在 params JSON 上合并 confirmed 标记 */
+    private String mergeConfirmed(String params) {
+        try {
+            java.util.Map<String, Object> map = StringUtils.hasText(params)
+                    ? objectMapper.readValue(params, new com.fasterxml.jackson.core.type.TypeReference<java.util.Map<String, Object>>() {
+            })
+                    : new java.util.HashMap<>();
+            map.put("confirmed", true);
+            return objectMapper.writeValueAsString(map);
+        } catch (Exception e) {
+            return "{\"confirmed\":true}";
+        }
+    }
+
+    /** 任务是否已被用户确认过（供执行器判断，静态工具避免循环依赖） */
+    public static boolean isConfirmed(AgentTask task) {
+        if (!StringUtils.hasText(task.getParams())) {
+            return false;
+        }
+        try {
+            return Boolean.TRUE.equals(new com.fasterxml.jackson.databind.ObjectMapper()
+                    .readValue(task.getParams(), new com.fasterxml.jackson.core.type.TypeReference<java.util.Map<String, Object>>() {
+                    }).get("confirmed"));
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     /**
@@ -159,6 +190,49 @@ public class MasterAgentService {
             throw new BusinessException(404, "任务不存在");
         }
         return task;
+    }
+
+    /**
+     * 结果三态反馈：更新任务标记 + 累计到能力策略（T-110 数据源）
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public void feedback(Long taskId, Long userId, String feedback) {
+        AgentTask task = mustOwn(taskId, userId);
+        if (!TaskStatus.DONE.getCode().equals(task.getStatus())) {
+            throw new BusinessException(400, "仅已完成任务可反馈");
+        }
+        if (!List.of("ACCEPTED", "MODIFIED", "REJECTED").contains(feedback)) {
+            throw new BusinessException(400, "反馈仅允许 ACCEPTED/MODIFIED/REJECTED");
+        }
+        task.setResultFeedback(feedback);
+        taskMapper.updateById(task);
+        autonomyService.feedback(task.getCapabilityCode(), feedback);
+        transition(taskId, TaskStatus.DONE.getCode(), TaskStatus.DONE.getCode(),
+                "user:" + userId, "结果反馈: " + feedback);
+    }
+
+    /**
+     * 能力自主策略列表
+     */
+    public Object autonomyPolicies() {
+        return autonomyService.list();
+    }
+
+    /**
+     * 手动调整自主级别
+     */
+    public void adjustLevel(String capabilityCode, int level, Long userId) {
+        autonomyService.adjustLevel(capabilityCode, level);
+        log.info("管理员手动调整自主级别: capability={}, level={}, by=user:{}", capabilityCode, level, userId);
+    }
+
+    /**
+     * 手动触发升降级评估
+     */
+    public Object evaluateAll(Long userId) {
+        int changed = autonomyService.evaluateAll();
+        log.info("手动触发自主评估: changed={}, by=user:{}", changed, userId);
+        return Map.of("changed", changed);
     }
 
     /**
