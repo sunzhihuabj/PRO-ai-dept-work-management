@@ -66,6 +66,8 @@ public class WorkshopService {
     private final RectificationMapper rectificationMapper;
     private final PrototypeAcceptanceMapper acceptanceMapper;
     private final ProjectMapper projectMapper;
+    private final com.dept.mgmt.mapper.DesignSchemeMapper schemeMapper;
+    private final com.dept.mgmt.mapper.DesignBomItemMapper bomItemMapper;
     private final CodeEngineService codeEngineService;
     private final EventBusService eventBusService;
 
@@ -159,6 +161,60 @@ public class WorkshopService {
 
     // ===== 齐套审查 =====
 
+    /** 单行缺料明细（AGT-13/14 共用） */
+    public record Shortage(String materialCode, String materialName, java.math.BigDecimal required,
+                           java.math.BigDecimal arrived, java.math.BigDecimal shortage) {
+    }
+
+    /** 齐套计算结果（AGT-13/14 共用） */
+    public record KittingCalc(BigDecimal kitRate, List<Shortage> shortages, int totalItems) {
+    }
+
+    /**
+     * 齐套确定性计算（T-202 AGT-13/14 共用）：
+     * 需求 = 项目最新设计方案的 BOM 明细；供给 = PO 已到货数量按物料汇总；
+     * 齐套率 = 满足需求（到货≥需求）的行数占比；不经 LLM 保证可复现
+     */
+    public KittingCalc calculateKitting(Long projectId) {
+        com.dept.mgmt.design.entity.DesignScheme scheme = schemeMapper.selectOne(
+                new LambdaQueryWrapper<com.dept.mgmt.design.entity.DesignScheme>()
+                        .eq(com.dept.mgmt.design.entity.DesignScheme::getProjectId, projectId)
+                        .orderByDesc(com.dept.mgmt.design.entity.DesignScheme::getId).last("LIMIT 1"));
+        if (scheme == null) {
+            return new KittingCalc(BigDecimal.ZERO, List.of(new Shortage("", "项目暂无设计方案，无法核算物料需求",
+                    BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO)), 0);
+        }
+        List<com.dept.mgmt.design.entity.DesignBomItem> bom = bomItemMapper.selectList(
+                new LambdaQueryWrapper<com.dept.mgmt.design.entity.DesignBomItem>()
+                        .eq(com.dept.mgmt.design.entity.DesignBomItem::getSchemeId, scheme.getId()));
+        if (bom.isEmpty()) {
+            return new KittingCalc(BigDecimal.ZERO, List.of(new Shortage("", "设计方案 BOM 为空",
+                    BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO)), 0);
+        }
+        // 供给汇总（按物料编码）
+        java.util.Map<String, BigDecimal> supply = new java.util.HashMap<>();
+        for (PurchaseOrder po : purchaseOrderMapper.selectList(new LambdaQueryWrapper<PurchaseOrder>()
+                .eq(PurchaseOrder::getProjectId, projectId))) {
+            supply.merge(po.getMaterialCode(), po.getArrivedQty() == null ? BigDecimal.ZERO : po.getArrivedQty(),
+                    BigDecimal::add);
+        }
+        List<Shortage> shortages = new java.util.ArrayList<>();
+        int satisfied = 0;
+        for (var item : bom) {
+            BigDecimal required = item.getQty() == null ? BigDecimal.ZERO : item.getQty();
+            BigDecimal arrived = supply.getOrDefault(item.getMaterialCode(), BigDecimal.ZERO);
+            if (arrived.compareTo(required) >= 0) {
+                satisfied++;
+            } else {
+                shortages.add(new Shortage(item.getMaterialCode(), item.getMaterialName(),
+                        required, arrived, required.subtract(arrived)));
+            }
+        }
+        BigDecimal rate = BigDecimal.valueOf(satisfied * 100L)
+                .divide(BigDecimal.valueOf(bom.size()), 2, java.math.RoundingMode.HALF_UP);
+        return new KittingCalc(rate, shortages, bom.size());
+    }
+
     /**
      * 录入齐套审查结果（T-202 AGT-13 将自动化；阈值 95%）
      */
@@ -184,6 +240,26 @@ public class WorkshopService {
 
     @Transactional(rollbackFor = Exception.class)
     public Long createPo(Long projectId, String materialCode, String materialName, BigDecimal qty, String supplier) {
+        PurchaseOrder po = buildPo(projectId, materialCode, materialName, qty, supplier);
+        po.setStatus("SUBMITTED");
+        purchaseOrderMapper.insert(po);
+        log.info("PO 创建: {} {} x{}", po.getPoNo(), materialCode, qty);
+        return po.getId();
+    }
+
+    /**
+     * 请购草稿（AGT-14 产出）：DRAFT 状态，下达需人工（草稿不参与到货与齐套供给）
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public Long createDraftPo(Long projectId, String materialCode, String materialName, BigDecimal qty) {
+        PurchaseOrder po = buildPo(projectId, materialCode, materialName, qty, null);
+        po.setStatus("DRAFT");
+        purchaseOrderMapper.insert(po);
+        log.info("请购草稿创建: {} {} x{}", po.getPoNo(), materialCode, qty);
+        return po.getId();
+    }
+
+    private PurchaseOrder buildPo(Long projectId, String materialCode, String materialName, BigDecimal qty, String supplier) {
         PurchaseOrder po = new PurchaseOrder();
         po.setPoNo(codeEngineService.nextCode("PO", null));
         po.setProjectId(projectId);
@@ -192,10 +268,7 @@ public class WorkshopService {
         po.setQty(qty);
         po.setArrivedQty(BigDecimal.ZERO);
         po.setSupplier(supplier);
-        po.setStatus("SUBMITTED");
-        purchaseOrderMapper.insert(po);
-        log.info("PO 创建: {} {} x{}", po.getPoNo(), materialCode, qty);
-        return po.getId();
+        return po;
     }
 
     public PageResult<PurchaseOrder> listPos(int pageNum, int pageSize, Long projectId) {
