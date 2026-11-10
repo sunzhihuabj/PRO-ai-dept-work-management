@@ -21,9 +21,53 @@ public class MockProvider implements AiProvider {
 
     @Override
     public ProviderResult chat(AiProviderConfig config, String prompt, int maxTokens) {
+        // 契约感知：声明了 JSON 契约（【输出要求】标记）时返回满足 required 字段的确定性 JSON，
+        // 使 AGT-06/07 等结构化能力在 Mock 通道下全链路可测（含网关契约校验器）
+        if (prompt != null && prompt.contains("【输出要求】")) {
+            return new ProviderResult(mockContractJson(prompt), 0);
+        }
         String content = "[MOCK] 已收到能力点调用，prompt 长度 " + prompt.length()
                 + " 字符。此为 Mock 测试通道返回，配置真实商用通道后将由大模型生成。";
         return new ProviderResult(content, 0);
+    }
+
+    /** 从提示词中提取 required 字段并生成确定性 Mock JSON */
+    private static String mockContractJson(String prompt) {
+        java.util.regex.Matcher matcher = java.util.regex.Pattern
+                .compile("\"required\"\\s*:\\s*\\[([^\\]]*)\\]").matcher(prompt);
+        java.util.LinkedHashMap<String, Object> out = new java.util.LinkedHashMap<>();
+        if (matcher.find()) {
+            for (String raw : matcher.group(1).split(",")) {
+                String field = raw.replace("\"", "").trim();
+                if (!field.isEmpty()) {
+                    out.put(field, mockValue(field));
+                }
+            }
+        }
+        if (out.isEmpty()) {
+            out.put("mock", true);
+        }
+        try {
+            return new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(out);
+        } catch (Exception e) {
+            return "{\"mock\":true}";
+        }
+    }
+
+    /** 已知语义字段的确定性取值；未知字段输出 MOCK_ 前缀占位 */
+    private static Object mockValue(String field) {
+        return switch (field) {
+            case "contract_name" -> "MOCK提取-塔筒制造合同";
+            case "customer_name" -> "MOCK客户-国电联合动力";
+            case "amount" -> 1000000;
+            case "sign_date" -> "2026-11-10";
+            case "warranty_months" -> 24;
+            case "pay_ratios" -> java.util.Map.of("prepay", 30, "delivery", 30, "accept", 30, "warranty", 10);
+            case "risk_level" -> "中";
+            case "risk_summary" -> "MOCK风险摘要：付款条件与验收标准建议复核";
+            case "risks" -> List.of();
+            default -> "MOCK_" + field;
+        };
     }
 
     /**

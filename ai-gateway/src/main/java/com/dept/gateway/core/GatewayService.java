@@ -47,6 +47,7 @@ public class GatewayService {
     private final ContractValidator contractValidator;
     private final AesGcmCipher cipher;
     private final GatewayProperties properties;
+    private final com.fasterxml.jackson.databind.ObjectMapper objectMapper;
 
     /**
      * 对话主流程
@@ -105,6 +106,11 @@ public class GatewayService {
             boolean commercial = "OPENAI_COMPAT".equals(config.getProviderType());
             if (commercial && properties.isDesensitizeEnabled()) {
                 prompt = desensitizeService.desensitize(prompt);
+            }
+            // 契约前置：声明了 JSON 契约时随首调发给模型（降低重试率；重试路径由 buildRetryPrompt 追加错误说明）
+            if (request.getJsonSchema() != null && !request.getJsonSchema().isEmpty()) {
+                prompt = prompt + "\n\n【输出要求】请严格按以下 JSON 结构输出，只输出 JSON 本身，不要任何解释文字："
+                        + safeWriteJson(request.getJsonSchema());
             }
             // 解密 Key 填充（仅运行时内存，绝不落库/序列化）
             if (StringUtils.hasText(config.getApiKeyCipher())) {
@@ -209,5 +215,13 @@ public class GatewayService {
             return null;
         }
         return s.length() <= max ? s : s.substring(0, max);
+    }
+
+    private String safeWriteJson(Object value) {
+        try {
+            return objectMapper.writeValueAsString(value);
+        } catch (Exception e) {
+            return "{}";
+        }
     }
 }

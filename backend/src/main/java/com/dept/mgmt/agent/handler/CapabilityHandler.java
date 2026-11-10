@@ -23,6 +23,14 @@ public interface CapabilityHandler {
     String execute(String instruction, Long userId) throws Exception;
 
     /**
+     * 带结构化参数执行（T-112 扩展）：任务 params JSON 已解析为 Map；
+     * 旧实现无需感知参数时不必重写（默认委托两参版本，向后兼容）
+     */
+    default String execute(String instruction, Long userId, java.util.Map<String, Object> params) throws Exception {
+        return execute(instruction, userId);
+    }
+
+    /**
      * 是否需要人工确认后才执行（安全优先默认 true：写操作类能力必须显式声明 false 才可自动执行；
      * 是否真正跳过确认由 T-110 自主策略级别共同决定：requireConfirm() && level<2 → 待确认）
      */

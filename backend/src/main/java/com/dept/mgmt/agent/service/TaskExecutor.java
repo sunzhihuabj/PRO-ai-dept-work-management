@@ -139,8 +139,9 @@ public class TaskExecutor {
                         TaskStatus.ESCALATED.getCode(), executedBy, "权限不足升级人工");
                 return;
             }
-            // 执行（AI 通道异常由网关降级，不阻塞主流程）
-            String result = handler.execute(task.getInstruction(), task.getCallerUserId());
+            // 执行（AI 通道异常由网关降级，不阻塞主流程）；params JSON 解析失败按空参数处理
+            java.util.Map<String, Object> params = parseParams(task.getParams());
+            String result = handler.execute(task.getInstruction(), task.getCallerUserId(), params);
             boolean aiGenerated = result != null && !result.startsWith("【检索结果");
             task.setStatus(TaskStatus.DONE.getCode());
             task.setResultText(result);
@@ -164,6 +165,21 @@ public class TaskExecutor {
                     executedBy, "执行异常");
             // T-110：记录一次失败执行
             autonomyService.recordExecution(task.getCapabilityCode(), false);
+        }
+    }
+
+    /** 任务扩展参数 JSON → Map（空/非法返回空 Map，不阻塞执行） */
+    private java.util.Map<String, Object> parseParams(String paramsJson) {
+        if (paramsJson == null || paramsJson.isBlank()) {
+            return java.util.Map.of();
+        }
+        try {
+            return new com.fasterxml.jackson.databind.ObjectMapper().readValue(paramsJson,
+                    new com.fasterxml.jackson.core.type.TypeReference<java.util.Map<String, Object>>() {
+                    });
+        } catch (Exception e) {
+            log.warn("任务 params 解析失败，按空参数执行: {}", e.getMessage());
+            return java.util.Map.of();
         }
     }
 }
