@@ -1702,8 +1702,75 @@ INSERT INTO `sys_code_rule` (`rule_code`, `rule_name`, `pattern`, `date_pattern`
 ('SP', '发货单编号', 'SP-{yyyyMM}-{seq:4}', 'yyyyMM', 1, 'W6 交付域发货单')
 ON DUPLICATE KEY UPDATE `pattern` = VALUES(`pattern`);
 
+-- ============================================================================
+-- 9.21 M1 看板（T-209：九板数据集+三级视图+红灯引擎，规则配置化）
+-- 九板口径自主制定（V2 仅定义框架）：投标签约/设计交付/齐套采购/生产质检/发货物流/
+-- 验收收款/扫码过账/整改风险/总览驾驶舱；红灯规则全部存库可配
+-- ============================================================================
+
+-- 红灯规则配置（指标/comparator/阈值/级别/升级天数全部可配）
+DROP TABLE IF EXISTS `redcard_rule`;
+CREATE TABLE `redcard_rule` (
+    `id`            BIGINT        NOT NULL AUTO_INCREMENT COMMENT '规则ID',
+    `rule_code`     VARCHAR(50)   NOT NULL                COMMENT '规则编码',
+    `rule_name`     VARCHAR(100)  NOT NULL                COMMENT '规则名称',
+    `board`         VARCHAR(30)   NOT NULL                COMMENT '所属板编码（CONTRACT/DESIGN/KITTING/PRODUCE/SHIP/ACCEPT/TPLUS/RECTIFY/OVERVIEW）',
+    `metric`        VARCHAR(50)   NOT NULL                COMMENT '指标 key（BoardsService 指标字典）',
+    `comparator`    VARCHAR(5)    NOT NULL DEFAULT 'GT'   COMMENT '比较符（GT/LT/EQ）',
+    `threshold`     DECIMAL(18,2) NOT NULL DEFAULT 0      COMMENT '阈值',
+    `level`         VARCHAR(10)   NOT NULL DEFAULT 'YELLOW' COMMENT '级别（RED红灯/YELLOW黄灯）',
+    `escalate_days` INT           NOT NULL DEFAULT 3      COMMENT '超期升级天数（OPEN 超 N 天未处理升级推送）',
+    `enabled`       TINYINT       NOT NULL DEFAULT 1      COMMENT '启用（0/1）',
+    `remark`        VARCHAR(200)  DEFAULT NULL            COMMENT '备注',
+    `create_time`   DATETIME      DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `update_time`   DATETIME      DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    `deleted`       TINYINT       DEFAULT 0               COMMENT '逻辑删除（0未删除 1已删除）',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_rule_code` (`rule_code`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='红灯规则配置';
+
+-- 红灯记录（规则评估触发；OPEN→ASSIGNED 过堂→ESCALATED 超期升级→RESOLVED 消除）
+DROP TABLE IF EXISTS `redcard`;
+CREATE TABLE `redcard` (
+    `id`            BIGINT        NOT NULL AUTO_INCREMENT COMMENT '红灯ID',
+    `rule_code`     VARCHAR(50)   NOT NULL                COMMENT '规则编码',
+    `rule_name`     VARCHAR(100)  NOT NULL                COMMENT '规则名称（冗余）',
+    `board`         VARCHAR(30)   NOT NULL                COMMENT '所属板编码',
+    `project_id`    BIGINT        DEFAULT NULL            COMMENT '项目ID（全局指标为空）',
+    `metric_value`  DECIMAL(18,2) NOT NULL                COMMENT '触发时指标值',
+    `level`         VARCHAR(10)   NOT NULL                COMMENT '级别（RED/YELLOW）',
+    `status`        VARCHAR(20)   NOT NULL DEFAULT 'OPEN' COMMENT '状态（OPEN/ASSIGNED已过堂/ESCALATED已升级/RESOLVED已消除）',
+    `owner`         VARCHAR(50)   DEFAULT NULL            COMMENT '责任人（会议过堂指定）',
+    `due_date`      DATE          DEFAULT NULL            COMMENT '处理期限（会议过堂指定）',
+    `escalated_at`  DATETIME      DEFAULT NULL            COMMENT '升级时间',
+    `resolved_at`   DATETIME      DEFAULT NULL            COMMENT '消除时间',
+    `resolved_note` VARCHAR(500)  DEFAULT NULL            COMMENT '消除说明',
+    `create_time`   DATETIME      DEFAULT CURRENT_TIMESTAMP COMMENT '触发时间',
+    `update_time`   DATETIME      DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    PRIMARY KEY (`id`),
+    KEY `idx_rule` (`rule_code`),
+    KEY `idx_status` (`status`),
+    KEY `idx_board` (`board`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='红灯记录';
+
+-- 红灯规则种子（九板每板至少一条；阈值/级别可随时调整）
+INSERT INTO `redcard_rule` (`rule_code`, `rule_name`, `board`, `metric`, `comparator`, `threshold`, `level`, `escalate_days`, `enabled`, `remark`) VALUES
+('RC-CONTRACT-PENDING',  '合同待会签/审批/用印积压', 'CONTRACT', 'contract.pending_count',   'GT', 0, 'YELLOW', 7, 1, '投标签约板'),
+('RC-DESIGN-DRAFT',      '方案草稿未受控发布',       'DESIGN',   'design.draft_count',       'GT', 0, 'YELLOW', 7, 1, '设计交付板'),
+('RC-KITTING-BLOCK',     '项目齐套率低于95%',        'KITTING',  'kitting.block_count',      'GT', 0, 'RED',    3, 1, '齐套采购板（BR-08 数据源）'),
+('RC-PO-OVERDUE',        'PO 到货逾期',              'KITTING',  'po.overdue_count',         'GT', 0, 'RED',    3, 1, '齐套采购板'),
+('RC-DISCLOSURE-UNSIGN', '技术交底未签字',           'PRODUCE',  'disclosure.unsigned_count','GT', 0, 'RED',    3, 1, '生产质检板（BR-09 数据源）'),
+('RC-QC-FAIL',           '质检/FAI 不合格',          'PRODUCE',  'qc.fail_count',            'GT', 0, 'YELLOW', 5, 1, '生产质检板'),
+('RC-ACCEPT-PENDING',    '验收单待签字',             'ACCEPT',   'acceptance.pending_sign',  'GT', 0, 'YELLOW', 5, 1, '验收收款板（BR-05 载体）'),
+('RC-PUSH-FAILED',       'T+ 推送失败单积压',        'TPLUS',    'inventory.push_failed',    'GT', 0, 'RED',    2, 1, '扫码过账板'),
+('RC-RECON-DIFF',        'T+ 对账存在差异',          'TPLUS',    'recon.diff_count',         'GT', 0, 'RED',    2, 1, '扫码过账板（最近一次对账）'),
+('RC-RECT-OPEN',         '整改单未闭环',             'RECTIFY',  'rectification.open_count', 'GT', 0, 'YELLOW', 7, 1, '整改风险板'),
+('RC-RECT-OVERDUE',      '整改单逾期未闭环',         'RECTIFY',  'rectification.overdue_count','GT', 0, 'RED',  2, 1, '整改风险板')
+ON DUPLICATE KEY UPDATE `rule_name` = VALUES(`rule_name`), `metric` = VALUES(`metric`),
+  `comparator` = VALUES(`comparator`), `threshold` = VALUES(`threshold`), `level` = VALUES(`level`);
+
 SET FOREIGN_KEY_CHECKS = 1;
 
 -- ============================================================================
--- DDL脚本执行完毕，共创建71张业务表
+-- DDL脚本执行完毕，共创建73张业务表
 -- ============================================================================

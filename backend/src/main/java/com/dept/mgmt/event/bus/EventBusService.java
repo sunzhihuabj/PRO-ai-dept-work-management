@@ -76,12 +76,16 @@ public class EventBusService {
     }
 
     /**
-     * 轮询投递（每 3 秒）：领取到期 PENDING/FAILED 事件，分发处理器，失败指数退避
+     * 轮询投递（每 3 秒）：领取到期 PENDING/FAILED 事件，分发处理器，失败指数退避。
+     * 仅领取已注册处理器的事件类型——无消费者事件保持 PENDING（下游域上线后自动消费），
+     * 同时避免队头阻塞：无 handler 的历史积压事件不得挤占 LIMIT 窗口阻塞有 handler 事件投递
      */
     @Scheduled(fixedDelay = 3000)
     public void deliver() {
+        List<String> handledCodes = handlers.keySet().stream().map(DomainEventType::getCode).toList();
         List<SysDomainEvent> pending = eventMapper.selectList(new LambdaQueryWrapper<SysDomainEvent>()
                 .in(SysDomainEvent::getStatus, "PENDING", "FAILED")
+                .in(SysDomainEvent::getEventType, handledCodes)
                 .and(w -> w.isNull(SysDomainEvent::getNextRetryAt)
                         .or().le(SysDomainEvent::getNextRetryAt, LocalDateTime.now()))
                 .orderByAsc(SysDomainEvent::getId)
