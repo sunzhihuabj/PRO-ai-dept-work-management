@@ -343,15 +343,51 @@ INSERT INTO `sys_notification_template` (`template_code`, `title_template`, `con
 -- ============================================================================
 
 -- 能力点注册（deny by default：未登记的能力点一律拒绝；is_never=1 仅拦截 Agent 不拦人类）
+-- 编码口径：规划明确的 25 能力点用 AGT-XX 编号；平台基础能力用 CAP_XXX
 INSERT INTO `sys_capability` (`capability_code`, `capability_name`, `category`, `allowed_identities`, `is_never`, `status`, `remark`) VALUES
 ('CAP_CONTRACT_APPROVE', '合同会签审批',              'base',       'EXPERT',                  1, 1, '审批类永久禁止Agent自动化'),
 ('CAP_PAYMENT_HANDLE',   '资金/收款操作',              'base',       'EXPERT',                  1, 1, '资金类永久禁止Agent自动化'),
 ('CAP_MASTERDATA_CREATE','主数据建档',                'base',       'EXPERT,WORKER',           1, 1, '建档类永久禁止Agent自动化'),
 ('CAP_DATA_DELETE',      '删除类操作',                'base',       'EXPERT',                  1, 1, '删除类永久禁止Agent自动化'),
-('CAP_CONTRACT_EXTRACT', '合同要素提取',              'agent',      'EXPERT,WORKER,ASSISTANT', 0, 1, '预登记 AGT-06'),
-('CAP_DOC_DRAFT',        '方案文档起草',              'agent',      'EXPERT,WORKER,ASSISTANT', 0, 1, '预登记 AGT-09'),
+('AGT-06',               '合同要素提取',              'agent',      'EXPERT,WORKER,ASSISTANT', 0, 1, '原 CAP_CONTRACT_EXTRACT，统一为规划编号'),
+('AGT-09',               '方案文档起草',              'agent',      'EXPERT,WORKER,ASSISTANT', 0, 1, '原 CAP_DOC_DRAFT，统一为规划编号'),
 ('CAP_MATERIAL_IMPORT',  '物料清单批量导入',          'workflow',   'EXPERT,WORKER',           0, 1, '对应 /v1/materials/import'),
-('CAP_REPORT_VIEW',      '报表看板查看',              'base',       'EXPERT,WORKER',           0, 1, '看板/报表类查询');
+('CAP_REPORT_VIEW',      '报表看板查看',              'base',       'EXPERT,WORKER',           0, 1, '看板/报表类查询'),
+('CAP_DOC_SUMMARY',      '日报周报纪要摘要',          'base',       'EXPERT,WORKER',           0, 1, '对应 /v1/ai/summary');
+
+-- ============================================================================
+-- T-105 AI 网关种子数据：AGT-01~25 能力点补登记
+-- ============================================================================
+
+INSERT INTO `sys_capability` (`capability_code`, `capability_name`, `category`, `allowed_identities`, `is_never`, `status`, `remark`) VALUES
+('AGT-01', '标讯采集解析',       'agent', 'EXPERT,WORKER,ASSISTANT', 0, 1, 'W1 投标域'),
+('AGT-02', '资格比对',           'agent', 'EXPERT,WORKER,ASSISTANT', 0, 1, 'W1 投标域'),
+('AGT-03', '报价建议',           'agent', 'EXPERT,WORKER,ASSISTANT', 0, 1, 'W1 投标域'),
+('AGT-04', '竞品分析',           'agent', 'EXPERT,WORKER,ASSISTANT', 0, 1, 'W1 投标域'),
+('AGT-05', '预留能力点',         'agent', 'EXPERT,WORKER,ASSISTANT', 0, 1, '规划文档未明确，编号预留待补'),
+('AGT-07', '合同风险分析',       'agent', 'EXPERT,WORKER,ASSISTANT', 0, 1, 'W2 合同域'),
+('AGT-08', '预付款收款提醒',     'agent', 'EXPERT,WORKER,ASSISTANT', 0, 1, 'W2 合同域，Auto 级'),
+('AGT-10', '预留能力点',         'agent', 'EXPERT,WORKER,ASSISTANT', 0, 1, '规划文档未明确，编号预留待补'),
+('AGT-11', 'BOM 校验',           'agent', 'EXPERT,WORKER,ASSISTANT', 0, 1, 'W3 设计域，13 条规则'),
+('AGT-12', '主数据模糊匹配',     'agent', 'EXPERT,WORKER,ASSISTANT', 0, 1, 'M2 主数据治理，查重归并'),
+('AGT-13', '齐套检查',           'agent', 'EXPERT,WORKER,ASSISTANT', 0, 1, 'W4 样机域，确定性计算'),
+('AGT-14', '缺料请购',           'agent', 'EXPERT,WORKER,ASSISTANT', 0, 1, 'W4 样机域'),
+('AGT-15', '到货跟踪',           'agent', 'EXPERT,WORKER,ASSISTANT', 0, 1, 'W4 样机域，Auto 级'),
+('AGT-16', '扫码过账对账',       'agent', 'EXPERT,WORKER,ASSISTANT', 0, 1, 'W4 样机域，T+ 对账'),
+('AGT-17', '交底检查',           'agent', 'EXPERT,WORKER,ASSISTANT', 0, 1, 'W4 样机域，拦截类'),
+('AGT-18', 'FAI 报告生成',      'agent', 'EXPERT,WORKER,ASSISTANT', 0, 1, 'W4 样机域'),
+('AGT-19', '验收自动触发',       'agent', 'EXPERT,WORKER,ASSISTANT', 0, 1, 'W6 交付域，工程量 30%/85% 触发'),
+('AGT-20', '到货验收款提醒',     'agent', 'EXPERT,WORKER,ASSISTANT', 0, 1, 'W6 交付域，Auto 级'),
+('AGT-21', '成本自动归集',       'agent', 'EXPERT,WORKER,ASSISTANT', 0, 1, 'W7 成本域，Auto 级'),
+('AGT-22', '毛利三口径分析',     'agent', 'EXPERT,WORKER,ASSISTANT', 0, 1, 'W7 成本域'),
+('AGT-23', '报修受理分级',       'agent', 'EXPERT,WORKER,ASSISTANT', 0, 1, 'W8 售后域'),
+('AGT-24', '质保金提醒',         'agent', 'EXPERT,WORKER,ASSISTANT', 0, 1, 'W8 售后域，Auto 级'),
+('AGT-25', 'ChatBI 数据问答',   'agent', 'EXPERT,WORKER,ASSISTANT', 0, 1, 'M1 看板，指标白名单内禁止编造');
+
+-- AI 通道默认配置：mock 通道（开发测试用，默认启用兜底；商用通道由用户在界面配置后启用）
+INSERT INTO `sys_ai_provider_config` (`provider_code`, `provider_name`, `provider_type`, `endpoint`, `model`, `priority`, `enabled`, `rpm_limit`, `daily_limit`, `remark`) VALUES
+('MOCK', 'Mock 测试通道', 'MOCK', '', 'mock-model', 990, 1, 600, 10000, '开发测试兜底通道，返回固定结构不产生费用'),
+('OLLAMA', '本地 Ollama（预留）', 'OLLAMA', 'http://localhost:11434', 'qwen2.5:7b', 980, 0, 120, 5000, '本机未安装 Ollama，启用前需先安装并拉取模型');
 
 -- 种子用户身份初始化：部门领导 sunzhihua 设为 EXPERT，其余保持默认 WORKER
 UPDATE `sys_user` SET `identity` = 'EXPERT' WHERE `username` = 'sunzhihua';

@@ -1074,8 +1074,61 @@ CREATE TABLE `sys_agent_grant` (
     KEY                  `idx_principal` (`principal_user_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Agent代理授权表';
 
+-- ============================================================================
+-- 9.13 AI 网关（T-105：通道配置 / 调用审计）
+-- ============================================================================
+
+-- AI 通道配置（多服务商行按 priority 排序形成降级链；api_key AES-GCM 加密存库，密钥走环境变量）
+DROP TABLE IF EXISTS `sys_ai_provider_config`;
+CREATE TABLE `sys_ai_provider_config` (
+    `id`              BIGINT       NOT NULL AUTO_INCREMENT COMMENT '配置ID',
+    `provider_code`   VARCHAR(50)  NOT NULL                COMMENT '配置编码（唯一）',
+    `provider_name`   VARCHAR(100) NOT NULL                COMMENT '服务商显示名（如 DeepSeek/智谱/通义）',
+    `provider_type`   VARCHAR(20)  NOT NULL                COMMENT '类型（OPENAI_COMPAT/MOCK/OLLAMA）',
+    `endpoint`        VARCHAR(200) DEFAULT NULL            COMMENT 'API 地址（如 https://api.deepseek.com/v1）',
+    `model`           VARCHAR(100) DEFAULT NULL            COMMENT '模型名（如 deepseek-chat/glm-4-flash）',
+    `api_key_cipher`  VARCHAR(500) DEFAULT NULL            COMMENT 'API Key 密文（AES-GCM，Base64）',
+    `api_key_hint`    VARCHAR(20)  DEFAULT NULL            COMMENT 'Key 脱敏提示（sk-****1234）',
+    `priority`        INT          NOT NULL DEFAULT 100    COMMENT '优先级（小者优先，形成降级链）',
+    `enabled`         TINYINT      NOT NULL DEFAULT 0      COMMENT '启用（1启用 0停用）',
+    `rpm_limit`       INT          NOT NULL DEFAULT 35     COMMENT '每分钟请求上限（商用API默认35，用户硬性规则）',
+    `daily_limit`     INT          NOT NULL DEFAULT 500    COMMENT '每日请求上限',
+    `remark`          VARCHAR(200) DEFAULT NULL            COMMENT '备注',
+    `create_time`     DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `update_time`     DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    `deleted`         TINYINT      DEFAULT 0               COMMENT '逻辑删除（0未删除 1已删除）',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_provider_code` (`provider_code`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='AI通道配置表';
+
+-- AI 调用审计表（全量落库，保留 2 年，网关每日定时清理）
+DROP TABLE IF EXISTS `sys_ai_call_log`;
+CREATE TABLE `sys_ai_call_log` (
+    `id`               BIGINT       NOT NULL AUTO_INCREMENT COMMENT '日志ID',
+    `request_id`       VARCHAR(64)  NOT NULL                COMMENT '请求唯一标识',
+    `capability_code`  VARCHAR(50)  NOT NULL                COMMENT '能力点编码',
+    `provider_type`    VARCHAR(20)  DEFAULT NULL            COMMENT '实际使用的通道类型',
+    `model`            VARCHAR(100) DEFAULT NULL            COMMENT '实际使用的模型',
+    `caller_type`      VARCHAR(20)  NOT NULL DEFAULT 'USER' COMMENT '调用方类型（USER/AGENT）',
+    `caller_id`        VARCHAR(100) DEFAULT NULL            COMMENT '调用方标识（userId 或 agentKey）',
+    `prompt_chars`     INT          DEFAULT 0               COMMENT '提示词字符数（脱敏后）',
+    `response_chars`   INT          DEFAULT 0               COMMENT '响应字符数',
+    `prompt_preview`   VARCHAR(500) DEFAULT NULL            COMMENT '提示词预览（脱敏后前500字）',
+    `response_preview` VARCHAR(500) DEFAULT NULL            COMMENT '响应预览（前500字）',
+    `total_tokens`     INT          DEFAULT 0               COMMENT 'Token 用量',
+    `duration_ms`      BIGINT       DEFAULT 0               COMMENT '耗时（毫秒）',
+    `status`           VARCHAR(20)  NOT NULL                COMMENT '状态（SUCCESS/PROVIDER_ERROR/QUOTA_EXCEEDED/CONTRACT_FAILED/DEGRADED/MOCK）',
+    `error_msg`        VARCHAR(500) DEFAULT NULL            COMMENT '错误信息（收敛后，不透出上游细节）',
+    `create_time`      DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '调用时间',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_request_id` (`request_id`),
+    KEY                `idx_capability` (`capability_code`),
+    KEY                `idx_caller` (`caller_id`),
+    KEY                `idx_create_time` (`create_time`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='AI调用审计表';
+
 SET FOREIGN_KEY_CHECKS = 1;
 
 -- ============================================================================
--- DDL脚本执行完毕，共创建43张业务表
+-- DDL脚本执行完毕，共创建45张业务表
 -- ============================================================================

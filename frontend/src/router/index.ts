@@ -122,6 +122,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '通知公告', icon: 'BellFilled' }
       },
       {
+        path: 'system/ai-config',
+        name: 'AiConfig',
+        component: () => import('@/views/system/AiConfig.vue'),
+        meta: { title: 'AI 服务配置', icon: 'MagicStick' }
+      },
+      {
         path: 'bonus',
         name: 'BonusManage',
         component: () => import('@/views/bonus/BonusManage.vue'),

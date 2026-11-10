@@ -81,12 +81,12 @@ app:
   cors:
     allowed-origins: http://localhost:5173,http://127.0.0.1:5173
 
-# AI服务配置（Ollama）
+# AI 服务配置（T-105：统一经 ai-gateway 8090 调模型，任何业务代码不得直连模型 API）
 ai:
-  ollama:
-    base-url: http://localhost:11434
-    model: qwen2.5:7b
-    timeout: 60
+  gateway:
+    base-url: ${AI_GATEWAY_BASE_URL:http://localhost:8090}
+    # 服务间认证密钥，须与网关 GATEWAY_API_KEY 一致（生产通过环境变量注入）
+    api-key: ${GATEWAY_API_KEY:dept-gateway-internal-key-2026}
 
 # 日志配置
 logging:

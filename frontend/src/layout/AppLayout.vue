@@ -71,6 +71,10 @@
           <el-icon><Tickets /></el-icon>
           <span>操作日志</span>
         </el-menu-item>
+        <el-menu-item v-if="userStore.isAdmin" index="/system/ai-config">
+          <el-icon><MagicStick /></el-icon>
+          <span>AI 服务配置</span>
+        </el-menu-item>
         <el-menu-item v-if="userStore.isAdmin" index="/bonus">
           <el-icon><Money /></el-icon>
           <span>奖金管理</span>

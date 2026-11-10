@@ -1,4 +1,4 @@
-package com.dept.mgmt.platform.identity;
+﻿package com.dept.mgmt.platform.identity;
 
 import com.dept.mgmt.platform.identity.dto.AgentGrantDTO;
 import com.dept.mgmt.platform.identity.dto.PermissionCheckResult;
@@ -46,15 +46,15 @@ class EffectivePermissionServiceTest {
     @Test
     void agent_withoutGrant_denied() {
         PermissionCheckResult result = effectivePermissionService.checkForAgent(
-                "agent:1:AGT-06", 1L, "CAP_CONTRACT_EXTRACT");
+                "agent:1:AGT-06", 1L, "AGT-06");
         assertFalse(result.isAllowed(), "无授权应被拒绝: " + result.getReason());
     }
 
     @Test
     void agent_withValidGrant_allowed() {
-        agentGrantService.create(grant("agent:1:AGT-06", 1L, "CAP_CONTRACT_EXTRACT", 72));
+        agentGrantService.create(grant("agent:1:AGT-06", 1L, "AGT-06", 72));
         PermissionCheckResult result = effectivePermissionService.checkForAgent(
-                "agent:1:AGT-06", 1L, "CAP_CONTRACT_EXTRACT");
+                "agent:1:AGT-06", 1L, "AGT-06");
         assertTrue(result.isAllowed(), "三条件齐备应通过: " + result.getReason());
         assertTrue(result.getChain().stream().anyMatch(s -> s.contains("能力点已登记")), "判定链应含能力点检查");
         assertTrue(result.getChain().stream().anyMatch(s -> s.contains("授权有效")), "判定链应含授权检查");
@@ -72,22 +72,22 @@ class EffectivePermissionServiceTest {
 
     @Test
     void agent_expiredGrant_denied() {
-        agentGrantService.create(grant("agent:1:EXPIRED", 1L, "CAP_CONTRACT_EXTRACT", 1));
+        agentGrantService.create(grant("agent:1:EXPIRED", 1L, "AGT-06", 1));
         // 用过期校验模拟：直接构造 1 小时前到期的授权不可行（create 只能向后），改查未来授权后
         // 通过负数小时不被允许（@Min(1)），这里验证 1 小时内有效 + 说明：过期场景由 SQL 条件 gt(now) 覆盖
         // 为真实验证过期，改为更新 expire_time 到过去
-        agentGrantServiceForceExpire("agent:1:EXPIRED", "CAP_CONTRACT_EXTRACT");
+        agentGrantServiceForceExpire("agent:1:EXPIRED", "AGT-06");
         PermissionCheckResult result = effectivePermissionService.checkForAgent(
-                "agent:1:EXPIRED", 1L, "CAP_CONTRACT_EXTRACT");
+                "agent:1:EXPIRED", 1L, "AGT-06");
         assertFalse(result.isAllowed(), "过期授权应被拒绝: " + result.getReason());
     }
 
     @Test
     void agent_principalMismatch_denied() {
-        agentGrantService.create(grant("agent:1:MISMATCH", 1L, "CAP_CONTRACT_EXTRACT", 72));
+        agentGrantService.create(grant("agent:1:MISMATCH", 1L, "AGT-06", 72));
         // 用 yangshuang(4) 的名义使用 sunzhihua(1) 的授权 → 主体不匹配
         PermissionCheckResult result = effectivePermissionService.checkForAgent(
-                "agent:1:MISMATCH", 4L, "CAP_CONTRACT_EXTRACT");
+                "agent:1:MISMATCH", 4L, "AGT-06");
         assertFalse(result.isAllowed(), "授权主体不匹配应被拒绝: " + result.getReason());
     }
 

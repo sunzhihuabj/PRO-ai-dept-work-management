@@ -1,0 +1,44 @@
+server:
+  port: 8090
+
+spring:
+  application:
+    name: ai-gateway
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    # 与主应用共库（Phase 1 务实选择；事件总线 T-108 就绪后解耦，只读 sys_capability / sys_ai_provider_config，写自有表）
+    url: jdbc:mysql://localhost:3307/dept_mgmt?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+    username: ${DB_USERNAME:root}
+    password: ${DB_PASSWORD:root}
+  jackson:
+    default-property-inclusion: non_null
+
+# 网关治理配置
+gateway:
+  # 服务间认证密钥（backend 与网关共享；生产必须通过环境变量注入，不足16字符启动失败）
+  api-key: ${GATEWAY_API_KEY:dept-gateway-internal-key-2026}
+  # 通道配置加密密钥（AES-GCM 派生源；生产必须通过环境变量注入，不足32字符启动失败）
+  config-secret: ${AI_CONFIG_SECRET:dept-ai-config-secret-key-2026-change-me-please}
+  # 出网脱敏开关（仅商用 OPENAI_COMPAT 通道强制生效，本地/mock 不脱敏）
+  desensitize-enabled: true
+  # 提示词最大字符数（防超长输入拖垮上游）
+  max-prompt-chars: 32000
+  # 全链失败响应文案（转人工模式，不阻塞业务）
+  degraded-message: "AI 服务暂不可用，请稍后重试或转人工处理"
+
+# MyBatis-Plus（网关不启用逻辑删除：配置表物理删除避免唯一键冲突，审计表只增不删）
+mybatis-plus:
+  global-config:
+    banner: false
+    db-config:
+      id-type: auto
+  configuration:
+    map-underscore-to-camel-case: true
+    cache-enabled: false
+
+# 日志（审计信息为主，禁止打印 Key/prompt 全文）
+logging:
+  level:
+    com.dept.gateway: info
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"

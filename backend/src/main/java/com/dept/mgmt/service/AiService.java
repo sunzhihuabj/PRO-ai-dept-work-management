@@ -1,35 +1,30 @@
 package com.dept.mgmt.service;
 
+import com.dept.mgmt.common.client.AiGatewayClient;
 import com.dept.mgmt.common.exception.BusinessException;
+import com.dept.mgmt.security.LoginUser;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.HttpEntity;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
-import org.springframework.http.ResponseEntity;
-import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Service;
-import org.springframework.web.client.RestTemplate;
-
-import java.util.Map;
 
 /**
- * AI 助手服务（对接 Ollama）
+ * AI 助手服务（已改造为网关下游，T-105）
+ * 红线：不得直连模型 SDK/URL，统一经 AiGatewayClient 调网关（唯一出口）
  *
  * @author dept-mgmt
  */
 @Slf4j
 @Service
+@RequiredArgsConstructor
 public class AiService {
 
-    @Value("${ai.ollama.base-url:http://localhost:11434}")
-    private String baseUrl;
+    /** 输入限长（防超长文本拖垮模型与计费） */
+    private static final int MAX_INPUT_CHARS = 30000;
 
-    @Value("${ai.ollama.model:qwen2.5:7b}")
-    private String model;
+    /** 摘要场景能力点（网关能力点注册表） */
+    private static final String CAP_DOC_SUMMARY = "CAP_DOC_SUMMARY";
 
-    @Value("${ai.ollama.timeout:60}")
-    private long timeoutSeconds;
+    private final AiGatewayClient aiGatewayClient;
 
     /**
      * 生成摘要/总结
@@ -38,17 +33,22 @@ public class AiService {
      */
     public String summarize(String text, String type) {
         String prompt = buildPrompt(text, type);
-        return callOllama(prompt);
+        LoginUser user = LoginUser.current();
+        return aiGatewayClient.chat(CAP_DOC_SUMMARY, prompt, user == null ? null : user.getUserId(), null);
     }
 
     /**
      * 通用 AI 对话（供文件差异分析等扩展使用）
      */
     public String chat(String prompt) {
-        return callOllama(prompt);
+        LoginUser user = LoginUser.current();
+        return aiGatewayClient.chat("AGT-09", prompt, user == null ? null : user.getUserId(), null);
     }
 
     private String buildPrompt(String text, String type) {
+        if (text != null && text.length() > MAX_INPUT_CHARS) {
+            throw new BusinessException(400, "输入文本超过 " + MAX_INPUT_CHARS + " 字符上限，请精简后重试");
+        }
         String sceneDesc = switch (type == null ? "" : type) {
             case "daily" -> "请将以下工作内容整理为一份简洁的日报，突出完成事项与明日计划：";
             case "weekly" -> "请将以下内容整理为一份周报，按本周完成、问题风险、下周计划三个部分输出：";
@@ -56,38 +56,5 @@ public class AiService {
             default -> "请对以下内容进行要点提炼与总结：";
         };
         return sceneDesc + "\n\n" + text;
-    }
-
-    private String callOllama(String prompt) {
-        try {
-            RestTemplate restTemplate = new RestTemplate(simpleFactory());
-            Map<String, Object> body = Map.of(
-                    "model", model,
-                    "prompt", prompt,
-                    "stream", false
-            );
-            HttpHeaders headers = new HttpHeaders();
-            headers.setContentType(MediaType.APPLICATION_JSON);
-            HttpEntity<Map<String, Object>> entity = new HttpEntity<>(body, headers);
-
-            ResponseEntity<Map> resp = restTemplate.postForEntity(baseUrl + "/api/generate", entity, Map.class);
-            Map<?, ?> respBody = resp.getBody();
-            if (respBody == null || respBody.get("response") == null) {
-                throw new BusinessException(500, "AI 服务返回空内容");
-            }
-            return respBody.get("response").toString();
-        } catch (BusinessException be) {
-            throw be;
-        } catch (Exception e) {
-            log.error("调用 Ollama 失败", e);
-            throw new BusinessException(502, "AI 服务暂不可用，请稍后重试 (" + e.getMessage() + ")");
-        }
-    }
-
-    private SimpleClientHttpRequestFactory simpleFactory() {
-        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
-        factory.setConnectTimeout((int) (timeoutSeconds * 1000));
-        factory.setReadTimeout((int) (timeoutSeconds * 1000));
-        return factory;
     }
 }

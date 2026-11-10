@@ -35,12 +35,28 @@ services:
       SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD:-root}
       JWT_SECRET: ${JWT_SECRET:-3V/8Fp0IsOdSAOqOpm6xFXZWDEu4xw8kasX737jXMH9p/JLZskFtAidjwOJfJIBj}
       APP_CORS_ALLOWED_ORIGINS: ${APP_CORS_ALLOWED_ORIGINS:-http://localhost:5173}
-      AI_OLLAMA_BASE-URL: http://host.docker.internal:11434
       FILE_LOCAL_UPLOAD_PATH: /data/files
     volumes:
       - file-data:/data/files
     ports:
       - "8081:8081"
+
+  # AI 网关：全系统模型调用唯一出口（T-105），backend 经内部 API-Key 调用
+  ai-gateway:
+    build: ./ai-gateway
+    container_name: dept-ai-gateway
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/dept_mgmt?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+      SPRING_DATASOURCE_USERNAME: ${DB_USERNAME:-root}
+      SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD:-root}
+      GATEWAY_API_KEY: ${GATEWAY_API_KEY:-dept-gateway-internal-key-2026}
+      AI_CONFIG_SECRET: ${AI_CONFIG_SECRET:-dept-ai-config-secret-key-2026-change-me-please}
+    ports:
+      - "127.0.0.1:8090:8090"
 
   frontend:
     build: ./frontend

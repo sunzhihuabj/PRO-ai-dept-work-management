@@ -5,6 +5,7 @@ miniapp/node_modules/
 
 # Build outputs
 backend/target/
+ai-gateway/target/
 frontend/dist/
 miniapp/dist/
 miniapp/unpackage/
