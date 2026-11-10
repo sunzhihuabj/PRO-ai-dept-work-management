@@ -382,7 +382,8 @@ INSERT INTO `sys_capability` (`capability_code`, `capability_name`, `category`, 
 ('AGT-22', '毛利三口径分析',     'agent', 'EXPERT,WORKER,ASSISTANT', 0, 1, 'W7 成本域'),
 ('AGT-23', '报修受理分级',       'agent', 'EXPERT,WORKER,ASSISTANT', 0, 1, 'W8 售后域'),
 ('AGT-24', '质保金提醒',         'agent', 'EXPERT,WORKER,ASSISTANT', 0, 1, 'W8 售后域，Auto 级'),
-('AGT-25', 'ChatBI 数据问答',   'agent', 'EXPERT,WORKER,ASSISTANT', 0, 1, 'M1 看板，指标白名单内禁止编造');
+('AGT-25', 'ChatBI 数据问答',   'agent', 'EXPERT,WORKER,ASSISTANT', 0, 1, 'M1 看板，指标白名单内禁止编造'),
+('AGT-26', '看板晨会解读',       'agent', 'EXPERT,WORKER,ASSISTANT', 0, 1, 'M1 看板，T-210 自动解读指标异常+生成晨会材料');
 
 -- AI 通道默认配置：mock 通道（开发测试用，默认启用兜底；商用通道由用户在界面配置后启用）
 INSERT INTO `sys_ai_provider_config` (`provider_code`, `provider_name`, `provider_type`, `endpoint`, `model`, `priority`, `enabled`, `rpm_limit`, `daily_limit`, `remark`) VALUES
