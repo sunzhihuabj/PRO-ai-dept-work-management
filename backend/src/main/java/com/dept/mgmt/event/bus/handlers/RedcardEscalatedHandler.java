@@ -39,9 +39,12 @@ public class RedcardEscalatedHandler implements DomainEventHandler {
                 "content", "看板红灯「" + payload.getOrDefault("ruleName", "") + "」已超期未处理，"
                         + "当前指标值 " + payload.getOrDefault("metricValue", "")
                         + "，请立即在早会过堂指定责任人跟进"));
+        // T-212：红灯升级走钉钉群机器人通道；钉钉未配置/不可用时通道内自动降级站内信
+        dto.setChannel("DINGTALK");
         dto.setReceiverIds(List.of(1L));
+        dto.setRelatedId(payload.get("redcardId") == null ? null : Long.valueOf(String.valueOf(payload.get("redcardId"))));
         NotificationSendResult result = notificationService.send(dto);
-        log.info("红灯升级推送已发送: eventId={}, rule={}, sent={}",
-                eventId, payload.get("ruleCode"), result.getSent());
+        log.info("红灯升级推送已发送: eventId={}, rule={}, channel={}, sent={}",
+                eventId, payload.get("ruleCode"), result.getChannel(), result.getSent());
     }
 }
