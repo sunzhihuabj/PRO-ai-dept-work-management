@@ -1223,5 +1223,55 @@ INSERT INTO `sys_code_rule` (`rule_code`, `rule_name`, `pattern`, `date_pattern`
 SET FOREIGN_KEY_CHECKS = 1;
 
 -- ============================================================================
--- DDL脚本执行完毕，共创建49张业务表
+-- 9.16 W2 合同域（T-111：台账 / 审批流状态机 / 决策门）
+-- ============================================================================
+
+-- 合同台账
+DROP TABLE IF EXISTS `contract`;
+CREATE TABLE `contract` (
+    `id`               BIGINT        NOT NULL AUTO_INCREMENT COMMENT '合同ID',
+    `contract_no`      VARCHAR(30)   NOT NULL                COMMENT '合同编号（T-101 引擎 HT 规则）',
+    `name`             VARCHAR(200)  NOT NULL                COMMENT '合同名称',
+    `customer_name`    VARCHAR(200)  NOT NULL                COMMENT '客户名称（主数据 T-103 建成后切换主体引用）',
+    `amount`           DECIMAL(18,2) NOT NULL                COMMENT '合同金额（元，禁用 float）',
+    `sign_date`        DATE          DEFAULT NULL            COMMENT '签订日期',
+    `effective_date`   DATE          DEFAULT NULL            COMMENT '生效日期',
+    `warranty_months`  INT           NOT NULL DEFAULT 24     COMMENT '质保期（月）',
+    `pay_ratio_prepay` INT           NOT NULL DEFAULT 30     COMMENT '预付款比例%',
+    `pay_ratio_delivery` INT         NOT NULL DEFAULT 30     COMMENT '到货款比例%',
+    `pay_ratio_accept` INT           NOT NULL DEFAULT 30     COMMENT '验收款比例%',
+    `pay_ratio_warranty` INT         NOT NULL DEFAULT 10     COMMENT '质保金比例%',
+    `status`           VARCHAR(20)   NOT NULL DEFAULT 'DRAFT' COMMENT '状态（DRAFT草稿/COUNTERSIGN会签中/APPROVING审批中/SEALING用印中/EFFECTIVE已生效/CLOSED已关闭/TERMINATED已终止）',
+    `extracted_json`   JSON          DEFAULT NULL            COMMENT 'AGT-06 要素提取结果（JSON）',
+    `risk_level`       VARCHAR(10)   DEFAULT NULL            COMMENT 'AGT-07 风险等级（高/中/低）',
+    `risk_summary`     VARCHAR(1000) DEFAULT NULL            COMMENT 'AGT-07 风险摘要',
+    `remark`           VARCHAR(500)  DEFAULT NULL            COMMENT '备注',
+    `create_time`      DATETIME      DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `update_time`      DATETIME      DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    `deleted`          TINYINT       DEFAULT 0               COMMENT '逻辑删除（0未删除 1已删除）',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_contract_no` (`contract_no`),
+    KEY                `idx_status` (`status`),
+    KEY                `idx_customer` (`customer_name`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='合同台账表';
+
+-- 合同审批记录（会签/审批/用印节点留痕）
+DROP TABLE IF EXISTS `contract_approval`;
+CREATE TABLE `contract_approval` (
+    `id`          BIGINT       NOT NULL AUTO_INCREMENT COMMENT '记录ID',
+    `contract_id` BIGINT       NOT NULL                COMMENT '合同ID',
+    `node`        VARCHAR(20)  NOT NULL                COMMENT '审批节点（COUNTERSIGN会签/APPROVE审批/SEAL用印）',
+    `approver_id` BIGINT       NOT NULL                COMMENT '审批人用户ID',
+    `approver_name` VARCHAR(50) DEFAULT NULL            COMMENT '审批人姓名',
+    `result`      VARCHAR(10)  NOT NULL                COMMENT '结果（APPROVED通过/REJECTED驳回）',
+    `comment`     VARCHAR(500) DEFAULT NULL            COMMENT '审批意见',
+    `create_time` DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '审批时间',
+    PRIMARY KEY (`id`),
+    KEY           `idx_contract` (`contract_id`, `node`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='合同审批记录表';
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- DDL脚本执行完毕，共创建51张业务表
 -- ============================================================================
