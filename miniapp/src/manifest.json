@@ -1,0 +1,30 @@
+{
+  "name": "部门工作管理",
+  "appid": "",
+  "description": "基于AI的部门工作管理软件 - 移动端",
+  "versionName": "1.0.0",
+  "versionCode": "100",
+  "transformPx": false,
+  "app-plus": {
+    "usingComponents": true
+  },
+  "mp-weixin": {
+    "appid": "",
+    "setting": {
+      "urlCheck": false,
+      "es6": true,
+      "minified": true
+    },
+    "usingComponents": true
+  },
+  "h5": {
+    "title": "部门工作管理",
+    "router": {
+      "mode": "hash"
+    },
+    "devServer": {
+      "port": 5174
+    }
+  },
+  "vueVersion": "3"
+}

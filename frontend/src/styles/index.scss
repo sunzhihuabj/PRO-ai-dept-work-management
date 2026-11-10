@@ -1,0 +1,53 @@
+// 全局样式入口
+@use './variables.scss' as *;
+@use './reset.scss';
+
+// 页面通用样式
+.page-container {
+  padding: 16px;
+  background: #f0f2f5;
+  min-height: calc(100vh - 84px);
+
+  .page-card {
+    background: #fff;
+    border-radius: 4px;
+    padding: 16px;
+    margin-bottom: 16px;
+    box-shadow: 0 1px 4px rgba(0, 21, 41, 0.08);
+  }
+}
+
+// 搜索栏
+.search-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 16px;
+
+  .el-form-item {
+    margin-bottom: 0;
+  }
+}
+
+// 表格操作栏
+.table-operations {
+  display: flex;
+  gap: 4px;
+  justify-content: center;
+}
+
+// 状态标签
+.status-tag {
+  &.success { color: #67c23a; }
+  &.warning { color: #e6a23c; }
+  &.danger { color: #f56c6c; }
+  &.info { color: #909399; }
+}
+
+// 空状态
+.empty-state {
+  text-align: center;
+  padding: 40px 0;
+  color: #909399;
+}
