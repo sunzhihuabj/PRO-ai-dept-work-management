@@ -35,3 +35,7 @@ data/
 
 # OS
 Thumbs.db
+
+# Temp / screenshots
+*.tmp
+.screenshots/
