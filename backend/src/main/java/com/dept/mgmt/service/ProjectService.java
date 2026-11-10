@@ -13,6 +13,7 @@ import com.dept.mgmt.mapper.MilestoneMapper;
 import com.dept.mgmt.mapper.ProjectMapper;
 import com.dept.mgmt.mapper.ProjectMemberMapper;
 import com.dept.mgmt.mapper.ProjectPhaseMapper;
+import com.dept.mgmt.platform.code.service.CodeEngineService;
 import com.dept.mgmt.security.LoginUser;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -22,6 +23,7 @@ import org.springframework.util.StringUtils;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 项目服务
@@ -37,6 +39,7 @@ public class ProjectService {
     private final ProjectPhaseMapper projectPhaseMapper;
     private final ProjectMemberMapper projectMemberMapper;
     private final MilestoneMapper milestoneMapper;
+    private final CodeEngineService codeEngineService;
 
     /** 项目类型缩写 */
     private static final String[] TYPE_CODES = {"", "ZJC", "JG", "YF"};
@@ -87,12 +90,10 @@ public class ProjectService {
     public Long create(ProjectDTO dto) {
         LoginUser loginUser = LoginUser.current();
 
-        // 生成项目编号 PRJ-年份-类型缩写-序号
+        // 生成项目编号（编码规则引擎：PRJ-{yyyy}-{type}-{seq:3}，独立短事务原子发号，修复并发/删除重号缺陷）
         String typeCode = dto.getProjectType() >= 1 && dto.getProjectType() <= 3
                 ? TYPE_CODES[dto.getProjectType()] : "OTH";
-        String year = String.valueOf(LocalDate.now().getYear());
-        Long count = projectMapper.selectCount(null) + 1;
-        String projectCode = String.format("PRJ-%s-%s-%03d", year, typeCode, count);
+        String projectCode = codeEngineService.nextCode("PRJ", Map.of("type", typeCode));
 
         Project project = new Project();
         project.setProjectCode(projectCode);

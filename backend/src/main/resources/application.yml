@@ -6,10 +6,10 @@ server:
 spring:
   application:
     name: dept-mgmt-backend
-  # 数据源配置（凭据通过环境变量注入，默认值仅用于本地开发）
+  # 数据源配置（凭据通过环境变量注入，默认值仅用于本地开发；本项目专用实例 3307，与系统其他 MySQL 隔离）
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
-    url: jdbc:mysql://localhost:3306/dept_mgmt?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+    url: jdbc:mysql://localhost:3307/dept_mgmt?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
     username: ${DB_USERNAME:root}
     password: ${DB_PASSWORD:root}
   # Jackson配置

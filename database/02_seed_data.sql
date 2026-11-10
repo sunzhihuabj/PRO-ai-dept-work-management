@@ -322,3 +322,18 @@ INSERT INTO `task_pool` (`task_name`, `task_type`, `project_type`, `phase_order`
 ('现场施工安全交底', '安全管理', 1, 10, 1, 4.0, '施工前安全交底会议与记录', 1),
 ('系统联调测试', '测试验证', 3, 4, 1, 24.0, '研发系统联调测试与问题跟踪', 1),
 ('竣工资料整理', '资料归档', 2, 6, 2, 12.0, '技改项目竣工资料收集与整理', 1);
+
+-- ============================================================================
+-- T-101 平台底座种子数据
+-- ============================================================================
+
+-- 编码规则（PRJ 与存量格式完全一致：PRJ-年份-类型缩写-3位序号）
+INSERT INTO `sys_code_rule` (`rule_code`, `rule_name`, `pattern`, `date_pattern`, `status`, `remark`) VALUES
+('PRJ', '项目编号',   'PRJ-{yyyy}-{type}-{seq:3}', 'yyyy',   1, '类型缩写由建档时传入 type 参数（ZJC整机厂/JG技改/YF研发/OTH其他）'),
+('HT',  '合同编号',   'HT-{yyyyMM}-{seq:4}',       'yyyyMM', 1, '合同台账启用后使用'),
+('WL',  '物料编码',   'WL-{seq:6}',                NULL,     1, '一码一物，永不重置，对齐 T-003 物料归一清单口径');
+
+-- 通知模板
+INSERT INTO `sys_notification_template` (`template_code`, `title_template`, `content_template`, `message_type`, `status`) VALUES
+('GENERIC_REMIND', '【{title}】', '{content}', '系统通知', 1),
+('AUDIT_RESULT',   '审核结果：{bizName}', '您提交的「{bizName}」审核{result}，{comment}', '审核通知', 1);

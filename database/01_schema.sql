@@ -960,8 +960,80 @@ CREATE TABLE `project_bonus_record` (
     KEY               `idx_pay_time` (`pay_time`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='奖金发放记录表';
 
+-- ============================================================================
+-- 9.11 平台底座（T-101：编码规则引擎 / 通知中心 / 导入导出物料示例）
+-- ============================================================================
+
+-- 编码规则表（配置化发号规则）
+DROP TABLE IF EXISTS `sys_code_rule`;
+CREATE TABLE `sys_code_rule` (
+    `id`           BIGINT       NOT NULL AUTO_INCREMENT COMMENT '规则ID',
+    `rule_code`    VARCHAR(50)  NOT NULL                COMMENT '规则编码（唯一）：PRJ/HT/WL...',
+    `rule_name`    VARCHAR(100) NOT NULL                COMMENT '规则名称',
+    `pattern`      VARCHAR(100) NOT NULL                COMMENT '编码模板：{yyyy}/{yyyyMM}/{yyyyMMdd}日期变量；{seq:n}流水号左补零n位；{xxx}调用方参数',
+    `date_pattern` VARCHAR(10)  DEFAULT NULL            COMMENT '流水号重置维度的日期格式（yyyy/yyyyMM/空=永不重置）',
+    `status`       TINYINT      NOT NULL DEFAULT 1      COMMENT '状态（1启用 0停用）',
+    `remark`       VARCHAR(200) DEFAULT NULL            COMMENT '备注',
+    `create_time`  DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `update_time`  DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    `deleted`      TINYINT      DEFAULT 0               COMMENT '逻辑删除（0未删除 1已删除）',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_rule_code` (`rule_code`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='编码规则表';
+
+-- 编码序号表（独立短事务原子自增，date_part 变化即流水号重置）
+DROP TABLE IF EXISTS `sys_code_seq`;
+CREATE TABLE `sys_code_seq` (
+    `id`            BIGINT      NOT NULL AUTO_INCREMENT COMMENT '序号ID',
+    `rule_code`     VARCHAR(50) NOT NULL                COMMENT '规则编码',
+    `date_part`     VARCHAR(10) NOT NULL DEFAULT ''     COMMENT '日期段值（如 2026/202611），无日期规则固定空串',
+    `current_value` BIGINT      NOT NULL DEFAULT 0      COMMENT '当前流水值',
+    `update_time`   DATETIME    DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_rule_date` (`rule_code`, `date_part`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='编码序号表';
+
+-- 通知模板表
+DROP TABLE IF EXISTS `sys_notification_template`;
+CREATE TABLE `sys_notification_template` (
+    `id`               BIGINT       NOT NULL AUTO_INCREMENT COMMENT '模板ID',
+    `template_code`    VARCHAR(50)  NOT NULL                COMMENT '模板编码（唯一）',
+    `title_template`   VARCHAR(200) NOT NULL                COMMENT '标题模板（{param}占位符）',
+    `content_template` TEXT         DEFAULT NULL            COMMENT '内容模板（{param}占位符）',
+    `message_type`     VARCHAR(50)  DEFAULT '系统通知'      COMMENT '落 user_message.message_type 的分类',
+    `status`           TINYINT      NOT NULL DEFAULT 1      COMMENT '状态（1启用 0停用）',
+    `create_time`      DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `update_time`      DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    `deleted`          TINYINT      DEFAULT 0               COMMENT '逻辑删除（0未删除 1已删除）',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_template_code` (`template_code`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='通知模板表';
+
+-- 物料主数据表（一码一物，字段对齐 T-003 物料归一清单模板）
+DROP TABLE IF EXISTS `mdm_material`;
+CREATE TABLE `mdm_material` (
+    `id`            BIGINT       NOT NULL AUTO_INCREMENT COMMENT '物料ID',
+    `material_code` VARCHAR(30)  NOT NULL                COMMENT '物料编码（唯一，如 WL-000001）',
+    `material_name` VARCHAR(100) NOT NULL                COMMENT '物料名称',
+    `spec_model`    VARCHAR(100) DEFAULT NULL            COMMENT '规格型号',
+    `unit`          VARCHAR(20)  DEFAULT NULL            COMMENT '计量单位',
+    `category`      VARCHAR(50)  DEFAULT NULL            COMMENT '物料类别',
+    `old_code`      VARCHAR(100) DEFAULT NULL            COMMENT '旧编码/来源系统',
+    `alias1`        VARCHAR(100) DEFAULT NULL            COMMENT '别名1',
+    `alias2`        VARCHAR(100) DEFAULT NULL            COMMENT '别名2',
+    `dedup_status`  VARCHAR(10)  DEFAULT '未查重'        COMMENT '查重状态（未查重/疑似重复/已归并/唯一）',
+    `verify_status` VARCHAR(10)  DEFAULT '待核验'        COMMENT '一码一物核验（待核验/通过/不通过）',
+    `remark`        VARCHAR(200) DEFAULT NULL            COMMENT '备注',
+    `create_time`   DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `update_time`   DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    `deleted`       TINYINT      DEFAULT 0               COMMENT '逻辑删除（0未删除 1已删除）',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_material_code` (`material_code`),
+    KEY             `idx_material_name` (`material_name`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='物料主数据表';
+
 SET FOREIGN_KEY_CHECKS = 1;
 
 -- ============================================================================
--- DDL脚本执行完毕，共创建37张业务表
+-- DDL脚本执行完毕，共创建41张业务表
 -- ============================================================================
