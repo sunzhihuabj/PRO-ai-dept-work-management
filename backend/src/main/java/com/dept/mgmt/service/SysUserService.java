@@ -127,17 +127,23 @@ public class SysUserService {
     }
 
     /**
-     * 重置密码
+     * 重置密码（新密码由部门领导提供，禁止固定值；响应不回显）
      */
     @Transactional(rollbackFor = Exception.class)
-    public void resetPassword(Long id) {
+    public void resetPassword(Long id, String newPassword) {
+        if (newPassword == null || newPassword.length() < 8) {
+            throw new BusinessException(400, "新密码长度不能少于8位");
+        }
+        if (!newPassword.matches(".*[A-Za-z].*") || !newPassword.matches(".*\\d.*")) {
+            throw new BusinessException(400, "新密码必须同时包含字母和数字");
+        }
         SysUser existing = sysUserMapper.selectByIdWithRoles(id);
         if (existing == null) {
             throw new BusinessException(404, "用户不存在");
         }
         SysUser user = new SysUser();
         user.setId(id);
-        user.setPassword(passwordEncoder.encode("123456"));
+        user.setPassword(passwordEncoder.encode(newPassword));
         user.setPwdUpdateTime(java.time.LocalDateTime.now());
         sysUserMapper.updateById(user);
         log.info("重置用户密码成功: id={}", id);

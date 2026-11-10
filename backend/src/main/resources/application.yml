@@ -6,12 +6,12 @@ server:
 spring:
   application:
     name: dept-mgmt-backend
-  # 数据源配置
+  # 数据源配置（凭据通过环境变量注入，默认值仅用于本地开发）
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
     url: jdbc:mysql://localhost:3306/dept_mgmt?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
-    username: root
-    password: root
+    username: ${DB_USERNAME:root}
+    password: ${DB_PASSWORD:root}
   # Jackson配置
   jackson:
     date-format: yyyy-MM-dd HH:mm:ss
@@ -48,8 +48,8 @@ mybatis-plus:
 
 # JWT配置
 jwt:
-  # 密钥（生产环境应通过环境变量注入）
-  secret: ZGVwdC1tZ210LWp3dC1zZWNyZXQta2V5LWFpLWRlcHQtbWFuYWdlLWZpcmUtMjAyNg==
+  # 密钥（Base64，解码后不少于32字节，不足则启动失败；生产环境必须通过环境变量 JWT_SECRET 注入强随机密钥）
+  secret: "${JWT_SECRET:3V/8Fp0IsOdSAOqOpm6xFXZWDEu4xw8kasX737jXMH9p/JLZskFtAidjwOJfJIBj}"
   # Token有效期（秒），2小时
   expiration: 7200
   # Token请求头名称
@@ -67,11 +67,19 @@ file:
     # 访问URL前缀
     url-prefix: /files
 
-# 微信小程序配置（appid/secret 为空时走开发模式：code 即 openid）
+# 微信小程序配置
 wechat:
   miniapp:
     appid: ""
     secret: ""
+    # 微信登录开发模式开关（code 即 openid）：仅限本地开发调试，默认关闭；
+    # 部署到任何外部环境必须保持 false 并配置真实 appid/secret，否则微信登录返回 503
+    dev-mode: false
+
+# 跨域白名单（逗号分隔）
+app:
+  cors:
+    allowed-origins: http://localhost:5173,http://127.0.0.1:5173
 
 # AI服务配置（Ollama）
 ai:

@@ -56,8 +56,8 @@ export function deleteUserApi(id: number) {
   return del(`/v1/users/${id}`)
 }
 
-export function resetPasswordApi(id: number) {
-  return put(`/v1/users/${id}/reset-password`)
+export function resetPasswordApi(id: number, newPassword: string) {
+  return put(`/v1/users/${id}/reset-password`, { newPassword })
 }
 
 export function toggleUserStatusApi(id: number, status: number) {

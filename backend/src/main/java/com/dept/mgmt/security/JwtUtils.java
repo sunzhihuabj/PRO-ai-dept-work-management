@@ -9,7 +9,6 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import javax.crypto.SecretKey;
-import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.Date;
 import java.util.HashMap;
@@ -35,9 +34,16 @@ public class JwtUtils {
 
     @PostConstruct
     public void init() {
-        byte[] keyBytes = Base64.getDecoder().decode(secret);
+        // 密钥治理：仅接受 Base64 编码且解码后不少于32字节的密钥，不再回退到原始字节，防止弱密钥上线
+        byte[] keyBytes;
+        try {
+            keyBytes = Base64.getDecoder().decode(secret);
+        } catch (IllegalArgumentException e) {
+            throw new IllegalStateException("JWT密钥配置无效：jwt.secret 必须是 Base64 编码字符串", e);
+        }
         if (keyBytes.length < 32) {
-            keyBytes = secret.getBytes(StandardCharsets.UTF_8);
+            throw new IllegalStateException("JWT密钥强度不足：jwt.secret 解码后为 "
+                    + keyBytes.length + " 字节，要求不少于32字节，请通过环境变量 JWT_SECRET 注入强随机密钥");
         }
         this.key = Keys.hmacShaKeyFor(keyBytes);
         log.info("JWT密钥初始化完成，Token有效期: {}秒", expiration);

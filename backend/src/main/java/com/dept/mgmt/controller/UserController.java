@@ -12,6 +12,7 @@ import jakarta.validation.Valid;
 import lombok.Data;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -96,14 +97,15 @@ public class UserController {
     }
 
     /**
-     * 重置密码
+     * 重置密码（仅部门领导可操作；新密码由操作人提供，响应不回显）
      */
     @PutMapping("/{id}/reset-password")
-    @Operation(summary = "重置用户密码")
+    @PreAuthorize("hasAuthority('ROLE_DEPT_LEADER')")
+    @Operation(summary = "重置用户密码（仅部门领导）")
     @OperLog(title = "用户管理", businessType = 2)
-    public R<Void> resetPassword(@PathVariable Long id) {
-        sysUserService.resetPassword(id);
-        return R.ok("密码已重置为123456", null);
+    public R<Void> resetPassword(@PathVariable Long id, @RequestBody ResetPasswordDTO dto) {
+        sysUserService.resetPassword(id, dto.getNewPassword());
+        return R.ok("密码已重置成功，请将新密码线下告知用户", null);
     }
 
     /**
@@ -122,5 +124,10 @@ public class UserController {
     @Data
     public static class StatusDTO {
         private Integer status;
+    }
+
+    @Data
+    public static class ResetPasswordDTO {
+        private String newPassword;
     }
 }

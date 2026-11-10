@@ -22,6 +22,8 @@ import org.springframework.web.client.RestTemplate;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * 认证服务
@@ -45,20 +47,37 @@ public class AuthService {
     @Value("${wechat.miniapp.secret:}")
     private String wxAppSecret;
 
+    /** 微信登录开发模式开关：默认关闭；仅本地开发调试可显式打开，生产环境严禁开启 */
+    @Value("${wechat.miniapp.dev-mode:false}")
+    private boolean wxDevMode;
+
+    /** 登录防爆破：同一用户名连续失败达到上限后临时锁定（内存实现，重启即清） */
+    private static final Map<String, LoginAttempt> LOGIN_ATTEMPTS = new ConcurrentHashMap<>();
+    private static final int MAX_LOGIN_FAILURES = 5;
+    private static final long LOGIN_LOCK_MS = 15 * 60 * 1000L;
+
+    private record LoginAttempt(int failures, long lockUntil) {
+    }
+
     /**
      * 登录
      */
     @Transactional(rollbackFor = Exception.class)
     public LoginVO login(LoginDTO dto, HttpServletRequest request) {
+        // 0. 登录防爆破检查：连续失败5次锁定15分钟
+        checkLoginLocked(dto.getUsername());
+
         // 1. 根据用户名查询用户
         SysUser user = sysUserMapper.selectByUsername(dto.getUsername());
         if (user == null) {
+            recordLoginFailure(dto.getUsername());
             log.warn("登录失败-用户不存在: {}", dto.getUsername());
             throw new BusinessException(401, "用户名或密码错误");
         }
 
         // 2. 校验密码（前端传输明文，后端用BCrypt比对密文）
         if (!passwordEncoder.matches(dto.getPassword(), user.getPassword())) {
+            recordLoginFailure(dto.getUsername());
             log.warn("登录失败-密码错误: {}", dto.getUsername());
             throw new BusinessException(401, "用户名或密码错误");
         }
@@ -69,6 +88,7 @@ public class AuthService {
         }
 
         // 4-7. 签发 Token 并构建响应
+        clearLoginFailure(user.getUsername());
         LoginVO vo = issueToken(user);
         String loginIp = getClientIp(request);
         sysUserMapper.updateLoginInfo(user.getId(), loginIp);
@@ -122,15 +142,19 @@ public class AuthService {
     }
 
     /**
-     * code 换 openid；未配置 appid/secret 时进入开发模式（code 即 openid）
+     * code 换 openid；仅在 wechat.miniapp.dev-mode=true 且未配置 appid/secret 时进入开发模式（code 即 openid）
+     * 开发模式是显式开关的调试后门，生产环境必须为 false 并配置真实 appid/secret，否则拒绝服务
      */
     private String resolveOpenid(String code) {
         if (!StringUtils.hasText(code)) {
             throw new BusinessException(400, "code 不能为空");
         }
         if (!StringUtils.hasText(wxAppId) || !StringUtils.hasText(wxAppSecret)) {
-            log.debug("微信开发模式：未配置 appid/secret，code 直接作为 openid");
-            return "dev_" + code;
+            if (wxDevMode) {
+                log.warn("微信开发模式已开启（wechat.miniapp.dev-mode=true），code 直接作为 openid，严禁在生产环境使用");
+                return "dev_" + code;
+            }
+            throw new BusinessException(503, "微信登录未配置：请配置 wechat.miniapp.appid/secret");
         }
         try {
             RestTemplate restTemplate = new RestTemplate();
@@ -222,6 +246,38 @@ public class AuthService {
         update.setPwdUpdateTime(java.time.LocalDateTime.now());
         sysUserMapper.updateById(update);
         log.info("用户修改密码成功: {}", user.getUsername());
+    }
+
+    /**
+     * 登录防爆破：检查账号是否处于锁定状态
+     */
+    private void checkLoginLocked(String username) {
+        LoginAttempt attempt = LOGIN_ATTEMPTS.get(username);
+        long now = System.currentTimeMillis();
+        if (attempt != null && attempt.lockUntil() > now) {
+            long remainMin = (attempt.lockUntil() - now) / 60000 + 1;
+            throw new BusinessException(429, "密码错误次数过多，账号已临时锁定，请约" + remainMin + "分钟后再试");
+        }
+    }
+
+    /**
+     * 登录防爆破：记录一次失败，连续失败达到上限则锁定15分钟
+     */
+    private void recordLoginFailure(String username) {
+        LOGIN_ATTEMPTS.compute(username, (k, prev) -> {
+            long now = System.currentTimeMillis();
+            int failures = (prev != null && prev.lockUntil() <= now) ? 0 : (prev == null ? 0 : prev.failures());
+            failures++;
+            long lockUntil = failures >= MAX_LOGIN_FAILURES ? now + LOGIN_LOCK_MS : 0L;
+            return new LoginAttempt(failures, lockUntil);
+        });
+    }
+
+    /**
+     * 登录防爆破：登录成功后清除失败计数
+     */
+    private void clearLoginFailure(String username) {
+        LOGIN_ATTEMPTS.remove(username);
     }
 
     /**

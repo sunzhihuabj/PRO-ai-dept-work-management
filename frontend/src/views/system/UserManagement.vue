@@ -191,11 +191,32 @@ async function handleSubmit() {
   })
 }
 
+/** 生成12位随机密码（去掉易混淆字符，含字母和数字） */
+function genRandomPwd(): string {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789'
+  const arr = new Uint32Array(12)
+  crypto.getRandomValues(arr)
+  let pwd = ''
+  for (const n of arr) pwd += chars[n % chars.length]
+  return pwd
+}
+
 async function handleResetPwd(row: SysUser) {
   try {
-    await ElMessageBox.confirm(`确定要重置用户"${row.realName}"的密码为123456吗？`, '提示', { type: 'warning' })
-    await resetPasswordApi(row.id)
-    ElMessage.success('密码已重置为123456')
+    const { value } = await ElMessageBox.prompt(
+      `为用户"${row.realName}"设置新密码（至少8位，需包含字母和数字），重置后请线下告知该用户`,
+      '重置密码',
+      {
+        confirmButtonText: '确认重置',
+        cancelButtonText: '取消',
+        inputValue: genRandomPwd(),
+        inputPattern: /^(?=.*[A-Za-z])(?=.*\d).{8,}$/,
+        inputErrorMessage: '密码至少8位，且需同时包含字母和数字',
+        type: 'warning'
+      }
+    )
+    await resetPasswordApi(row.id, value)
+    ElMessage.success('密码已重置成功，请将新密码线下告知用户')
   } catch (e) {}
 }
 
