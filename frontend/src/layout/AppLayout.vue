@@ -79,6 +79,10 @@
           <el-icon><ChatDotRound /></el-icon>
           <span>Agent 工作台</span>
         </el-menu-item>
+        <el-menu-item index="/contract">
+          <el-icon><Stamp /></el-icon>
+          <span>合同管理</span>
+        </el-menu-item>
         <el-menu-item v-if="userStore.isAdmin" index="/bonus">
           <el-icon><Money /></el-icon>
           <span>奖金管理</span>

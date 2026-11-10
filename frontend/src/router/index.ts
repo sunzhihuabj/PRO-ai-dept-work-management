@@ -134,6 +134,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: 'Agent 工作台', icon: 'ChatDotRound' }
       },
       {
+        path: 'contract',
+        name: 'ContractManagement',
+        component: () => import('@/views/contract/ContractManagement.vue'),
+        meta: { title: '合同管理', icon: 'Stamp' }
+      },
+      {
         path: 'bonus',
         name: 'BonusManage',
         component: () => import('@/views/bonus/BonusManage.vue'),
