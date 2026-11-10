@@ -152,6 +152,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '样机管理', icon: 'Box' }
       },
       {
+        path: 'delivery',
+        name: 'DeliveryManagement',
+        component: () => import('@/views/delivery/DeliveryManagement.vue'),
+        meta: { title: '交付管理', icon: 'Van' }
+      },
+      {
         path: 'bonus',
         name: 'BonusManage',
         component: () => import('@/views/bonus/BonusManage.vue'),
