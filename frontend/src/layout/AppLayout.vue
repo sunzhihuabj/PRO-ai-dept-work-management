@@ -83,6 +83,10 @@
           <el-icon><Stamp /></el-icon>
           <span>合同管理</span>
         </el-menu-item>
+        <el-menu-item index="/design">
+          <el-icon><SetUp /></el-icon>
+          <span>设计管理</span>
+        </el-menu-item>
         <el-menu-item v-if="userStore.isAdmin" index="/bonus">
           <el-icon><Money /></el-icon>
           <span>奖金管理</span>
