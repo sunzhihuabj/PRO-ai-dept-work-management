@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.dept.mgmt.agent.entity.AgentTask;
 import com.dept.mgmt.agent.enums.TaskStatus;
 import com.dept.mgmt.agent.handler.CapabilityHandler;
+import com.dept.mgmt.event.bus.EventBusService;
 import com.dept.mgmt.mapper.AgentTaskMapper;
 import com.dept.mgmt.platform.identity.service.EffectivePermissionService;
 import lombok.extern.slf4j.Slf4j;
@@ -38,15 +39,18 @@ public class TaskExecutor {
     private final AgentTaskMapper taskMapper;
     private final MasterAgentService masterAgentService;
     private final EffectivePermissionService effectivePermissionService;
+    private final EventBusService eventBusService;
     private final Semaphore slots;
     private final Map<String, CapabilityHandler> handlers;
 
     public TaskExecutor(AgentTaskMapper taskMapper, MasterAgentService masterAgentService,
                         EffectivePermissionService effectivePermissionService,
+                        EventBusService eventBusService,
                         List<CapabilityHandler> handlerBeans) {
         this.taskMapper = taskMapper;
         this.masterAgentService = masterAgentService;
         this.effectivePermissionService = effectivePermissionService;
+        this.eventBusService = eventBusService;
         this.slots = new Semaphore(MAX_CONCURRENCY);
         this.handlers = handlerBeans.stream()
                 .collect(Collectors.toMap(CapabilityHandler::capabilityCode, Function.identity()));
@@ -127,6 +131,9 @@ public class TaskExecutor {
             taskMapper.updateById(task);
             masterAgentService.transition(task.getId(), TaskStatus.RUNNING.getCode(), TaskStatus.DONE.getCode(),
                     executedBy, "执行完成" + (aiGenerated ? "（AI 生成）" : ""));
+            // 跨域通知走事件总线（T-108）：Agent 域不直接调用通知域
+            eventBusService.publish(com.dept.mgmt.event.model.DomainEventType.AGENT_TASK_FINISHED,
+                    Map.of("taskId", task.getId(), "taskNo", task.getTaskNo(), "callerUserId", task.getCallerUserId()));
         } catch (Exception e) {
             log.error("任务执行异常: taskNo={}", task.getTaskNo(), e);
             task.setStatus(TaskStatus.FAILED.getCode());
