@@ -1769,8 +1769,31 @@ INSERT INTO `redcard_rule` (`rule_code`, `rule_name`, `board`, `metric`, `compar
 ON DUPLICATE KEY UPDATE `rule_name` = VALUES(`rule_name`), `metric` = VALUES(`metric`),
   `comparator` = VALUES(`comparator`), `threshold` = VALUES(`threshold`), `level` = VALUES(`level`);
 
+-- ============================================================================
+-- 9.22 数据迁移（T-213：客户主体库建表；存量客户/项目/物料导入+清洗校验报告）
+-- ============================================================================
+
+-- 客户主体库（M2 主数据补全：名称唯一+社会信用代码，"能选不填"数据源）
+DROP TABLE IF EXISTS `mdm_customer`;
+CREATE TABLE `mdm_customer` (
+    `id`                 BIGINT       NOT NULL AUTO_INCREMENT COMMENT '客户ID',
+    `customer_name`      VARCHAR(200) NOT NULL                COMMENT '客户名称（唯一）',
+    `social_credit_code` VARCHAR(20)  DEFAULT NULL            COMMENT '统一社会信用代码（18位，可空）',
+    `alias1`             VARCHAR(200) DEFAULT NULL            COMMENT '别名1',
+    `alias2`             VARCHAR(200) DEFAULT NULL            COMMENT '别名2',
+    `contact_person`     VARCHAR(50)  DEFAULT NULL            COMMENT '联系人',
+    `contact_phone`      VARCHAR(30)  DEFAULT NULL            COMMENT '联系电话',
+    `level`              VARCHAR(20)  DEFAULT NULL            COMMENT '客户分级（战略/重点/普通）',
+    `remark`             VARCHAR(500) DEFAULT NULL            COMMENT '备注',
+    `create_time`        DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `update_time`        DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    `deleted`            TINYINT      DEFAULT 0               COMMENT '逻辑删除（0未删除 1已删除）',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_customer_name` (`customer_name`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='客户主体库';
+
 SET FOREIGN_KEY_CHECKS = 1;
 
 -- ============================================================================
--- DDL脚本执行完毕，共创建73张业务表
+-- DDL脚本执行完毕，共创建74张业务表
 -- ============================================================================
