@@ -95,7 +95,7 @@ public class WorkshopController {
     // ===== PO / 到货 =====
 
     @PostMapping("/pos")
-    @Operation(summary = "创建采购订单（PO 编号引擎）")
+    @Operation(summary = "创建采购订单（PO 编号引擎，含期望到货日期）")
     @OperLog(title = "样机管理", businessType = 1)
     public R<Long> createPo(@RequestBody Map<String, Object> body) {
         return R.ok("PO 已创建", workshopService.createPo(
@@ -103,7 +103,9 @@ public class WorkshopController {
                 (String) body.get("materialCode"),
                 (String) body.get("materialName"),
                 new BigDecimal(String.valueOf(body.get("qty"))),
-                (String) body.get("supplier")));
+                (String) body.get("supplier"),
+                body.get("expectedDate") == null ? null
+                        : java.time.LocalDate.parse(String.valueOf(body.get("expectedDate")))));
     }
 
     @GetMapping("/pos")

@@ -40,6 +40,9 @@ public class PurchaseOrder extends BaseEntity {
     /** 供应商 */
     private String supplier;
 
+    /** 期望到货日期（AGT-15 交期跟踪） */
+    private java.time.LocalDate expectedDate;
+
     /** 状态（DRAFT/SUBMITTED/CLOSED） */
     private String status;
 }

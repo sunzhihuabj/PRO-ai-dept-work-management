@@ -239,11 +239,13 @@ public class WorkshopService {
     // ===== PO / 到货 =====
 
     @Transactional(rollbackFor = Exception.class)
-    public Long createPo(Long projectId, String materialCode, String materialName, BigDecimal qty, String supplier) {
+    public Long createPo(Long projectId, String materialCode, String materialName, BigDecimal qty,
+                         String supplier, java.time.LocalDate expectedDate) {
         PurchaseOrder po = buildPo(projectId, materialCode, materialName, qty, supplier);
+        po.setExpectedDate(expectedDate);
         po.setStatus("SUBMITTED");
         purchaseOrderMapper.insert(po);
-        log.info("PO 创建: {} {} x{}", po.getPoNo(), materialCode, qty);
+        log.info("PO 创建: {} {} x{} 期望到货 {}", po.getPoNo(), materialCode, qty, expectedDate);
         return po.getId();
     }
 
@@ -318,6 +320,17 @@ public class WorkshopService {
     public List<ArrivalRecord> listArrivals(Long poId) {
         return arrivalRecordMapper.selectList(new LambdaQueryWrapper<ArrivalRecord>()
                 .eq(poId != null, ArrivalRecord::getPoId, poId).orderByDesc(ArrivalRecord::getId));
+    }
+
+    /**
+     * PO 交期盘点（AGT-15 数据）：逾期 = 未完结且期望到货日期早于今日
+     */
+    public java.util.List<PurchaseOrder> listOverduePos(Long projectId, java.time.LocalDate today) {
+        return purchaseOrderMapper.selectList(new LambdaQueryWrapper<PurchaseOrder>()
+                .eq(PurchaseOrder::getProjectId, projectId)
+                .ne(PurchaseOrder::getStatus, "CLOSED")
+                .isNotNull(PurchaseOrder::getExpectedDate)
+                .lt(PurchaseOrder::getExpectedDate, today));
     }
 
     // ===== 交底 =====

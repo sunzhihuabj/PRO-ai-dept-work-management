@@ -1398,6 +1398,7 @@ CREATE TABLE `purchase_order` (
     `qty`           DECIMAL(12,2)  NOT NULL                COMMENT '采购数量',
     `arrived_qty`   DECIMAL(12,2)  NOT NULL DEFAULT 0      COMMENT '已到货数量',
     `supplier`      VARCHAR(100)   DEFAULT NULL            COMMENT '供应商',
+    `expected_date` DATE           DEFAULT NULL            COMMENT '期望到货日期（AGT-15 交期跟踪）',
     `status`        VARCHAR(20)    NOT NULL DEFAULT 'SUBMITTED' COMMENT '状态（DRAFT草稿/SUBMITTED已下达/CLOSED完结）',
     `create_time`   DATETIME       DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     `update_time`   DATETIME       DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
