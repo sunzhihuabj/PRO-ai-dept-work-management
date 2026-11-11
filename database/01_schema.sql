@@ -116,10 +116,10 @@ CREATE TABLE `sys_role_menu` (
 
 DROP TABLE IF EXISTS `sys_dept`;
 CREATE TABLE `sys_dept` (
-    `id`            BIGINT       NOT NULL AUTO_INCREMENT COMMENT '部门ID',
-    `parent_id`     BIGINT       DEFAULT 0               COMMENT '父部门ID（0为顶级）',
-    `ancestors`     VARCHAR(500) DEFAULT ''              COMMENT '祖级列表（逗号分隔）',
-    `dept_name`     VARCHAR(100) NOT NULL                COMMENT '部门名称',
+    `id`            BIGINT       NOT NULL AUTO_INCREMENT COMMENT '组织节点ID',
+    `parent_id`     BIGINT       DEFAULT 0               COMMENT '上级组织ID（0为根节点）',
+    `ancestors`     VARCHAR(500) DEFAULT ''              COMMENT '祖级链路（逗号分隔，如 0,1,5）',
+    `dept_name`     VARCHAR(100) NOT NULL                COMMENT '组织名称（字段名保留 dept_name 以兼容历史数据）',
     `order_num`     INT          DEFAULT 0               COMMENT '排序号',
     `leader`        VARCHAR(50)  DEFAULT NULL            COMMENT '负责人',
     `phone`         VARCHAR(20)  DEFAULT NULL            COMMENT '联系电话',
@@ -131,7 +131,7 @@ CREATE TABLE `sys_dept` (
     PRIMARY KEY (`id`),
     KEY             `idx_parent_id` (`parent_id`),
     KEY             `idx_status` (`status`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='部门表';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='组织架构表（原部门表，T-310 命名统一，表名/字段名保持兼容）';
 
 DROP TABLE IF EXISTS `sys_oper_log`;
 CREATE TABLE `sys_oper_log` (

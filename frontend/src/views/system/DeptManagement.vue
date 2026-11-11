@@ -1,52 +1,71 @@
 <template>
   <div class="page-container">
     <el-page-header @back="$router.back()" style="margin-bottom: 16px;">
-      <template #content><span class="page-header-title">部门管理</span></template>
+      <template #content><span class="page-header-title">组织架构</span></template>
     </el-page-header>
 
-    <el-card shadow="hover">
-      <div style="margin-bottom: 12px; display: flex; justify-content: space-between;">
-        <span>部门树</span>
-        <el-button type="primary" size="small" @click="openCreate()">新增部门</el-button>
+    <el-card shadow="never">
+      <div class="toolbar" style="justify-content: space-between;">
+        <span class="card-title">架构树<el-badge :value="totalCount" type="primary" class="card-badge" /></span>
+        <el-button type="primary" size="small" :icon="Plus" @click="openCreate()">新增组织</el-button>
       </div>
 
-      <el-table v-loading="loading" :data="treeData" row-key="id" default-expand-all border>
-        <el-table-column prop="deptName" label="部门名称" min-width="200" />
-        <el-table-column prop="leader" label="负责人" width="110" />
-        <el-table-column prop="phone" label="联系电话" width="130" />
-        <el-table-column prop="email" label="邮箱" width="180" />
+      <el-table v-loading="loading" :data="treeData" row-key="id" default-expand-all border stripe
+                :empty-text="'暂无组织节点，点击右上角「新增组织」建立根节点'">
+        <el-table-column prop="deptName" label="组织名称" min-width="220">
+          <template #default="{ row }: any">
+            <el-icon class="org-icon"><OfficeBuilding /></el-icon>
+            <span class="org-name">{{ row.deptName }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column prop="leader" label="负责人" width="110">
+          <template #default="{ row }: any">{{ row.leader || '—' }}</template>
+        </el-table-column>
+        <el-table-column prop="phone" label="联系电话" width="130">
+          <template #default="{ row }: any">{{ row.phone || '—' }}</template>
+        </el-table-column>
+        <el-table-column prop="email" label="邮箱" width="180" show-overflow-tooltip>
+          <template #default="{ row }: any">{{ row.email || '—' }}</template>
+        </el-table-column>
         <el-table-column prop="orderNum" label="排序" width="80" align="center" />
+        <el-table-column label="层级" width="90" align="center">
+          <template #default="{ row }: any">
+            <el-tag size="small" effect="plain">{{ levelOf(row) }}</el-tag>
+          </template>
+        </el-table-column>
         <el-table-column label="状态" width="90" align="center">
           <template #default="{ row }: any">
             <el-tag :type="row.status === 1 ? 'success' : 'info'" size="small">{{ row.status === 1 ? '正常' : '停用' }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="230" align="center">
+        <el-table-column label="操作" width="240" align="center" fixed="right">
           <template #default="{ row }: any">
-            <el-button link type="primary" size="small" @click="openCreate(row)">新增子部门</el-button>
-            <el-button link type="primary" size="small" @click="openEdit(row)">编辑</el-button>
-            <el-button link type="danger" size="small" @click="handleDelete(row)">删除</el-button>
+            <el-button link type="primary" size="small" :icon="Plus" @click="openCreate(row)">下级组织</el-button>
+            <el-button link type="primary" size="small" :icon="Edit" @click="openEdit(row)">编辑</el-button>
+            <el-button link type="danger" size="small" :icon="Delete" @click="handleDelete(row)">删除</el-button>
           </template>
         </el-table-column>
       </el-table>
     </el-card>
 
-    <el-dialog v-model="dialogVisible" :title="editing ? '编辑部门' : '新增部门'" width="460px">
+    <el-dialog v-model="dialogVisible" :title="editing ? '编辑组织节点' : '新增组织节点'" width="480px">
+      <el-alert type="info" :closable="false" style="margin-bottom: 14px"
+                title="组织按树形层级维护：选择上级组织建立层级关系，删除节点前须先清空下级与挂靠用户" />
       <el-form ref="formRef" :model="form" :rules="rules" label-width="90px">
-        <el-form-item label="父部门">
+        <el-form-item label="上级组织">
           <el-tree-select
             v-model="form.parentId"
             :data="parentOptions"
             :props="{ label: 'deptName', children: 'children' }"
             check-strictly
             :render-after-expand="false"
-            placeholder="默认根节点"
+            placeholder="不选则为根节点"
             clearable
             style="width: 100%"
           />
         </el-form-item>
-        <el-form-item label="部门名称" prop="deptName">
-          <el-input v-model="form.deptName" maxlength="100" />
+        <el-form-item label="组织名称" prop="deptName">
+          <el-input v-model="form.deptName" maxlength="100" placeholder="如：塔筒制造一部" />
         </el-form-item>
         <el-form-item label="负责人">
           <el-input v-model="form.leader" maxlength="50" />
@@ -76,14 +95,16 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
+import { computed, ref, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
+import { Plus, Edit, Delete, OfficeBuilding } from '@element-plus/icons-vue'
 import { listDeptsApi, createDeptApi, updateDeptApi, deleteDeptApi, type SysDept } from '@/api/dept'
 
 const loading = ref(false)
 const saving = ref(false)
 const treeData = ref<any[]>([])
+const flatList = ref<SysDept[]>([])
 const parentOptions = ref<any[]>([])
 
 const dialogVisible = ref(false)
@@ -99,7 +120,19 @@ const form = reactive({
   status: 1
 })
 const rules: FormRules = {
-  deptName: [{ required: true, message: '请输入部门名称', trigger: 'blur' }]
+  deptName: [{ required: true, message: '请输入组织名称', trigger: 'blur' }]
+}
+const totalCount = computed(() => flatList.value.length)
+
+/** 节点层级（根=1级，按 ancestors 链路或父级递归） */
+function levelOf(row: any): string {
+  const depth = (id: number, guard = 0): number => {
+    if (guard > 20) return 1
+    const node = flatList.value.find((d) => d.id === id)
+    if (!node || !node.parentId || node.parentId === 0) return 1
+    return 1 + depth(node.parentId, guard + 1)
+  }
+  return `${depth(row.id)} 级`
 }
 
 function buildTree(list: SysDept[], excludeId?: number): any[] {
@@ -126,8 +159,9 @@ async function load() {
   loading.value = true
   try {
     const res = await listDeptsApi()
-    treeData.value = buildTree(res.data || [])
-    parentOptions.value = buildTree(res.data || [], editing.value?.id)
+    flatList.value = res.data || []
+    treeData.value = buildTree(flatList.value)
+    parentOptions.value = buildTree(flatList.value, editing.value?.id)
   } finally {
     loading.value = false
   }
@@ -158,10 +192,10 @@ async function save() {
       const payload = { ...form, parentId: form.parentId ?? 0 }
       if (editing.value) {
         await updateDeptApi(editing.value.id, payload)
-        ElMessage.success('更新成功')
+        ElMessage.success('组织节点已更新')
       } else {
         await createDeptApi(payload)
-        ElMessage.success('创建成功')
+        ElMessage.success('组织节点已创建')
       }
       dialogVisible.value = false
       await load()
@@ -174,7 +208,9 @@ async function save() {
 
 async function handleDelete(row: SysDept) {
   try {
-    await ElMessageBox.confirm(`确认删除部门【${row.deptName}】？`, '提示', { type: 'warning' })
+    await ElMessageBox.confirm(
+      `确认删除组织节点【${row.deptName}】？存在下级组织或挂靠用户时将被拒绝。`,
+      '删除确认', { type: 'warning', confirmButtonText: '确认删除', cancelButtonText: '取消' })
     await deleteDeptApi(row.id)
     ElMessage.success('删除成功')
     await load()
@@ -187,4 +223,7 @@ onMounted(load)
 <style scoped lang="scss">
 .page-container { padding: 20px; }
 .page-header-title { font-size: 16px; font-weight: bold; }
+.toolbar { margin-bottom: 12px; }
+.org-icon { vertical-align: -2px; margin-right: 6px; color: #409eff; }
+.org-name { font-weight: 500; color: #303133; }
 </style>

@@ -15,43 +15,43 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 
 /**
- * 部门管理接口
+ * 组织架构接口（原"部门管理"，T-310 命名统一；数据模型与路由 /v1/depts 保持兼容）
  */
 @Slf4j
 @RestController
 @RequestMapping("/v1/depts")
 @RequiredArgsConstructor
-@Tag(name = "部门管理", description = "部门树 CRUD")
+@Tag(name = "组织架构", description = "组织架构树 CRUD（层级关系维护，原部门管理）")
 public class SysDeptController {
 
     private final SysDeptService sysDeptService;
 
     @GetMapping
-    @Operation(summary = "部门列表（平铺）")
+    @Operation(summary = "组织列表（平铺，前端组树）")
     public R<List<SysDept>> list() {
         return R.ok(sysDeptService.listAll());
     }
 
     @PostMapping
-    @Operation(summary = "新建部门")
-    @OperLog(title = "部门管理", businessType = 1)
+    @Operation(summary = "新建组织节点")
+    @OperLog(title = "组织架构", businessType = 1)
     public R<Long> create(@Valid @RequestBody SysDeptDTO dto) {
-        return R.ok("部门创建成功", sysDeptService.create(dto));
+        return R.ok("组织节点创建成功", sysDeptService.create(dto));
     }
 
     @PutMapping("/{id}")
-    @Operation(summary = "更新部门")
-    @OperLog(title = "部门管理", businessType = 2)
+    @Operation(summary = "更新组织节点")
+    @OperLog(title = "组织架构", businessType = 2)
     public R<Void> update(@PathVariable Long id, @Valid @RequestBody SysDeptDTO dto) {
         sysDeptService.update(id, dto);
-        return R.ok("部门更新成功", null);
+        return R.ok("组织节点更新成功", null);
     }
 
     @DeleteMapping("/{id}")
-    @Operation(summary = "删除部门（存在子部门/部门下有用户时禁止）")
-    @OperLog(title = "部门管理", businessType = 3)
+    @Operation(summary = "删除组织节点（存在下级节点/节点下有用户时禁止）")
+    @OperLog(title = "组织架构", businessType = 3)
     public R<Void> delete(@PathVariable Long id) {
         sysDeptService.delete(id);
-        return R.ok("部门删除成功", null);
+        return R.ok("组织节点删除成功", null);
     }
 }

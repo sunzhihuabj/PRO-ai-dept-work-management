@@ -107,7 +107,7 @@ const routes: RouteRecordRaw[] = [
         path: 'system/dept',
         name: 'DeptManagement',
         component: () => import('@/views/system/DeptManagement.vue'),
-        meta: { title: '部门管理', icon: 'OfficeBuilding' }
+        meta: { title: '组织架构', icon: 'OfficeBuilding' }
       },
       {
         path: 'system/log',

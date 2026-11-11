@@ -187,7 +187,7 @@ const menuGroups: MenuGroup[] = [
     title: '系统管理',
     items: [
       { index: '/system/user', label: '用户管理', icon: markRaw(User), admin: true },
-      { index: '/system/dept', label: '部门管理', icon: markRaw(OfficeBuilding), admin: true },
+      { index: '/system/dept', label: '组织架构', icon: markRaw(OfficeBuilding), admin: true },
       { index: '/system/notice', label: '通知公告', icon: markRaw(BellFilled), admin: true },
       { index: '/system/log', label: '操作日志', icon: markRaw(Tickets), admin: true },
       { index: '/system/ai-config', label: 'AI 服务配置', icon: markRaw(MagicStick), admin: true },
