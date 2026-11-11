@@ -76,6 +76,12 @@ wechat:
     # 部署到任何外部环境必须保持 false 并配置真实 appid/secret，否则微信登录返回 503
     dev-mode: false
 
+# 钉钉配置（T-309 免登+审批回调；企业凭证运行时经 /v1/dingtalk/auth/config 配置，AES-GCM 加密落库）
+dingtalk:
+  # 免登开发模式开关（未配置企业凭证时 authCode 即 dingtalkUserId）：仅限本地开发联调，默认关闭；
+  # 部署到任何外部环境必须保持 false 并配置真实企业应用凭证，否则钉钉免登返回 503
+  dev-mode: false
+
 # 跨域白名单（逗号分隔）
 app:
   cors:

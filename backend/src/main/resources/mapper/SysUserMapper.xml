@@ -11,6 +11,8 @@
         <result property="phone" column="phone"/>
         <result property="email" column="email"/>
         <result property="avatar" column="avatar"/>
+        <result property="wxOpenid" column="wx_openid"/>
+        <result property="dingtalkUserId" column="dingtalk_user_id"/>
         <result property="roleCodes" column="role_codes"/>
         <result property="status" column="status"/>
         <result property="loginIp" column="login_ip"/>
@@ -23,6 +25,7 @@
     <!-- 根据用户名查询用户 -->
     <select id="selectByUsername" resultMap="userWithRolesMap">
         SELECT id, username, password, real_name, phone, email, avatar,
+               wx_openid, dingtalk_user_id,
                role_codes, status, login_ip, login_date, pwd_update_time,
                create_time, update_time
         FROM sys_user
@@ -33,6 +36,7 @@
     <!-- 根据ID查询用户 -->
     <select id="selectByIdWithRoles" resultMap="userWithRolesMap">
         SELECT id, username, password, real_name, phone, email, avatar,
+               wx_openid, dingtalk_user_id,
                role_codes, status, login_ip, login_date, pwd_update_time,
                create_time, update_time
         FROM sys_user

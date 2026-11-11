@@ -202,6 +202,13 @@ public class AuthService {
     }
 
     /**
+     * 公开签发入口（T-309 钉钉免登/绑定复用；与 issueToken 同一构建逻辑）
+     */
+    public LoginVO issueTokenFor(SysUser user) {
+        return issueToken(user);
+    }
+
+    /**
      * 获取当前登录用户信息
      */
     public LoginVO.UserInfoVO getCurrentUserInfo(Long userId) {

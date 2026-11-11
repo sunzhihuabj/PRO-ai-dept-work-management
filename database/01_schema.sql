@@ -30,6 +30,8 @@ CREATE TABLE `sys_user` (
     `avatar`        VARCHAR(500) DEFAULT NULL            COMMENT '头像URL',
     `wx_openid`     VARCHAR(64)  DEFAULT NULL            COMMENT '微信openid',
     UNIQUE KEY `uk_wx_openid` (`wx_openid`),
+    `dingtalk_user_id` VARCHAR(64) DEFAULT NULL          COMMENT '钉钉userId（免登绑定，T-309）',
+    KEY `idx_dingtalk_user` (`dingtalk_user_id`),
     `role_codes`    JSON         DEFAULT NULL            COMMENT '角色编码列表（JSON数组）',
     `identity`      VARCHAR(20)  NOT NULL DEFAULT 'WORKER' COMMENT '三身份（T-102）：EXPERT专家/WORKER工作者；ASSISTANT为AI虚拟身份不落人类账号',
     `status`        TINYINT      DEFAULT 1               COMMENT '状态（0停用 1正常）',
@@ -2194,8 +2196,27 @@ INSERT INTO `sys_metric` (`metric_code`, `metric_name`, `category`, `description
  'SELECT COALESCE(SUM(amount),0) AS value FROM cost_ledger WHERE project_id=#{projectId}',
  '[{"name":"projectId","type":"long","required":true,"desc":"项目ID"}]', 'ACTIVE');
 
+-- ============================================================================
+-- 9.29 钉钉集成（T-309：免登统一入口+审批回调；凭证 AES-GCM 加密落库）
+-- ============================================================================
+
+-- 钉钉企业应用配置（单行；appSecret/审批回调验签密钥加密存储，接口永不回显明文）
+DROP TABLE IF EXISTS `sys_dingtalk_config`;
+CREATE TABLE `sys_dingtalk_config` (
+    `id`                BIGINT       NOT NULL AUTO_INCREMENT COMMENT '配置ID',
+    `corp_id`           VARCHAR(100) DEFAULT NULL            COMMENT '企业 corpId',
+    `app_key`           VARCHAR(100) DEFAULT NULL            COMMENT '应用 appKey（Client ID）',
+    `app_secret_enc`    VARCHAR(500) DEFAULT NULL            COMMENT '应用 appSecret（AES-GCM 加密存储）',
+    `agent_id`          VARCHAR(100) DEFAULT NULL            COMMENT '应用 agentId（工作通知用）',
+    `audit_sign_key_enc` VARCHAR(500) DEFAULT NULL           COMMENT '审批回调验签密钥（AES-GCM 加密存储）',
+    `status`            TINYINT      DEFAULT 1               COMMENT '状态（1启用/0停用）',
+    `create_time`       DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `update_time`       DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='钉钉企业应用配置';
+
 SET FOREIGN_KEY_CHECKS = 1;
 
 -- ============================================================================
--- DDL脚本执行完毕，共创建89张业务表（含 ChatBI 指标白名单）
+-- DDL脚本执行完毕，共创建90张业务表（含钉钉企业应用配置）
 -- ============================================================================

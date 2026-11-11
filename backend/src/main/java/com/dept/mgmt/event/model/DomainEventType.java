@@ -42,7 +42,10 @@ public enum DomainEventType {
     WARRANTY_DUE("warranty.due"),
 
     /** Agent 任务完成（T-107 → 通知/统计） */
-    AGENT_TASK_FINISHED("agent.task.finished");
+    AGENT_TASK_FINISHED("agent.task.finished"),
+
+    /** 钉钉审批回调完成（T-309 → 审批台账/联动确认） */
+    DINGTALK_APPROVAL_COMPLETED("dingtalk.approval.completed");
 
     private final String code;
 

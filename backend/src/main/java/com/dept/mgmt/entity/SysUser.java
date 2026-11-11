@@ -45,6 +45,9 @@ public class SysUser extends BaseEntity {
     /** 微信openid（小程序授权登录绑定） */
     private String wxOpenid;
 
+    /** 钉钉userId（钉钉免登绑定，T-309） */
+    private String dingtalkUserId;
+
     /** 角色编码列表（JSON数组） */
     private String roleCodes;
 
