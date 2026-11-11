@@ -29,7 +29,7 @@
       </el-table>
     </el-card>
 
-    <el-dialog v-model="dialogVisible" :title="editing ? '编辑分类' : '新增分类'" width="440px">
+    <el-dialog :close-on-click-modal="false" v-model="dialogVisible" :title="editing ? '编辑分类' : '新增分类'" width="440px">
       <el-form ref="formRef" :model="form" :rules="rules" label-width="90px">
         <el-form-item label="父分类">
           <el-tree-select
@@ -194,6 +194,5 @@ onMounted(load)
 </script>
 
 <style scoped lang="scss">
-.page-container { padding: 20px; }
 .page-header-title { font-size: 16px; font-weight: bold; }
 </style>

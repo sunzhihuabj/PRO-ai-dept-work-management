@@ -90,9 +90,7 @@ onMounted(loadData)
 </script>
 
 <style scoped lang="scss">
-.page-container { padding: 20px; }
 .page-header-title { font-size: 16px; font-weight: bold; }
-.search-bar { display: flex; gap: 12px; align-items: center; margin-bottom: 16px; }
 .msg-item {
   display: flex;
   justify-content: space-between;

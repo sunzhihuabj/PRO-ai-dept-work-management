@@ -339,6 +339,5 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.toolbar { display: flex; gap: 8px; margin-bottom: 12px; align-items: center; }
 .preview { white-space: pre-wrap; background: #f5f7fa; padding: 10px; border-radius: 4px; max-height: 320px; overflow: auto; }
 </style>

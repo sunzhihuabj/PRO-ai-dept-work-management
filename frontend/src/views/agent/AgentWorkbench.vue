@@ -246,7 +246,6 @@ onUnmounted(() => {
 .input-row { display: flex; gap: 12px; }
 .scene-chips { margin-top: 10px; display: flex; gap: 8px; }
 .chip { cursor: pointer; }
-.card-header { display: flex; justify-content: space-between; align-items: center; }
 .task-list { max-height: 620px; overflow-y: auto; }
 .task-card { border: 1px solid #ebeef5; border-radius: 8px; padding: 12px; margin-bottom: 10px; cursor: pointer; transition: box-shadow .2s; }
 .task-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,.08); }

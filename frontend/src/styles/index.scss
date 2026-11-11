@@ -4,13 +4,15 @@
 
 // ============================================================
 // 全局设计规范（全站 UI 统一：视觉层级/交互细节/响应式/留白）
+// 间距约定：页面留白由 AppLayout .app-main 统一提供（桌面 16px / 移动 10px），
+// .page-container 不再叠加 padding，避免双层留白不一致。
 // ============================================================
 
 :root {
   --dm-card-radius: 8px;
   --dm-gap: 16px;
   --dm-section-title-color: #303133;
-  --dm-muted: #909399;
+  --dm-muted: #767676; // AA 对比度（4.5:1），用于次要文字
   --dm-border: #e4e7ed;
   --dm-hover-bg: #f5f7fa;
 }
@@ -45,6 +47,7 @@
 }
 .el-pagination {
   justify-content: flex-end;
+  margin-top: 16px;
   @media (max-width: 768px) {
     justify-content: center;
     .el-pagination__sizes, .el-pagination__jump { display: none; }
@@ -54,6 +57,12 @@
 @media (max-width: 768px) {
   .el-table { width: 100%; }
   .el-message { max-width: 92vw; }
+  // 弹层移动端兜底：固定 px 宽的对话框/抽屉/确认框不溢出视口
+  .el-dialog { width: 92vw !important; }
+  .el-drawer.ltr, .el-drawer.rtl { max-width: 92vw; }
+}
+@media (max-width: 480px) {
+  .el-message-box { max-width: 92vw; }
 }
 
 // 全局滚动条（细条 + hover 加深）
@@ -62,15 +71,18 @@
 ::-webkit-scrollbar-thumb:hover { background: #a3abb8; }
 ::-webkit-scrollbar-track { background: transparent; }
 
+// 键盘导航焦点可见性（可访问性：WCAG 2.1 / 2.4.7）
+.stat-card:focus-visible,
+.todo-item:focus-visible,
+.action-item:focus-visible {
+  outline: 2px solid var(--el-color-primary);
+  outline-offset: 2px;
+}
+
 // ---------- 页面通用样式 ----------
 .page-container {
-  padding: 16px;
   background: #f0f2f5;
   min-height: calc(100vh - 84px);
-
-  @media (max-width: 768px) {
-    padding: 10px;
-  }
 
   .page-card {
     background: #fff;
@@ -125,13 +137,17 @@
   line-height: 1.3;
 }
 
-// 统计概览卡（点击跳转）
+// 统计概览卡（仅 .clickable 修饰的卡片呈现点击态与键盘焦点）
 .stat-row { margin-bottom: 12px; }
 .stat-card {
   display: flex; align-items: center; gap: 12px;
   background: #fff; border: 1px solid var(--dm-border); border-radius: 8px;
-  padding: 14px 16px; cursor: pointer; transition: box-shadow .2s, transform .2s;
-  &:hover { box-shadow: 0 4px 12px rgba(0, 0, 0, .08); transform: translateY(-2px); }
+  padding: 14px 16px;
+  transition: box-shadow .2s, transform .2s;
+
+  &.clickable { cursor: pointer; }
+  &.clickable:hover { box-shadow: 0 4px 12px rgba(0, 0, 0, .08); transform: translateY(-2px); }
+
   .stat-icon {
     width: 42px; height: 42px; border-radius: 8px;
     display: flex; align-items: center; justify-content: center;
@@ -165,9 +181,9 @@
 .empty-state {
   text-align: center;
   padding: 40px 0;
-  color: #909399;
+  color: var(--dm-muted);
 }
 
 // 文字层级工具类
-.text-muted { color: #c0c4cc; }
+.text-muted { color: #c0c4cc; } // 仅装饰性占位（如「—」），非承载信息文字
 .text-secondary { color: var(--dm-muted); font-size: 12px; }

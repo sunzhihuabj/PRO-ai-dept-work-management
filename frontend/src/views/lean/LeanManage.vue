@@ -137,7 +137,7 @@
     </el-card>
 
     <!-- 提案编辑 -->
-    <el-dialog v-model="pDialog" :title="pEditing ? '编辑提案' : '新建提案'" width="640px">
+    <el-dialog :close-on-click-modal="false" v-model="pDialog" :title="pEditing ? '编辑提案' : '新建提案'" width="640px">
       <el-form ref="pFormRef" :model="pForm" :rules="pRules" label-width="90px">
         <el-form-item label="标题" prop="title">
           <el-input v-model="pForm.title" maxlength="200" />
@@ -182,7 +182,7 @@
     </el-dialog>
 
     <!-- 根因分析编辑 -->
-    <el-dialog v-model="rDialog" :title="rEditing ? '编辑分析' : '新建分析'" width="680px">
+    <el-dialog :close-on-click-modal="false" v-model="rDialog" :title="rEditing ? '编辑分析' : '新建分析'" width="680px">
       <el-form ref="rFormRef" :model="rForm" :rules="rRules" label-width="90px">
         <el-form-item label="问题描述" prop="problemDesc">
           <el-input v-model="rForm.problemDesc" type="textarea" :rows="2" />
@@ -217,7 +217,7 @@
     </el-dialog>
 
     <!-- 经验编辑 -->
-    <el-dialog v-model="lDialog" :title="lEditing ? '编辑经验' : '沉淀经验'" width="560px">
+    <el-dialog :close-on-click-modal="false" v-model="lDialog" :title="lEditing ? '编辑经验' : '沉淀经验'" width="560px">
       <el-form ref="lFormRef" :model="lForm" :rules="lRules" label-width="90px">
         <el-form-item label="标题" prop="title">
           <el-input v-model="lForm.title" maxlength="200" />
@@ -533,7 +533,5 @@ onMounted(async () => {
 </script>
 
 <style scoped lang="scss">
-.page-container { padding: 20px; }
 .page-header-title { font-size: 16px; font-weight: bold; }
-.search-bar { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 16px; }
 </style>

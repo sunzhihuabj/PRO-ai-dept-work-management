@@ -87,7 +87,7 @@ async function handleLogin() {
 }
 
 .login-box {
-  width: 420px;
+  width: min(420px, calc(100vw - 32px));
   padding: 40px;
   background: #fff;
   border-radius: 8px;
@@ -97,7 +97,7 @@ async function handleLogin() {
     text-align: center;
     margin-bottom: 32px;
     h1 { font-size: 24px; color: #303133; margin: 0 0 8px; }
-    p { color: #909399; font-size: 14px; margin: 0; }
+    p { color: #767676; font-size: 14px; margin: 0; }
   }
 
   .login-btn { width: 100%; }
@@ -108,7 +108,7 @@ async function handleLogin() {
     background: #f5f7fa;
     border-radius: 4px;
     font-size: 12px;
-    color: #909399;
+    color: #767676;
     p { margin: 4px 0; }
   }
 }

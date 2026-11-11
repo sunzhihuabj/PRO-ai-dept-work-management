@@ -82,7 +82,7 @@
     </el-card>
 
     <!-- 新建 ECN -->
-    <el-dialog v-model="createVisible" title="新建 ECN 变更单" width="560px">
+    <el-dialog :close-on-click-modal="false" v-model="createVisible" title="新建 ECN 变更单" width="560px">
       <el-form :model="createForm" label-width="90px">
         <el-form-item label="项目ID" required>
           <el-input-number v-model="createForm.projectId" :min="1" controls-position="right" style="width: 200px" />
@@ -115,7 +115,7 @@
     </el-dialog>
 
     <!-- ECN 审批 -->
-    <el-dialog v-model="approveVisible" title="ECN 审批" width="480px">
+    <el-dialog :close-on-click-modal="false" v-model="approveVisible" title="ECN 审批" width="480px">
       <el-form label-width="90px">
         <el-form-item label="审批人">
           <el-input v-model="approveForm.approver" placeholder="署名" />
@@ -137,7 +137,7 @@
     </el-dialog>
 
     <!-- ECN 实施 -->
-    <el-dialog v-model="implementVisible" title="ECN 实施（BR-07：自动生成旧版回收任务+批量齐套复检）" width="520px">
+    <el-dialog :close-on-click-modal="false" v-model="implementVisible" title="ECN 实施（BR-07：自动生成旧版回收任务+批量齐套复检）" width="520px">
       <el-alert type="warning" :closable="false" style="margin-bottom: 12px"
                 title="实施后将联动：旧方案受控归档 → 旧版资料回收任务 → AGT-13 批量齐套复算 → 缺料自动请购草稿" />
       <el-form label-width="110px">
@@ -294,6 +294,4 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.page-container { padding: 0; }
-.card-header { display: flex; justify-content: space-between; align-items: center; }
 </style>

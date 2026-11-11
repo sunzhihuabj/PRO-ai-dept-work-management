@@ -94,7 +94,7 @@
 
     <el-row :gutter="16">
       <!-- 项目成员 -->
-      <el-col :span="12">
+      <el-col :xs="24" :lg="12">
         <el-card shadow="hover">
           <template #header>
             <div class="card-header">
@@ -119,7 +119,7 @@
       </el-col>
 
       <!-- 里程碑 -->
-      <el-col :span="12">
+      <el-col :xs="24" :lg="12">
         <el-card shadow="hover">
           <template #header>
             <div class="card-header">
@@ -241,7 +241,7 @@
     </el-card>
 
     <!-- 上传项目资料 -->
-    <el-dialog v-model="materialDialog" title="上传项目资料" width="520px">
+    <el-dialog :close-on-click-modal="false" v-model="materialDialog" title="上传项目资料" width="520px">
       <el-form label-width="90px">
         <el-form-item label="资料类型">
           <el-input v-model="materialForm.fileType" maxlength="50" placeholder="如：立项资料 / 合同 / 技术协议" />
@@ -268,7 +268,7 @@
     </el-dialog>
 
     <!-- 新建门禁 -->
-    <el-dialog v-model="gateDialog" title="新建阶段门禁" width="480px">
+    <el-dialog :close-on-click-modal="false" v-model="gateDialog" title="新建阶段门禁" width="480px">
       <el-form ref="gateFormRef" :model="gateForm" :rules="gateRules" label-width="90px">
         <el-form-item label="门禁名称" prop="gateName">
           <el-input v-model="gateForm.gateName" maxlength="200" placeholder="如：设计评审门禁" />
@@ -289,7 +289,7 @@
     </el-dialog>
 
     <!-- 绑定文件 -->
-    <el-dialog v-model="bindDialog" title="绑定已上传文件" width="480px">
+    <el-dialog :close-on-click-modal="false" v-model="bindDialog" title="绑定已上传文件" width="480px">
       <el-form label-width="90px">
         <el-form-item label="交付物">
           <span>{{ bindTarget?.deliverableName }}</span>
@@ -307,7 +307,7 @@
     </el-dialog>
 
     <!-- 添加成员 -->
-    <el-dialog v-model="memberDialog" title="添加项目成员" width="420px">
+    <el-dialog :close-on-click-modal="false" v-model="memberDialog" title="添加项目成员" width="420px">
       <el-form label-width="80px">
         <el-form-item label="用户" required>
           <el-select v-model="memberForm.userId" filterable style="width: 100%">
@@ -329,7 +329,7 @@
     </el-dialog>
 
     <!-- 新建里程碑 -->
-    <el-dialog v-model="msDialog" title="新建里程碑" width="480px">
+    <el-dialog :close-on-click-modal="false" v-model="msDialog" title="新建里程碑" width="480px">
       <el-form ref="msFormRef" :model="msForm" :rules="msRules" label-width="90px">
         <el-form-item label="名称" prop="milestoneName">
           <el-input v-model="msForm.milestoneName" maxlength="200" />
@@ -714,11 +714,6 @@ onMounted(async () => {
 
 <style lang="scss" scoped>
 .page-header-title { font-size: 16px; font-weight: bold; }
-.card-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
 .ms-item {
   display: flex;
   align-items: center;

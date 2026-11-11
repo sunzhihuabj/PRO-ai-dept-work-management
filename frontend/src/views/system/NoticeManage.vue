@@ -43,7 +43,7 @@
       </el-table>
     </el-card>
 
-    <el-dialog v-model="dialog" :title="editing ? '编辑公告' : '新建公告'" width="620px">
+    <el-dialog :close-on-click-modal="false" v-model="dialog" :title="editing ? '编辑公告' : '新建公告'" width="620px">
       <el-form ref="formRef" :model="form" :rules="rules" label-width="80px">
         <el-form-item label="标题" prop="noticeTitle">
           <el-input v-model="form.noticeTitle" maxlength="200" />
@@ -147,7 +147,5 @@ onMounted(loadData)
 </script>
 
 <style scoped lang="scss">
-.page-container { padding: 20px; }
 .page-header-title { font-size: 16px; font-weight: bold; }
-.search-bar { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 16px; }
 </style>

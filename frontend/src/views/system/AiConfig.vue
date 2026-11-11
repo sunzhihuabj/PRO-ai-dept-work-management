@@ -38,7 +38,7 @@
       </div>
     </el-card>
 
-    <el-dialog v-model="dialogVisible" :title="editingId ? '编辑通道配置' : '新增通道配置'" width="560px">
+    <el-dialog :close-on-click-modal="false" v-model="dialogVisible" :title="editingId ? '编辑通道配置' : '新增通道配置'" width="560px">
       <el-form :model="form" label-width="110px">
         <el-form-item label="配置编码" required>
           <el-input v-model="form.providerCode" :disabled="!!editingId" placeholder="如 DEEPSEEK / ZHIPU" />
@@ -207,11 +207,6 @@ onMounted(load)
 </script>
 
 <style scoped>
-.card-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
 .hint {
   font-size: 12px;
   color: #909399;

@@ -2,8 +2,8 @@
   <div class="page-container">
     <!-- 统计概览 -->
     <el-row :gutter="12" class="stat-row">
-      <el-col :span="6">
-        <div class="stat-card" :class="{ clickable: true }" @click="switchTab('archives', 'NORMAL')">
+      <el-col :xs="12" :sm="6">
+        <div class="stat-card clickable" role="button" tabindex="0" @click="switchTab('archives', 'NORMAL')" @keydown.enter.prevent="switchTab('archives', 'NORMAL')">
           <div class="stat-icon stat-icon--success"><el-icon><Collection /></el-icon></div>
           <div class="stat-meta">
             <div class="stat-value">{{ stats.normal }}</div>
@@ -11,8 +11,8 @@
           </div>
         </div>
       </el-col>
-      <el-col :span="6">
-        <div class="stat-card" @click="switchTab('archives', 'BORROWED')">
+      <el-col :xs="12" :sm="6">
+        <div class="stat-card clickable" role="button" tabindex="0" @click="switchTab('archives', 'BORROWED')" @keydown.enter.prevent="switchTab('archives', 'BORROWED')">
           <div class="stat-icon stat-icon--warning"><el-icon><Position /></el-icon></div>
           <div class="stat-meta">
             <div class="stat-value">{{ stats.borrowed }}</div>
@@ -20,8 +20,8 @@
           </div>
         </div>
       </el-col>
-      <el-col :span="6">
-        <div class="stat-card" @click="switchTab('overdue')">
+      <el-col :xs="12" :sm="6">
+        <div class="stat-card clickable" role="button" tabindex="0" @click="switchTab('overdue')" @keydown.enter.prevent="switchTab('overdue')">
           <div class="stat-icon stat-icon--danger"><el-icon><AlarmClock /></el-icon></div>
           <div class="stat-meta">
             <div class="stat-value">{{ stats.overdue }}</div>
@@ -29,8 +29,8 @@
           </div>
         </div>
       </el-col>
-      <el-col :span="6">
-        <div class="stat-card" @click="switchTab('archives', 'DESTROYED')">
+      <el-col :xs="12" :sm="6">
+        <div class="stat-card clickable" role="button" tabindex="0" @click="switchTab('archives', 'DESTROYED')" @keydown.enter.prevent="switchTab('archives', 'DESTROYED')">
           <div class="stat-icon stat-icon--info"><el-icon><Delete /></el-icon></div>
           <div class="stat-meta">
             <div class="stat-value">{{ stats.destroyed }}</div>
@@ -112,7 +112,7 @@
             </el-table-column>
           </el-table>
           <el-pagination v-model:current-page="pageNum" :page-size="pageSize" :total="total"
-                         layout="total, prev, pager, next" style="margin-top: 12px" @current-change="loadArchives" />
+                         layout="total, prev, pager, next" @current-change="loadArchives" />
         </el-tab-pane>
 
         <el-tab-pane :label="`逾期借阅（${overdue.length}）`" name="overdue">
@@ -145,7 +145,7 @@
     </el-card>
 
     <!-- 档案登记 -->
-    <el-dialog v-model="registerVisible" title="档案登记" width="560px">
+    <el-dialog :close-on-click-modal="false" v-model="registerVisible" title="档案登记" width="560px">
       <el-alert type="info" :closable="false" style="margin-bottom: 14px"
                 title="DA 档号由编码引擎自动生成；纸质/双轨载体必须填写实物存放位置" />
       <el-form label-width="100px">
@@ -181,7 +181,7 @@
     </el-dialog>
 
     <!-- 借阅 -->
-    <el-dialog v-model="borrowVisible" title="档案借阅" width="500px">
+    <el-dialog :close-on-click-modal="false" v-model="borrowVisible" title="档案借阅" width="500px">
       <el-alert type="warning" :closable="false" style="margin-bottom: 14px" title="电子载体档案不可实物借出" />
       <el-descriptions v-if="current" :column="2" border size="small" style="margin-bottom: 14px">
         <el-descriptions-item label="档号">{{ current.archiveNo }}</el-descriptions-item>
@@ -233,7 +233,7 @@
     </el-dialog>
 
     <!-- 销毁 -->
-    <el-dialog v-model="destroyVisible" title="鉴定销毁" width="500px">
+    <el-dialog :close-on-click-modal="false" v-model="destroyVisible" title="鉴定销毁" width="500px">
       <el-alert type="error" :closable="false" style="margin-bottom: 14px"
                 title="销毁操作不可恢复，请确认鉴定意见完整" />
       <el-descriptions v-if="current" :column="2" border size="small" style="margin-bottom: 14px">
@@ -452,37 +452,12 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.page-container { padding: 0; }
-.card-header { display: flex; justify-content: space-between; align-items: center; }
-
-.stat-row { margin-bottom: 12px; }
-.stat-card {
-  display: flex; align-items: center; gap: 12px;
-  background: #fff; border: 1px solid #e4e7ed; border-radius: 8px;
-  padding: 14px 16px; cursor: pointer; transition: box-shadow .2s, transform .2s;
-}
-.stat-card:hover { box-shadow: 0 4px 12px rgba(0, 0, 0, .08); transform: translateY(-2px); }
-.stat-icon {
-  width: 42px; height: 42px; border-radius: 8px;
-  display: flex; align-items: center; justify-content: center;
-  font-size: 22px; color: #fff; flex-shrink: 0;
-}
-.stat-icon--success { background: linear-gradient(135deg, #67c23a, #4f9e28); }
-.stat-icon--warning { background: linear-gradient(135deg, #e6a23c, #cf8a29); }
-.stat-icon--danger  { background: linear-gradient(135deg, #f56c6c, #d94848); }
-.stat-icon--info    { background: linear-gradient(135deg, #909399, #6b6e75); }
-.stat-value { font-size: 22px; font-weight: 600; line-height: 1.2; }
-.stat-label { font-size: 12px; color: #909399; margin-top: 2px; }
-
-.toolbar { display: flex; gap: 8px; margin-bottom: 12px; align-items: center; }
-
 .archive-no {
   font-family: Consolas, Monaco, monospace;
   color: #409eff; font-weight: 600; letter-spacing: .5px;
 }
 .archive-title { font-weight: 500; }
 .type-tag { border: none; color: #fff; }
-.loc-icon { vertical-align: -2px; margin-right: 3px; color: #909399; }
+.loc-icon { vertical-align: -2px; margin-right: 3px; color: var(--dm-muted); }
 .borrower { font-weight: 500; }
-.text-muted { color: #c0c4cc; }
 </style>

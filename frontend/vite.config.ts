@@ -23,6 +23,18 @@ export default defineConfig({
       '@': path.resolve(__dirname, 'src')
     }
   },
+  build: {
+    chunkSizeWarningLimit: 1500,
+    rollupOptions: {
+      output: {
+        // 静态依赖分包：提升长缓存命中率；element-plus 不强制整包分包，
+        // 保留 rollup 按需 tree-shaking（sideEffects 仅样式文件）
+        manualChunks: {
+          'vue-vendor': ['vue', 'vue-router', 'pinia']
+        }
+      }
+    }
+  },
   server: {
     port: 5173,
     host: '0.0.0.0',

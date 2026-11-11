@@ -52,7 +52,7 @@
       />
     </el-card>
 
-    <el-dialog v-model="dialogVisible" :title="editing ? '编辑用户' : '新增用户'" width="560px">
+    <el-dialog :close-on-click-modal="false" v-model="dialogVisible" :title="editing ? '编辑用户' : '新增用户'" width="560px">
       <el-form ref="formRef" :model="form" :rules="rules" label-width="100px">
         <el-form-item label="用户名" prop="username" v-if="!editing">
           <el-input v-model="form.username" placeholder="请输入用户名" />
@@ -240,5 +240,4 @@ onMounted(loadData)
 </script>
 
 <style lang="scss" scoped>
-.search-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 16px; }
 </style>

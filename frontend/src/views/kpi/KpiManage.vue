@@ -105,7 +105,7 @@
     </el-tabs>
 
     <!-- 指标编辑对话框 -->
-    <el-dialog v-model="indicatorDialog" :title="editingIndicator ? '编辑指标' : '新增指标'" width="540px">
+    <el-dialog :close-on-click-modal="false" v-model="indicatorDialog" :title="editingIndicator ? '编辑指标' : '新增指标'" width="540px">
       <el-form ref="indicatorFormRef" :model="indicatorForm" :rules="indicatorRules" label-width="90px">
         <el-form-item label="指标名称" prop="indicatorName">
           <el-input v-model="indicatorForm.indicatorName" maxlength="50" />
@@ -151,7 +151,7 @@
     </el-dialog>
 
     <!-- 调整评分对话框 -->
-    <el-dialog v-model="adjustDialog" title="调整评分（±10 分）" width="420px">
+    <el-dialog :close-on-click-modal="false" v-model="adjustDialog" title="调整评分（±10 分）" width="420px">
       <el-form label-width="80px">
         <el-form-item label="调整分">
           <el-input-number v-model="adjustForm.adjustScore" :min="-10" :max="10" />
@@ -390,7 +390,5 @@ onMounted(async () => {
 </script>
 
 <style scoped lang="scss">
-.page-container { padding: 20px; }
-.search-bar { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 16px; }
 .page-header-title { font-size: 16px; font-weight: bold; }
 </style>

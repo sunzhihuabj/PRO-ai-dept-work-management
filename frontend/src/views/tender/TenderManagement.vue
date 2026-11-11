@@ -105,7 +105,7 @@
     </el-dialog>
 
     <!-- 手工建档对话框 -->
-    <el-dialog v-model="manualVisible" title="手工建档标讯" width="560px">
+    <el-dialog :close-on-click-modal="false" v-model="manualVisible" title="手工建档标讯" width="560px">
       <el-form label-width="110px">
         <el-form-item label="标题" required>
           <el-input v-model="manualForm.title" style="width: 320px" />
@@ -417,13 +417,6 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.toolbar {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-  margin-bottom: 12px;
-  flex-wrap: wrap;
-}
 .danger-text {
   color: var(--el-color-danger);
   font-weight: 600;

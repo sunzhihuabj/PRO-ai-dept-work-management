@@ -50,35 +50,35 @@
           </template>
           <el-form label-width="110px" style="max-width: 760px">
             <el-row :gutter="12">
-              <el-col :span="8">
+              <el-col :xs="24" :sm="8">
                 <el-form-item label="项目 ID" required>
                   <el-input-number v-model="clogForm.projectId" :min="1" :controls="false" style="width: 100%"
                                    @change="loadProgress" />
                 </el-form-item>
               </el-col>
-              <el-col :span="8">
+              <el-col :xs="24" :sm="8">
                 <el-form-item label="日志日期">
                   <el-date-picker v-model="clogForm.logDate" type="date" value-format="YYYY-MM-DD" style="width: 100%" />
                 </el-form-item>
               </el-col>
-              <el-col :span="8">
+              <el-col :xs="24" :sm="8">
                 <el-form-item label="累计工程量%" required>
                   <el-input-number v-model="clogForm.progressPct" :min="0" :max="100" :controls="false" style="width: 100%" />
                 </el-form-item>
               </el-col>
             </el-row>
             <el-row :gutter="12">
-              <el-col :span="8">
+              <el-col :xs="24" :sm="8">
                 <el-form-item label="天气">
                   <el-input v-model="clogForm.weather" />
                 </el-form-item>
               </el-col>
-              <el-col :span="8">
+              <el-col :xs="24" :sm="8">
                 <el-form-item label="在场人数">
                   <el-input-number v-model="clogForm.personnelCount" :min="0" :controls="false" style="width: 100%" />
                 </el-form-item>
               </el-col>
-              <el-col :span="8">
+              <el-col :xs="24" :sm="8">
                 <el-form-item label="记录人">
                   <el-input v-model="clogForm.recorder" />
                 </el-form-item>
@@ -169,7 +169,7 @@
     </el-tabs>
 
     <!-- 新建发货单对话框 -->
-    <el-dialog v-model="spDialogVisible" title="新建发货单" width="520px">
+    <el-dialog :close-on-click-modal="false" v-model="spDialogVisible" title="新建发货单" width="520px">
       <el-form label-width="100px">
         <el-form-item label="项目 ID" required>
           <el-input-number v-model="spForm.projectId" :min="1" :controls="false" style="width: 160px" />
@@ -194,7 +194,7 @@
     </el-dialog>
 
     <!-- 物流对话框 -->
-    <el-dialog v-model="logDialogVisible" title="物流跟踪" width="640px">
+    <el-dialog :close-on-click-modal="false" v-model="logDialogVisible" title="物流跟踪" width="640px">
       <el-descriptions :column="2" border size="small" style="margin-bottom: 12px">
         <el-descriptions-item label="发货单号">{{ logisticsShipment?.shipmentNo }}</el-descriptions-item>
         <el-descriptions-item label="状态">{{ logisticsShipment?.status === 'SUBMITTED' ? '已发运' : '草稿' }}</el-descriptions-item>
@@ -222,7 +222,7 @@
     </el-dialog>
 
     <!-- 新建验收单对话框 -->
-    <el-dialog v-model="accDialogVisible" title="手动创建验收单" width="480px">
+    <el-dialog :close-on-click-modal="false" v-model="accDialogVisible" title="手动创建验收单" width="480px">
       <el-form label-width="100px">
         <el-form-item label="项目 ID" required>
           <el-input-number v-model="accForm.projectId" :min="1" :controls="false" style="width: 160px" />
@@ -249,7 +249,7 @@
     </el-dialog>
 
     <!-- 签字对话框 -->
-    <el-dialog v-model="signDialogVisible" title="验收单签字（BR-05 三方齐备生效）" width="460px">
+    <el-dialog :close-on-click-modal="false" v-model="signDialogVisible" title="验收单签字（BR-05 三方齐备生效）" width="460px">
       <el-form label-width="100px">
         <el-form-item label="验收单">
           <span>#{{ signRow?.id }}（{{ STAGE_LABEL[signRow?.stage || ''] }} / 项目 {{ signRow?.projectId }}）</span>
@@ -492,13 +492,6 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.toolbar {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-  margin-bottom: 12px;
-  flex-wrap: wrap;
-}
 .danger-text {
   color: var(--el-color-danger);
   font-weight: 600;

@@ -62,7 +62,15 @@
     <el-container>
       <el-header class="app-header">
         <div class="header-left">
-          <el-icon class="collapse-btn" @click="toggleSidebar">
+          <el-icon
+            class="collapse-btn"
+            role="button"
+            tabindex="0"
+            :title="isMobile ? '打开菜单' : (appStore.sidebarCollapsed ? '展开菜单' : '收起菜单')"
+            :aria-label="isMobile ? '打开菜单' : (appStore.sidebarCollapsed ? '展开菜单' : '收起菜单')"
+            @click="toggleSidebar"
+            @keydown.enter.prevent="toggleSidebar"
+          >
             <Fold v-if="!appStore.sidebarCollapsed && !isMobile" />
             <Expand v-else />
           </el-icon>
@@ -93,10 +101,11 @@
       </el-header>
 
       <el-main class="app-main">
+        <!-- 以 fullPath 作为缓存键：修复参数路由详情页切换时显示上一条数据的问题 -->
         <router-view v-slot="{ Component }">
           <transition name="fade" mode="out-in">
             <keep-alive>
-              <component :is="Component" />
+              <component :is="Component" :key="$route.fullPath" />
             </keep-alive>
           </transition>
         </router-view>
@@ -264,7 +273,7 @@ async function handleCommand(command: string) {
 .menu-group-title {
   padding: 14px 20px 6px;
   font-size: 12px;
-  color: rgba(255, 255, 255, 0.4);
+  color: rgba(255, 255, 255, 0.55);
   letter-spacing: 1px;
 }
 
@@ -345,7 +354,7 @@ async function handleCommand(command: string) {
   .menu-group-title {
     padding: 14px 20px 6px;
     font-size: 12px;
-    color: rgba(255, 255, 255, 0.4);
+    color: rgba(255, 255, 255, 0.55);
     letter-spacing: 1px;
   }
   .el-menu { border-right: none; }

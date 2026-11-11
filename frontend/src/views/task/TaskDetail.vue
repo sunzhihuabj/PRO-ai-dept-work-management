@@ -237,7 +237,7 @@
     </el-row>
 
     <!-- 上传任务资料 -->
-    <el-dialog v-model="tfDialog" title="上传任务资料" width="480px">
+    <el-dialog :close-on-click-modal="false" v-model="tfDialog" title="上传任务资料" width="480px">
       <el-form label-width="80px">
         <el-form-item label="说明">
           <el-input v-model="tfForm.description" maxlength="200" placeholder="资料说明（可选）" />
@@ -273,7 +273,7 @@
       </template>
     </el-dialog>
 
-    <el-dialog v-model="showWorkHourDialog" title="录入工时" width="480px">
+    <el-dialog :close-on-click-modal="false" v-model="showWorkHourDialog" title="录入工时" width="480px">
       <el-form ref="whFormRef" :model="whForm" :rules="whRules" label-width="80px">
         <el-form-item label="工时" prop="hours">
           <el-input-number v-model="whForm.hours" :min="0.5" :max="24" :precision="1" :step="0.5" />
@@ -572,7 +572,6 @@ async function aiDiff(row: any) {
 </script>
 
 <style lang="scss" scoped>
-.page-container { padding: 0 0 8px; }
 
 /* ===== 页头 ===== */
 .page-head {
@@ -605,21 +604,10 @@ async function aiDiff(row: any) {
   gap: 8px;
   flex-wrap: wrap;
 }
-.card-title { font-weight: 600; font-size: 14px; display: inline-flex; align-items: center; }
-.card-badge { margin-left: 8px; }
 .sub-note { font-size: 12px; color: #909399; font-weight: normal; flex: 1; }
 
 /* ===== 状态进度区 ===== */
 .section-block { padding: 4px 0; }
-.section-title {
-  font-size: 13px;
-  font-weight: 600;
-  color: #303133;
-  margin-bottom: 12px;
-  padding-left: 8px;
-  border-left: 3px solid #409eff;
-  line-height: 1.3;
-}
 .task-steps { margin: 8px 0 4px; }
 .progress-row {
   display: flex;

@@ -47,7 +47,7 @@
 
     <el-button v-if="canAudit" type="primary" style="margin-top: 20px;" @click="openAuditDialog">发起审核</el-button>
 
-    <el-dialog v-model="auditDialogVisible" title="文件审核" width="400px">
+    <el-dialog :close-on-click-modal="false" v-model="auditDialogVisible" title="文件审核" width="400px">
       <el-form :model="auditForm" label-width="80px">
         <el-form-item label="状态" required>
           <el-radio-group v-model="auditForm.status">
@@ -163,6 +163,5 @@ onMounted(async () => {
 </script>
 
 <style scoped lang="scss">
-.page-container { padding: 20px; }
 .page-header-title { font-size: 16px; font-weight: bold; }
 </style>

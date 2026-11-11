@@ -114,7 +114,7 @@
     </el-card>
 
     <!-- 配置编辑 -->
-    <el-dialog v-model="configDialog" :title="editing ? '编辑配置' : '新建配置'" width="520px">
+    <el-dialog :close-on-click-modal="false" v-model="configDialog" :title="editing ? '编辑配置' : '新建配置'" width="520px">
       <el-form ref="formRef" :model="form" :rules="rules" label-width="90px">
         <el-form-item label="项目" prop="projectId">
           <el-select v-model="form.projectId" filterable style="width: 100%">
@@ -155,7 +155,7 @@
     </el-dialog>
 
     <!-- KPI 联动 -->
-    <el-dialog v-model="kpiDialog" title="按KPI等级联动调系数" width="380px">
+    <el-dialog :close-on-click-modal="false" v-model="kpiDialog" title="按KPI等级联动调系数" width="380px">
       <el-form label-width="80px">
         <el-form-item label="KPI期间" required>
           <el-input v-model="kpiPeriod" placeholder="如 2026-08" />
@@ -171,7 +171,7 @@
     </el-dialog>
 
     <!-- 发放 -->
-    <el-dialog v-model="payDialog" title="发放奖金" width="400px">
+    <el-dialog :close-on-click-modal="false" v-model="payDialog" title="发放奖金" width="400px">
       <el-form label-width="80px">
         <el-form-item label="发放类型">
           <el-radio-group v-model="payForm.payType">
@@ -389,7 +389,5 @@ onMounted(async () => {
 </script>
 
 <style scoped lang="scss">
-.page-container { padding: 20px; }
 .page-header-title { font-size: 16px; font-weight: bold; }
-.search-bar { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 16px; }
 </style>

@@ -147,6 +147,5 @@ onMounted(loadProjects)
 </script>
 
 <style scoped lang="scss">
-.page-container { padding: 20px; }
 .page-header-title { font-size: 16px; font-weight: bold; }
 </style>

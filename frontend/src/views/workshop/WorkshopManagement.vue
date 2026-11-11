@@ -237,7 +237,7 @@
     </el-tabs>
 
     <!-- 新建 PO 对话框 -->
-    <el-dialog v-model="poDialogVisible" title="新建采购订单" width="520px">
+    <el-dialog :close-on-click-modal="false" v-model="poDialogVisible" title="新建采购订单" width="520px">
       <el-form label-width="100px">
         <el-form-item label="项目 ID" required>
           <el-input-number v-model="poForm.projectId" :min="1" :controls="false" style="width: 160px" />
@@ -265,7 +265,7 @@
     </el-dialog>
 
     <!-- 新建工单对话框 -->
-    <el-dialog v-model="woDialogVisible" title="新建生产工单" width="480px">
+    <el-dialog :close-on-click-modal="false" v-model="woDialogVisible" title="新建生产工单" width="480px">
       <el-form label-width="100px">
         <el-form-item label="项目 ID" required>
           <el-input-number v-model="woForm.projectId" :min="1" :controls="false" style="width: 160px" />
@@ -287,7 +287,7 @@
     </el-dialog>
 
     <!-- 到货登记对话框 -->
-    <el-dialog v-model="arrivalDialogVisible" title="到货登记" width="420px">
+    <el-dialog :close-on-click-modal="false" v-model="arrivalDialogVisible" title="到货登记" width="420px">
       <el-form label-width="100px">
         <el-form-item label="PO 编号">
           <span>{{ arrivalPo?.poNo }}</span>
@@ -306,7 +306,7 @@
     </el-dialog>
 
     <!-- 样机验收对话框 -->
-    <el-dialog v-model="acceptDialogVisible" title="样机验收登记" width="460px">
+    <el-dialog :close-on-click-modal="false" v-model="acceptDialogVisible" title="样机验收登记" width="460px">
       <el-form label-width="100px">
         <el-form-item label="工单编号">
           <span>{{ acceptWo?.woNo }}</span>
@@ -692,13 +692,6 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.toolbar {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-  margin-bottom: 12px;
-  flex-wrap: wrap;
-}
 .danger-text {
   color: var(--el-color-danger);
   font-weight: 600;

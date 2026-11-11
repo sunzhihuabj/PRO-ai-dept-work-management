@@ -63,7 +63,7 @@
       </el-col>
     </el-row>
 
-    <el-dialog v-model="handleDialogVisible" :title="`${dialogHandleType}事件`" width="480px">
+    <el-dialog :close-on-click-modal="false" v-model="handleDialogVisible" :title="`${dialogHandleType}事件`" width="480px">
       <el-form label-width="80px">
         <el-form-item v-if="dialogHandleType === '转派'" label="新处理人" required>
           <el-select v-model="handleForm.transferTo" placeholder="请选择新处理人" filterable style="width: 100%">
@@ -185,12 +185,6 @@ onMounted(() => {
 </script>
 
 <style scoped lang="scss">
-.page-container { padding: 20px; }
-.card-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
 .page-header-title {
   font-size: 16px;
   font-weight: bold;

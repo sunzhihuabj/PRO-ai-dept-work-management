@@ -48,7 +48,7 @@
       </el-table>
     </el-card>
 
-    <el-dialog v-model="dialogVisible" :title="editing ? '编辑组织节点' : '新增组织节点'" width="480px">
+    <el-dialog :close-on-click-modal="false" v-model="dialogVisible" :title="editing ? '编辑组织节点' : '新增组织节点'" width="480px">
       <el-alert type="info" :closable="false" style="margin-bottom: 14px"
                 title="组织按树形层级维护：选择上级组织建立层级关系，删除节点前须先清空下级与挂靠用户" />
       <el-form ref="formRef" :model="form" :rules="rules" label-width="90px">
@@ -221,9 +221,7 @@ onMounted(load)
 </script>
 
 <style scoped lang="scss">
-.page-container { padding: 20px; }
 .page-header-title { font-size: 16px; font-weight: bold; }
-.toolbar { margin-bottom: 12px; }
 .org-icon { vertical-align: -2px; margin-right: 6px; color: #409eff; }
 .org-name { font-weight: 500; color: #303133; }
 </style>

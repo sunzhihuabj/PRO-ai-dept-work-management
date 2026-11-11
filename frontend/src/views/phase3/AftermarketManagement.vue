@@ -108,7 +108,7 @@
     </el-card>
 
     <!-- 报修登记 -->
-    <el-dialog v-model="repairVisible" title="报修登记（AGT-23 自动分级：紧急/一般/咨询）" width="540px">
+    <el-dialog :close-on-click-modal="false" v-model="repairVisible" title="报修登记（AGT-23 自动分级：紧急/一般/咨询）" width="540px">
       <el-form label-width="90px">
         <el-form-item label="项目ID" required>
           <el-input-number v-model="repairForm.projectId" :min="1" controls-position="right" style="width: 200px" />
@@ -128,7 +128,7 @@
     </el-dialog>
 
     <!-- 受理 -->
-    <el-dialog v-model="startVisible" title="工单受理" width="420px">
+    <el-dialog :close-on-click-modal="false" v-model="startVisible" title="工单受理" width="420px">
       <el-form label-width="90px">
         <el-form-item label="处理人" required>
           <el-input v-model="startForm.handler" style="width: 200px" />
@@ -141,7 +141,7 @@
     </el-dialog>
 
     <!-- 闭环 -->
-    <el-dialog v-model="closeVisible" title="工单闭环（根因与方案必填）" width="520px">
+    <el-dialog :close-on-click-modal="false" v-model="closeVisible" title="工单闭环（根因与方案必填）" width="520px">
       <el-form label-width="90px">
         <el-form-item label="根因" required>
           <el-input v-model="closeForm.rootCause" type="textarea" :rows="2" maxlength="500" />
@@ -164,7 +164,7 @@
     </el-dialog>
 
     <!-- 登记巡检 -->
-    <el-dialog v-model="inspectionVisible" title="登记巡检" width="540px">
+    <el-dialog :close-on-click-modal="false" v-model="inspectionVisible" title="登记巡检" width="540px">
       <el-form label-width="90px">
         <el-form-item label="项目ID" required>
           <el-input-number v-model="inspectionForm.projectId" :min="1" controls-position="right" style="width: 200px" />
@@ -192,7 +192,7 @@
     </el-dialog>
 
     <!-- 登记质保 -->
-    <el-dialog v-model="warrantyVisible" title="登记质保信息" width="480px">
+    <el-dialog :close-on-click-modal="false" v-model="warrantyVisible" title="登记质保信息" width="480px">
       <el-form label-width="110px">
         <el-form-item label="项目ID" required>
           <el-input-number v-model="warrantyForm.projectId" :min="1" controls-position="right" style="width: 200px" />
@@ -410,6 +410,4 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.page-container { padding: 0; }
-.card-header { display: flex; justify-content: space-between; align-items: center; }
 </style>

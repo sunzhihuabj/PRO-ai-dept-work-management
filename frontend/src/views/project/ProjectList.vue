@@ -59,7 +59,7 @@
       />
     </el-card>
 
-    <el-dialog v-model="dialogVisible" :title="editing ? '编辑项目' : '新建项目'" width="640px">
+    <el-dialog :close-on-click-modal="false" v-model="dialogVisible" :title="editing ? '编辑项目' : '新建项目'" width="640px">
       <el-form ref="formRef" :model="form" :rules="rules" label-width="100px">
         <el-form-item label="项目名称" prop="projectName">
           <el-input v-model="form.projectName" placeholder="请输入项目名称" maxlength="100" />
@@ -253,5 +253,4 @@ onMounted(loadData)
 </script>
 
 <style lang="scss" scoped>
-.search-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 16px; }
 </style>

@@ -90,7 +90,7 @@
       />
     </el-card>
 
-    <el-dialog v-model="dialogVisible" :title="editing ? '编辑任务' : '创建任务'" width="640px">
+    <el-dialog :close-on-click-modal="false" v-model="dialogVisible" :title="editing ? '编辑任务' : '创建任务'" width="640px">
       <el-form ref="formRef" :model="form" :rules="rules" label-width="100px">
         <el-form-item label="任务名称" prop="taskName">
           <el-input v-model="form.taskName" placeholder="请输入任务名称" maxlength="100" />
@@ -142,7 +142,7 @@
     </el-dialog>
 
     <!-- 从任务池领取 -->
-    <el-dialog v-model="poolDialog" title="从任务池领取任务" width="520px">
+    <el-dialog :close-on-click-modal="false" v-model="poolDialog" title="从任务池领取任务" width="520px">
       <el-form label-width="90px">
         <el-form-item label="池任务" required>
           <el-select v-model="poolForm.poolId" v-loading="poolLoading" filterable style="width: 100%"

@@ -78,7 +78,7 @@
     </el-card>
 
     <!-- 手工录入成本 -->
-    <el-dialog v-model="manualVisible" title="手工录入人工/费用成本" width="480px">
+    <el-dialog :close-on-click-modal="false" v-model="manualVisible" title="手工录入人工/费用成本" width="480px">
       <el-form label-width="90px">
         <el-form-item label="项目ID">
           <el-input-number v-model="manualForm.projectId" :min="1" controls-position="right" style="width: 200px" />
@@ -211,6 +211,4 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.page-container { padding: 0; }
-.card-header { display: flex; justify-content: space-between; align-items: center; }
 </style>

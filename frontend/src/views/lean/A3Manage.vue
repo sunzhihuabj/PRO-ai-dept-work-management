@@ -47,7 +47,7 @@
       />
     </el-card>
 
-    <el-dialog v-model="dialog" :title="editing ? '编辑A3报告' : '新建A3报告'" width="720px">
+    <el-dialog :close-on-click-modal="false" v-model="dialog" :title="editing ? '编辑A3报告' : '新建A3报告'" width="720px">
       <el-form ref="formRef" :model="form" :rules="rules" label-width="100px">
         <el-form-item label="标题" prop="title">
           <el-input v-model="form.title" maxlength="200" />
@@ -185,7 +185,5 @@ onMounted(async () => {
 </script>
 
 <style scoped lang="scss">
-.page-container { padding: 20px; }
 .page-header-title { font-size: 16px; font-weight: bold; }
-.search-bar { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 16px; }
 </style>

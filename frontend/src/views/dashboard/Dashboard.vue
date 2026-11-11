@@ -1,64 +1,48 @@
 <template>
   <div class="page-container">
     <!-- 数据概览卡片 -->
-    <el-row :gutter="16" class="stats-row">
-      <el-col :span="6">
-        <el-card shadow="hover" class="stat-card">
-          <div class="stat-content">
-            <div class="stat-icon" style="background: #409eff20;">
-              <el-icon :size="28" color="#409eff"><Document /></el-icon>
-            </div>
-            <div class="stat-info">
-              <p class="stat-label">任务总数</p>
-              <p class="stat-value">{{ stats?.taskStats?.total ?? 0 }}</p>
-            </div>
+    <el-row :gutter="16" class="stat-row">
+      <el-col :xs="12" :sm="6">
+        <div class="stat-card">
+          <div class="stat-icon stat-icon--primary"><el-icon><Document /></el-icon></div>
+          <div class="stat-meta">
+            <div class="stat-value">{{ stats?.taskStats?.total ?? 0 }}</div>
+            <div class="stat-label">任务总数</div>
           </div>
-        </el-card>
+        </div>
       </el-col>
-      <el-col :span="6">
-        <el-card shadow="hover" class="stat-card">
-          <div class="stat-content">
-            <div class="stat-icon" style="background: #67c23a20;">
-              <el-icon :size="28" color="#67c23a"><CircleCheck /></el-icon>
-            </div>
-            <div class="stat-info">
-              <p class="stat-label">已完成</p>
-              <p class="stat-value">{{ stats?.taskStats?.completed ?? 0 }}</p>
-            </div>
+      <el-col :xs="12" :sm="6">
+        <div class="stat-card">
+          <div class="stat-icon stat-icon--success"><el-icon><CircleCheck /></el-icon></div>
+          <div class="stat-meta">
+            <div class="stat-value">{{ stats?.taskStats?.completed ?? 0 }}</div>
+            <div class="stat-label">已完成</div>
           </div>
-        </el-card>
+        </div>
       </el-col>
-      <el-col :span="6">
-        <el-card shadow="hover" class="stat-card">
-          <div class="stat-content">
-            <div class="stat-icon" style="background: #e6a23c20;">
-              <el-icon :size="28" color="#e6a23c"><Loading /></el-icon>
-            </div>
-            <div class="stat-info">
-              <p class="stat-label">进行中</p>
-              <p class="stat-value">{{ stats?.taskStats?.inProgress ?? 0 }}</p>
-            </div>
+      <el-col :xs="12" :sm="6">
+        <div class="stat-card">
+          <div class="stat-icon stat-icon--warning"><el-icon><Loading /></el-icon></div>
+          <div class="stat-meta">
+            <div class="stat-value">{{ stats?.taskStats?.inProgress ?? 0 }}</div>
+            <div class="stat-label">进行中</div>
           </div>
-        </el-card>
+        </div>
       </el-col>
-      <el-col :span="6">
-        <el-card shadow="hover" class="stat-card">
-          <div class="stat-content">
-            <div class="stat-icon" style="background: #f56c6c20;">
-              <el-icon :size="28" color="#f56c6c"><Warning /></el-icon>
-            </div>
-            <div class="stat-info">
-              <p class="stat-label">已逾期</p>
-              <p class="stat-value">{{ stats?.taskStats?.overdue ?? 0 }}</p>
-            </div>
+      <el-col :xs="12" :sm="6">
+        <div class="stat-card">
+          <div class="stat-icon stat-icon--danger"><el-icon><Warning /></el-icon></div>
+          <div class="stat-meta">
+            <div class="stat-value">{{ stats?.taskStats?.overdue ?? 0 }}</div>
+            <div class="stat-label">已逾期</div>
           </div>
-        </el-card>
+        </div>
       </el-col>
     </el-row>
 
     <el-row :gutter="16">
       <!-- 待办列表 -->
-      <el-col :span="16">
+      <el-col :xs="24" :lg="16">
         <el-card shadow="hover">
           <template #header>
             <div class="card-header">
@@ -78,7 +62,10 @@
                   :key="item.id"
                   class="todo-item"
                   :class="{ overdue: item.overdue }"
+                  role="button"
+                  tabindex="0"
                   @click="handleTodoClick(item)"
+                  @keydown.enter.prevent="handleTodoClick(item)"
                 >
                   <div class="todo-title">
                     <el-tag :type="priorityTag(item.priority)" size="small">{{ item.priorityText }}</el-tag>
@@ -97,14 +84,23 @@
       </el-col>
 
       <!-- 快捷入口 + 消息 -->
-      <el-col :span="8">
+      <el-col :xs="24" :lg="8">
         <el-card shadow="hover" class="mb-16">
           <template #header><span>快捷入口</span></template>
           <div class="quick-actions">
-            <div v-for="action in quickActions" :key="action.id" class="action-item" @click="$router.push(action.path)">
+            <div
+              v-for="action in quickActions"
+              :key="action.id"
+              class="action-item"
+              role="button"
+              tabindex="0"
+              @click="$router.push(action.path)"
+              @keydown.enter.prevent="$router.push(action.path)"
+            >
               <el-icon :size="24" color="#409eff"><component :is="action.icon" /></el-icon>
               <span>{{ action.name }}</span>
             </div>
+            <el-empty v-if="!quickActions.length && !msgLoading" description="暂无快捷入口" :image-size="60" />
           </div>
         </el-card>
 
@@ -129,8 +125,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+import { ref, computed, onActivated } from 'vue'
 import { useRouter } from 'vue-router'
+import { ElMessage } from 'element-plus'
+import { Document, CircleCheck, Loading, Warning } from '@element-plus/icons-vue'
 import { getStatsApi, getTodoApi, getNotificationsApi, getQuickActionsApi } from '@/api/dashboard'
 
 const router = useRouter()
@@ -172,37 +170,18 @@ async function loadData() {
     notifications.value = msgRes.data || []
     quickActions.value = actionRes.data || []
   } catch (e) {
-    // 忽略
+    ElMessage.error('工作台数据加载失败，请稍后重试')
   } finally {
     todoLoading.value = false
     msgLoading.value = false
   }
 }
 
-onMounted(loadData)
+// 页面被 keep-alive 缓存，使用 onActivated 在每次进入时刷新数据
+onActivated(loadData)
 </script>
 
 <style lang="scss" scoped>
-.stats-row { margin-bottom: 16px; }
-
-.stat-card {
-  :deep(.el-card__body) { padding: 16px; }
-  .stat-content { display: flex; align-items: center; gap: 16px; }
-  .stat-icon {
-    width: 56px; height: 56px;
-    border-radius: 8px;
-    display: flex; align-items: center; justify-content: center;
-  }
-  .stat-info {
-    .stat-label { color: #909399; font-size: 13px; margin: 0 0 4px; }
-    .stat-value { font-size: 24px; font-weight: bold; color: #303133; margin: 0; }
-  }
-}
-
-.card-header {
-  display: flex; align-items: center; justify-content: space-between;
-}
-
 .todo-group {
   margin-bottom: 16px;
   .group-header {
@@ -222,7 +201,7 @@ onMounted(loadData)
   &.overdue { background: #fef0f0; }
 
   .todo-title { display: flex; align-items: center; gap: 8px; }
-  .todo-meta { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #909399; }
+  .todo-meta { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--dm-muted); }
 }
 
 .mb-16 { margin-bottom: 16px; }
@@ -242,6 +221,6 @@ onMounted(loadData)
   border-bottom: 1px solid #f0f0f0;
   &:last-child { border-bottom: none; }
   .msg-title { margin-bottom: 4px; font-size: 13px; }
-  .msg-time { font-size: 12px; color: #c0c4cc; }
+  .msg-time { font-size: 12px; color: var(--dm-muted); }
 }
 </style>

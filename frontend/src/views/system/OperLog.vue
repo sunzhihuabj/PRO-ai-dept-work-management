@@ -119,9 +119,7 @@ onMounted(loadData)
 </script>
 
 <style scoped lang="scss">
-.page-container { padding: 20px; }
 .page-header-title { font-size: 16px; font-weight: bold; }
-.search-bar { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 16px; }
 .json-box {
   background: #f5f7fa;
   padding: 10px;

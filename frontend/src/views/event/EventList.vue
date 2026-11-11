@@ -60,7 +60,7 @@
       />
     </el-card>
 
-    <el-dialog v-model="dialogVisible" :title="editing ? '编辑事件' : '新建事件'" width="600px">
+    <el-dialog :close-on-click-modal="false" v-model="dialogVisible" :title="editing ? '编辑事件' : '新建事件'" width="600px">
       <el-form ref="formRef" :model="form" :rules="rules" label-width="96px">
         <el-form-item label="事件标题" prop="eventTitle">
           <el-input v-model="form.eventTitle" placeholder="请输入事件标题" maxlength="100" />
@@ -244,13 +244,3 @@ onMounted(() => {
   loadOptions()
 })
 </script>
-
-<style scoped lang="scss">
-.page-container { padding: 20px; }
-.search-bar {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  margin-bottom: 16px;
-}
-</style>

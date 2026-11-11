@@ -4,7 +4,7 @@
       <template #content><span class="page-header-title">文件列表</span></template>
     </el-page-header>
 
-    <el-form :inline="true" :model="query" class="filter-form" style="margin-bottom: 20px;">
+    <el-form :inline="true" :model="query" class="search-bar">
       <el-form-item label="项目">
         <el-select v-model="query.projectId" placeholder="请选择项目" @change="loadPhases">
           <el-option v-for="p in projects" :key="p.id" :label="p.projectName" :value="p.id" />
@@ -59,7 +59,6 @@
         layout="total, sizes, prev, pager, next, jumper"
         @size-change="fetchList"
         @current-change="fetchList"
-        style="margin-top: 16px; justify-content: flex-end; display: flex;"
       />
 
       <el-drawer v-model="ledgerDrawer" title="归档台账" size="640px">
@@ -205,8 +204,3 @@ onMounted(() => {
   loadProjects()
 })
 </script>
-
-<style scoped lang="scss">
-.page-container { padding: 20px; }
-.filter-form { display: flex; align-items: center; }
-</style>

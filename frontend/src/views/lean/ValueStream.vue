@@ -100,7 +100,7 @@
     </el-card>
 
     <!-- 价值流编辑 -->
-    <el-dialog v-model="vsDialog" :title="vsEditing ? '编辑流程' : '登记流程'" width="560px">
+    <el-dialog :close-on-click-modal="false" v-model="vsDialog" :title="vsEditing ? '编辑流程' : '登记流程'" width="560px">
       <el-form ref="vsFormRef" :model="vsForm" :rules="vsRules" label-width="100px">
         <el-form-item label="所属项目" prop="projectId">
           <el-select v-model="vsForm.projectId" filterable style="width: 100%">
@@ -139,7 +139,7 @@
     </el-dialog>
 
     <!-- 浪费编辑 -->
-    <el-dialog v-model="wDialog" :title="wEditing ? '编辑浪费' : '登记浪费'" width="560px">
+    <el-dialog :close-on-click-modal="false" v-model="wDialog" :title="wEditing ? '编辑浪费' : '登记浪费'" width="560px">
       <el-form ref="wFormRef" :model="wForm" :rules="wRules" label-width="100px">
         <el-form-item label="所属项目" prop="projectId">
           <el-select v-model="wForm.projectId" filterable style="width: 100%">
@@ -341,7 +341,5 @@ onMounted(async () => {
 </script>
 
 <style scoped lang="scss">
-.page-container { padding: 20px; }
 .page-header-title { font-size: 16px; font-weight: bold; }
-.search-bar { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 16px; }
 </style>

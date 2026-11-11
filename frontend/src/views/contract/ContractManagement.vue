@@ -328,7 +328,6 @@ onMounted(loadList)
 </script>
 
 <style scoped>
-.toolbar { display: flex; gap: 8px; margin-bottom: 12px; }
 .upload-area { display: flex; flex-direction: column; align-items: center; padding: 32px 0; }
 .comment { color: #909399; font-size: 12px; margin-top: 2px; }
 </style>
