@@ -164,6 +164,30 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '投标管理', icon: 'Promotion' }
       },
       {
+        path: 'ecn',
+        name: 'EcnManagement',
+        component: () => import('@/views/phase3/EcnManagement.vue'),
+        meta: { title: '变更管理', icon: 'RefreshRight' }
+      },
+      {
+        path: 'cost',
+        name: 'CostManagement',
+        component: () => import('@/views/phase3/CostManagement.vue'),
+        meta: { title: '成本管理', icon: 'Coin' }
+      },
+      {
+        path: 'aftermarket',
+        name: 'AftermarketManagement',
+        component: () => import('@/views/phase3/AftermarketManagement.vue'),
+        meta: { title: '售后管理', icon: 'Service' }
+      },
+      {
+        path: 'archive',
+        name: 'ArchiveManagement',
+        component: () => import('@/views/phase3/ArchiveManagement.vue'),
+        meta: { title: '档案管理', icon: 'Collection' }
+      },
+      {
         path: 'bonus',
         name: 'BonusManage',
         component: () => import('@/views/bonus/BonusManage.vue'),
