@@ -1900,8 +1900,302 @@ INSERT INTO `company_qualification` (`qual_name`, `cert_no`, `valid_until`, `rem
 ('起重机械安装改造维修许可', 'TS3310001-2026', '2028-01-01', '')
 ON DUPLICATE KEY UPDATE `valid_until` = VALUES(`valid_until`);
 
+-- ============================================================================
+-- 9.24 W5 变更域（T-302：ECN 流程+旧版资料回收，BR-07）
+-- ============================================================================
+
+-- ECN 变更单
+DROP TABLE IF EXISTS `ecn_change`;
+CREATE TABLE `ecn_change` (
+    `id`               BIGINT       NOT NULL AUTO_INCREMENT COMMENT 'ECN ID',
+    `ecn_no`           VARCHAR(30)  NOT NULL                COMMENT 'ECN 编号（ECN 编码引擎）',
+    `project_id`       BIGINT       NOT NULL                COMMENT '项目ID',
+    `title`            VARCHAR(200) NOT NULL                COMMENT '变更标题',
+    `reason`           VARCHAR(1000) DEFAULT NULL           COMMENT '变更原因',
+    `change_type`      VARCHAR(20)  NOT NULL DEFAULT 'DESIGN' COMMENT '类型（DESIGN设计/PROCESS工艺/MATERIAL物料）',
+    `origin_scheme_id` BIGINT       DEFAULT NULL            COMMENT '原方案ID（旧版）',
+    `new_scheme_id`    BIGINT       DEFAULT NULL            COMMENT '新方案ID（实施后绑定）',
+    `impact_level`     VARCHAR(10)  NOT NULL DEFAULT 'B'    COMMENT '影响级别（A重大/B一般/C轻微）',
+    `status`           VARCHAR(20)  NOT NULL DEFAULT 'DRAFT' COMMENT '状态（DRAFT/PENDING_APPROVAL待审批/APPROVED已批准/REJECTED已驳回/IMPLEMENTED已实施/CLOSED已关闭）',
+    `applicant`        VARCHAR(50)  DEFAULT NULL            COMMENT '申请人',
+    `approver`         VARCHAR(50)  DEFAULT NULL            COMMENT '审批人',
+    `approved_at`      DATETIME     DEFAULT NULL            COMMENT '审批时间',
+    `implemented_at`   DATETIME     DEFAULT NULL            COMMENT '实施时间',
+    `remark`           VARCHAR(500) DEFAULT NULL            COMMENT '备注',
+    `create_time`      DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `update_time`      DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    `deleted`          TINYINT      DEFAULT 0               COMMENT '逻辑删除（0未删除 1已删除）',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_ecn_no` (`ecn_no`),
+    KEY                `idx_project` (`project_id`),
+    KEY                `idx_status` (`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='ECN变更单';
+
+-- 旧版资料回收任务（ECN 实施联动生成）
+DROP TABLE IF EXISTS `ecn_recall_task`;
+CREATE TABLE `ecn_recall_task` (
+    `id`           BIGINT       NOT NULL AUTO_INCREMENT COMMENT '任务ID',
+    `ecn_id`       BIGINT       NOT NULL                COMMENT 'ECN ID',
+    `project_id`   BIGINT       NOT NULL                COMMENT '项目ID',
+    `item_type`    VARCHAR(20)  NOT NULL                COMMENT '资料类型（SCHEME方案/BOM明细/DRAWING图纸/DOC文档）',
+    `item_id`      BIGINT       DEFAULT NULL            COMMENT '资料ID（可空，如按文档名回收）',
+    `item_desc`    VARCHAR(300) NOT NULL                COMMENT '资料描述（含版本标识）',
+    `owner`        VARCHAR(50)  DEFAULT NULL            COMMENT '回收责任人',
+    `status`       VARCHAR(20)  NOT NULL DEFAULT 'PENDING' COMMENT '状态（PENDING待回收/RECALLED已回收/CONFIRMED已确认）',
+    `due_date`     DATE         DEFAULT NULL            COMMENT '回收期限',
+    `recalled_at`  DATETIME     DEFAULT NULL            COMMENT '回收完成时间',
+    `create_time`  DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `update_time`  DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    PRIMARY KEY (`id`),
+    KEY            `idx_ecn` (`ecn_id`),
+    KEY            `idx_status` (`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='旧版资料回收任务';
+
+-- 编码规则：ECN 变更单号
+INSERT INTO `sys_code_rule` (`rule_code`, `rule_name`, `pattern`, `date_pattern`, `status`, `remark`) VALUES
+('ECN', 'ECN 变更单号', 'ECN-{yyyyMM}-{seq:3}', 'yyyyMM', 1, 'W5 变更域')
+ON DUPLICATE KEY UPDATE `pattern` = VALUES(`pattern`);
+
+-- ============================================================================
+-- 9.25 W7 成本域（T-303：成本自动归集 AGT-21 + 完工核算 + 毛利三口径 AGT-22 + 报价模型）
+-- ============================================================================
+
+-- 成本台账（AGT-21 归集载体；uk_source 保证幂等）
+DROP TABLE IF EXISTS `cost_ledger`;
+CREATE TABLE `cost_ledger` (
+    `id`            BIGINT        NOT NULL AUTO_INCREMENT COMMENT '台账ID',
+    `project_id`    BIGINT        NOT NULL                COMMENT '项目ID',
+    `cost_type`     VARCHAR(20)   NOT NULL                COMMENT '成本类型（MATERIAL物料/LABOR人工/EXPENSE费用）',
+    `source_type`   VARCHAR(20)   NOT NULL DEFAULT 'MANUAL' COMMENT '来源（AGENT自动归集/MANUAL手工）',
+    `source_id`     BIGINT        DEFAULT NULL            COMMENT '来源记录ID（物料归集时=inventory_record.id）',
+    `amount`        DECIMAL(18,2) NOT NULL                COMMENT '金额',
+    `occurred_date` DATE          DEFAULT NULL            COMMENT '发生日期',
+    `remark`        VARCHAR(300)  DEFAULT NULL            COMMENT '备注',
+    `create_time`   DATETIME      DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `update_time`   DATETIME      DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY      `uk_source` (`source_type`, `source_id`, `cost_type`),
+    KEY             `idx_project` (`project_id`),
+    KEY             `idx_type` (`project_id`, `cost_type`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='成本台账';
+
+-- 完工成本核算（毛利三口径载体，CST 编码）
+DROP TABLE IF EXISTS `cost_settlement`;
+CREATE TABLE `cost_settlement` (
+    `id`              BIGINT        NOT NULL AUTO_INCREMENT COMMENT '核算ID',
+    `settle_no`       VARCHAR(30)   NOT NULL                COMMENT '核算单号（CST 编码引擎）',
+    `project_id`      BIGINT        NOT NULL                COMMENT '项目ID',
+    `material_cost`   DECIMAL(18,2) NOT NULL DEFAULT 0.00   COMMENT '物料成本',
+    `labor_cost`      DECIMAL(18,2) NOT NULL DEFAULT 0.00   COMMENT '人工成本',
+    `expense_cost`    DECIMAL(18,2) NOT NULL DEFAULT 0.00   COMMENT '费用成本',
+    `total_cost`      DECIMAL(18,2) NOT NULL DEFAULT 0.00   COMMENT '完全成本合计',
+    `standard_cost`   DECIMAL(18,2) NOT NULL DEFAULT 0.00   COMMENT '标准成本口径',
+    `cash_cost`       DECIMAL(18,2) NOT NULL DEFAULT 0.00   COMMENT '现金支出口径（已完结 PO 物料）',
+    `contract_amount` DECIMAL(18,2) DEFAULT NULL            COMMENT '合同额',
+    `gross_margin`    DECIMAL(5,2)  DEFAULT NULL            COMMENT '毛利率%（完全成本口径）',
+    `margin_diff_json` LONGTEXT     DEFAULT NULL            COMMENT '三口径对比+差异分解 JSON',
+    `status`          VARCHAR(20)   NOT NULL DEFAULT 'DRAFT' COMMENT '状态（DRAFT定稿前/CONFIRMED定稿）',
+    `settled_at`      DATETIME      DEFAULT NULL            COMMENT '定稿时间',
+    `create_time`     DATETIME      DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `update_time`     DATETIME      DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY        `uk_settle_no` (`settle_no`),
+    KEY               `idx_project` (`project_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='完工成本核算';
+
+-- 报价模型（F-08：历史定稿样本统计，每次更新 version+1）
+DROP TABLE IF EXISTS `price_model`;
+CREATE TABLE `price_model` (
+    `id`           BIGINT       NOT NULL AUTO_INCREMENT COMMENT '模型ID',
+    `project_type` INT          NOT NULL                COMMENT '项目类型（1整机厂/2技改/3研发）',
+    `avg_margin`   DECIMAL(5,2) NOT NULL DEFAULT 0.00   COMMENT '平均毛利率%',
+    `min_margin`   DECIMAL(5,2) NOT NULL DEFAULT 0.00   COMMENT '最低毛利率%',
+    `sample_count` INT          NOT NULL DEFAULT 0      COMMENT '样本数（定稿核算单）',
+    `version`      INT          NOT NULL DEFAULT 1      COMMENT '模型版本（每次更新+1）',
+    `updated_at`   DATETIME     DEFAULT NULL            COMMENT '更新时间',
+    `create_time`  DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY     `uk_project_type` (`project_type`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='报价模型';
+
+-- 编码规则：CST 核算单号
+INSERT INTO `sys_code_rule` (`rule_code`, `rule_name`, `pattern`, `date_pattern`, `status`, `remark`) VALUES
+('CST', '成本核算单号', 'CST-{yyyyMM}-{seq:3}', 'yyyyMM', 1, 'W7 成本域')
+ON DUPLICATE KEY UPDATE `pattern` = VALUES(`pattern`);
+
+-- ============================================================================
+-- 9.26 W8 售后域（T-304：报修分级 AGT-23 + 巡检 + 质保金提醒 AGT-24）
+-- ============================================================================
+
+-- 报修工单（AGT-23 确定性分级）
+DROP TABLE IF EXISTS `repair_ticket`;
+CREATE TABLE `repair_ticket` (
+    `id`          BIGINT        NOT NULL AUTO_INCREMENT COMMENT '工单ID',
+    `ticket_no`   VARCHAR(30)   NOT NULL                COMMENT '工单编号（RP 编码引擎）',
+    `project_id`  BIGINT        NOT NULL                COMMENT '项目ID',
+    `fault_desc`  VARCHAR(1000) NOT NULL                COMMENT '故障描述',
+    `fault_time`  DATETIME      DEFAULT CURRENT_TIMESTAMP COMMENT '报修时间',
+    `level`       VARCHAR(20)   NOT NULL DEFAULT 'GENERAL' COMMENT '分级（EMERGENCY紧急/GENERAL一般/INQUIRY咨询，AGT-23 自动分级）',
+    `response_sla` VARCHAR(50)  DEFAULT NULL            COMMENT '响应时效',
+    `status`      VARCHAR(20)   NOT NULL DEFAULT 'OPEN' COMMENT '状态（OPEN待响应/PROCESSING处理中/CLOSED已闭环）',
+    `reporter`    VARCHAR(50)   DEFAULT NULL            COMMENT '报修人',
+    `handler`     VARCHAR(50)   DEFAULT NULL            COMMENT '处理人',
+    `root_cause`  VARCHAR(500)  DEFAULT NULL            COMMENT '根因（闭环必填）',
+    `solution`    VARCHAR(500)  DEFAULT NULL            COMMENT '解决方案（闭环必填）',
+    `closed_at`   DATETIME      DEFAULT NULL            COMMENT '闭环时间',
+    `create_time` DATETIME      DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `update_time` DATETIME      DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    `deleted`     TINYINT       DEFAULT 0               COMMENT '逻辑删除（0未删除 1已删除）',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY    `uk_ticket_no` (`ticket_no`),
+    KEY           `idx_project` (`project_id`),
+    KEY           `idx_level` (`level`),
+    KEY           `idx_status` (`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='报修工单';
+
+-- 巡检记录
+DROP TABLE IF EXISTS `inspection_record`;
+CREATE TABLE `inspection_record` (
+    `id`              BIGINT       NOT NULL AUTO_INCREMENT COMMENT '记录ID',
+    `project_id`      BIGINT       NOT NULL                COMMENT '项目ID',
+    `inspection_type` VARCHAR(20)  NOT NULL DEFAULT 'HALF_YEAR' COMMENT '类型（HALF_YEAR半年/ANNUAL年度）',
+    `inspection_date` DATE         DEFAULT NULL            COMMENT '巡检日期',
+    `inspector`       VARCHAR(50)  DEFAULT NULL            COMMENT '巡检人',
+    `content`         TEXT         DEFAULT NULL            COMMENT '巡检内容',
+    `issues`          VARCHAR(500) DEFAULT NULL            COMMENT '发现问题',
+    `create_time`     DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    PRIMARY KEY (`id`),
+    KEY               `idx_project` (`project_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='巡检记录';
+
+-- 质保信息（AGT-24 到期前 30 天提醒，reminded 标记保证幂等）
+DROP TABLE IF EXISTS `warranty_info`;
+CREATE TABLE `warranty_info` (
+    `id`             BIGINT        NOT NULL AUTO_INCREMENT COMMENT '信息ID',
+    `project_id`     BIGINT        NOT NULL                COMMENT '项目ID',
+    `warranty_end`   DATE          NOT NULL                COMMENT '质保期满日期',
+    `deposit_amount` DECIMAL(18,2) DEFAULT NULL            COMMENT '质保金金额',
+    `reminded`       TINYINT       NOT NULL DEFAULT 0      COMMENT '到期前30天是否已提醒（0/1）',
+    `status`         VARCHAR(20)   NOT NULL DEFAULT 'ACTIVE' COMMENT '状态（ACTIVE质保中/CLAIMED已申请质保金/EXPIRED已过期）',
+    `create_time`    DATETIME      DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `update_time`    DATETIME      DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY       `uk_project` (`project_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='质保信息';
+
+-- 编码规则：RP 报修工单号
+INSERT INTO `sys_code_rule` (`rule_code`, `rule_name`, `pattern`, `date_pattern`, `status`, `remark`) VALUES
+('RP', '报修工单号', 'RP-{yyyyMM}-{seq:4}', 'yyyyMM', 1, 'W8 售后域')
+ON DUPLICATE KEY UPDATE `pattern` = VALUES(`pattern`);
+
+-- ============================================================================
+-- 9.27 M3 档案域（T-305：档号规则+电子实物双轨+借阅+鉴定销毁）
+-- ============================================================================
+
+-- 档案表（DA 档号；双轨载体实物位置必填）
+DROP TABLE IF EXISTS `archive_info`;
+CREATE TABLE `archive_info` (
+    `id`           BIGINT       NOT NULL AUTO_INCREMENT COMMENT '档案ID',
+    `archive_no`   VARCHAR(30)  NOT NULL                COMMENT '档号（DA 编码引擎）',
+    `project_id`   BIGINT       NOT NULL                COMMENT '项目ID',
+    `archive_type` VARCHAR(20)  NOT NULL                COMMENT '类型（CONTRACT合同/SCHEME方案/DRAWING图纸/RECORD记录/ACCEPTANCE验收）',
+    `title`        VARCHAR(200) NOT NULL                COMMENT '档案标题',
+    `medium`       VARCHAR(20)  NOT NULL DEFAULT 'ELECTRONIC' COMMENT '载体（ELECTRONIC电子/PAPER纸质/DUAL双轨）',
+    `location`     VARCHAR(200) DEFAULT NULL            COMMENT '实物存放位置（纸质/双轨必填）',
+    `status`       VARCHAR(20)  NOT NULL DEFAULT 'NORMAL' COMMENT '状态（NORMAL正常/BORROWED借出/DESTROYED已鉴定销毁）',
+    `remark`       VARCHAR(300) DEFAULT NULL            COMMENT '备注',
+    `create_time`  DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '归档时间',
+    `update_time`  DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    `deleted`      TINYINT      DEFAULT 0               COMMENT '逻辑删除（0未删除 1已删除）',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY     `uk_archive_no` (`archive_no`),
+    KEY            `idx_project` (`project_id`),
+    KEY            `idx_status` (`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='档案表';
+
+-- 档案借阅记录（OVERDUE 逾期）
+DROP TABLE IF EXISTS `archive_borrow`;
+CREATE TABLE `archive_borrow` (
+    `id`          BIGINT       NOT NULL AUTO_INCREMENT COMMENT '借阅ID',
+    `archive_id`  BIGINT       NOT NULL                COMMENT '档案ID',
+    `borrower`    VARCHAR(50)  NOT NULL                COMMENT '借阅人',
+    `purpose`     VARCHAR(300) DEFAULT NULL            COMMENT '借阅用途',
+    `borrow_date` DATE         NOT NULL                COMMENT '借出日期',
+    `due_date`    DATE         NOT NULL                COMMENT '应还日期',
+    `return_date` DATE         DEFAULT NULL            COMMENT '实际归还日期',
+    `status`      VARCHAR(20)  NOT NULL DEFAULT 'BORROWED' COMMENT '状态（BORROWED借出/RETURNED已归还/OVERDUE逾期）',
+    `approve_by`  VARCHAR(50)  DEFAULT NULL            COMMENT '批准人',
+    `create_time` DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `update_time` DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    PRIMARY KEY (`id`),
+    KEY           `idx_archive` (`archive_id`),
+    KEY           `idx_status` (`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='档案借阅记录';
+
+-- 编码规则：DA 档号
+INSERT INTO `sys_code_rule` (`rule_code`, `rule_name`, `pattern`, `date_pattern`, `status`, `remark`) VALUES
+('DA', '档案档号', 'DA-{yyyy}-{seq:4}', 'yyyy', 1, 'M3 档案域')
+ON DUPLICATE KEY UPDATE `pattern` = VALUES(`pattern`);
+
+-- ============================================================================
+-- 9.28 AGT-25 ChatBI 指标白名单（T-307：指标口径白名单 + NL 受限生成 + 禁止编造）
+-- ============================================================================
+
+-- 指标白名单注册表：ChatBI 仅回答本表注册指标；sql_template 必须为受限 SELECT（执行时二次校验）
+DROP TABLE IF EXISTS `sys_metric`;
+CREATE TABLE `sys_metric` (
+    `id`            BIGINT       NOT NULL AUTO_INCREMENT COMMENT '指标ID',
+    `metric_code`   VARCHAR(50)  NOT NULL                COMMENT '指标编码（唯一）',
+    `metric_name`   VARCHAR(100) NOT NULL                COMMENT '指标名称（看板口径对齐）',
+    `category`      VARCHAR(30)  NOT NULL DEFAULT 'OVERVIEW' COMMENT '所属域（对齐九板编码）',
+    `description`   VARCHAR(500) NOT NULL                COMMENT '口径说明（回答时原样引用，禁止改写数字）',
+    `aliases`       VARCHAR(500) DEFAULT NULL            COMMENT '别名（分号分隔，NL 确定性匹配用）',
+    `sql_template`  TEXT         NOT NULL                COMMENT '受限 SELECT 模板（#{param} 占位，执行时校验）',
+    `params_schema` JSON         DEFAULT NULL            COMMENT '参数白名单 [{"name":"projectId","type":"long","required":true,"desc":"..."}]',
+    `status`        VARCHAR(20)  NOT NULL DEFAULT 'ACTIVE' COMMENT '状态（ACTIVE启用/DISABLED停用）',
+    `create_time`   DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `update_time`   DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    `deleted`       TINYINT      DEFAULT 0               COMMENT '逻辑删除（0未删除 1已删除）',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY      `uk_metric_code` (`metric_code`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='ChatBI 指标白名单';
+
+-- 种子指标（15 条，与 T-209 九板口径 100% 对齐；quality_check/fai_report/acceptance/cost_ledger 无 deleted 列）
+INSERT INTO `sys_metric` (`metric_code`, `metric_name`, `category`, `description`, `aliases`, `sql_template`, `params_schema`, `status`) VALUES
+('project.total_count', '在库项目总数', 'OVERVIEW', 'project 表全部未删除项目计数（含全部状态）', '项目数;项目总数;在库项目',
+ 'SELECT COUNT(*) AS value FROM project WHERE deleted=0', NULL, 'ACTIVE'),
+('contract.effective_count', '生效合同数', 'CONTRACT', 'contract 表 status=EFFECTIVE 计数', '生效合同;合同数;合同数量',
+ 'SELECT COUNT(*) AS value FROM contract WHERE status=''EFFECTIVE'' AND deleted=0', NULL, 'ACTIVE'),
+('design.released_count', '已受控发布方案数', 'DESIGN', 'design_scheme 表 status=RELEASED 计数（受控发布口径）', '受控发布;发布方案;已发布方案;设计方案发布',
+ 'SELECT COUNT(*) AS value FROM design_scheme WHERE status=''RELEASED'' AND deleted=0', NULL, 'ACTIVE'),
+('po.overdue_count', '逾期采购订单数', 'KITTING', 'purchase_order 表 status=SUBMITTED 且 expected_date 早于今日计数', '逾期PO;逾期采购;采购逾期;逾期订单',
+ 'SELECT COUNT(*) AS value FROM purchase_order WHERE status=''SUBMITTED'' AND expected_date IS NOT NULL AND expected_date < CURDATE() AND deleted=0', NULL, 'ACTIVE'),
+('wo.started_count', '在产工单数', 'PRODUCE', 'work_order 表 status=STARTED 计数', '在产工单;生产中工单;开工工单',
+ 'SELECT COUNT(*) AS value FROM work_order WHERE status=''STARTED'' AND deleted=0', NULL, 'ACTIVE'),
+('qc.fail_count', '质检不合格数', 'PRODUCE', 'quality_check result=FAIL 与 fai_report result=FAIL 计数之和', '质检不合格;质检;不合格;FAI不合格',
+ 'SELECT (SELECT COUNT(*) FROM quality_check WHERE result=''FAIL'') + (SELECT COUNT(*) FROM fai_report WHERE result=''FAIL'') AS value', NULL, 'ACTIVE'),
+('shipment.submitted_count', '已发运批次数', 'SHIP', 'shipment 表 status=SUBMITTED 计数', '发运;发货批次;已发运;发货',
+ 'SELECT COUNT(*) AS value FROM shipment WHERE status=''SUBMITTED'' AND deleted=0', NULL, 'ACTIVE'),
+('acceptance.pass_count', '已生效验收单数', 'ACCEPT', 'acceptance 表 status=PASS 计数（三方签字生效口径）', '验收单;已验收;验收通过;验收',
+ 'SELECT COUNT(*) AS value FROM acceptance WHERE status=''PASS''', NULL, 'ACTIVE'),
+('inventory.pending_push', 'T+待推送单数', 'TPLUS', 'inventory_record 表 tplus_status=PENDING 计数', '待推送;T+待推送;过账待推送',
+ 'SELECT COUNT(*) AS value FROM inventory_record WHERE tplus_status=''PENDING'' AND deleted=0', NULL, 'ACTIVE'),
+('rectification.open_count', '未闭环整改单数', 'RECTIFY', 'rectification 表 status=OPEN 计数', '整改单;整改;未闭环整改',
+ 'SELECT COUNT(*) AS value FROM rectification WHERE status=''OPEN'' AND deleted=0', NULL, 'ACTIVE'),
+('redcard.open_count', '活跃红灯数', 'OVERVIEW', 'redcard 表 status IN (OPEN,ASSIGNED) 计数', '红灯;看板红灯;活跃红灯',
+ 'SELECT COUNT(*) AS value FROM redcard WHERE status IN (''OPEN'',''ASSIGNED'')', NULL, 'ACTIVE'),
+('ecn.pending_count', '待办ECN数', 'OVERVIEW', 'ecn_change 表 status IN (DRAFT,PENDING_APPROVAL) 计数', 'ECN;变更单;工程变更',
+ 'SELECT COUNT(*) AS value FROM ecn_change WHERE status IN (''DRAFT'',''PENDING_APPROVAL'') AND deleted=0', NULL, 'ACTIVE'),
+('repair.open_count', '未闭环报修工单数', 'OVERVIEW', 'repair_ticket 表 status IN (OPEN,PROCESSING) 计数', '报修;维修工单;报修工单',
+ 'SELECT COUNT(*) AS value FROM repair_ticket WHERE status IN (''OPEN'',''PROCESSING'') AND deleted=0', NULL, 'ACTIVE'),
+('archive.total_count', '在库档案数', 'OVERVIEW', 'archive_info 表 status=NORMAL 计数（已借出/已销毁不计）', '档案;档案数;归档',
+ 'SELECT COUNT(*) AS value FROM archive_info WHERE status=''NORMAL'' AND deleted=0', NULL, 'ACTIVE'),
+('cost.project_total', '项目累计成本', 'OVERVIEW', 'cost_ledger 表按项目 SUM(amount)（物料+人工+费用全口径）', '项目成本;累计成本;成本合计',
+ 'SELECT COALESCE(SUM(amount),0) AS value FROM cost_ledger WHERE project_id=#{projectId}',
+ '[{"name":"projectId","type":"long","required":true,"desc":"项目ID"}]', 'ACTIVE');
+
 SET FOREIGN_KEY_CHECKS = 1;
 
 -- ============================================================================
--- DDL脚本执行完毕，共创建78张业务表
+-- DDL脚本执行完毕，共创建89张业务表（含 ChatBI 指标白名单）
 -- ============================================================================
