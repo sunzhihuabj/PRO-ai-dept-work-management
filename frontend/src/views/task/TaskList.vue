@@ -1,6 +1,19 @@
 <template>
   <div class="page-container">
-    <el-card shadow="hover">
+    <!-- 状态统计概览（点击即筛选） -->
+    <el-row :gutter="12" class="stat-row">
+      <el-col :xs="12" :md="6" v-for="s in statusCards" :key="s.status">
+        <div class="stat-card" @click="filterByStatus(s.status)">
+          <div class="stat-icon" :class="s.iconClass"><el-icon><component :is="s.icon" /></el-icon></div>
+          <div class="stat-meta">
+            <div class="stat-value">{{ s.count }}</div>
+            <div class="stat-label">{{ s.label }}</div>
+          </div>
+        </div>
+      </el-col>
+    </el-row>
+
+    <el-card shadow="never">
       <div class="search-bar">
         <el-input v-model="query.keyword" placeholder="任务名称" clearable style="width: 200px" @keyup.enter="loadData" />
         <el-select v-model="query.status" placeholder="状态" clearable style="width: 120px">
@@ -21,9 +34,15 @@
         <el-button type="warning" @click="openPoolDialog">从任务池领取</el-button>
       </div>
 
-      <el-table v-loading="loading" :data="tableData" stripe @row-click="(row: any) => goDetail(row.id)">
+      <el-table v-loading="loading" :data="tableData" stripe
+                :empty-text="'暂无任务，点击「创建任务」或「从任务池领取」开始'"
+                @row-click="(row: any) => goDetail(row.id)">
         <el-table-column prop="id" label="ID" width="70" />
-        <el-table-column prop="taskName" label="任务名称" show-overflow-tooltip min-width="200" />
+        <el-table-column label="任务名称" show-overflow-tooltip min-width="200">
+          <template #default="{ row }: any">
+            <span class="task-name">{{ row.taskName }}</span>
+          </template>
+        </el-table-column>
         <el-table-column prop="taskType" label="类型" width="100" />
         <el-table-column label="优先级" width="80" align="center">
           <template #default="{ row }: any">
@@ -37,12 +56,17 @@
         </el-table-column>
         <el-table-column prop="progress" label="进度" width="120">
           <template #default="{ row }: any">
-            <el-progress :percentage="row.progress || 0" :stroke-width="6" />
+            <el-progress :percentage="row.progress || 0" :stroke-width="6"
+                         :status="(row.progress || 0) >= 100 ? 'success' : undefined" />
           </template>
         </el-table-column>
         <el-table-column prop="planHours" label="计划工时" width="100" align="center" />
         <el-table-column prop="actualHours" label="实际工时" width="100" align="center" />
-        <el-table-column prop="deadline" label="截止日期" width="120" />
+        <el-table-column label="截止日期" width="130">
+          <template #default="{ row }: any">
+            <span :class="{ 'deadline-danger': deadlineNear(row) }">{{ row.deadline || '-' }}</span>
+          </template>
+        </el-table-column>
         <el-table-column label="操作" width="220" align="center" fixed="right">
           <template #default="{ row }: any">
             <el-button link type="primary" @click.stop="goDetail(row.id)">详情</el-button>
@@ -62,7 +86,7 @@
         layout="total, sizes, prev, pager, next, jumper"
         @size-change="loadData"
         @current-change="loadData"
-        style="margin-top: 16px; justify-content: flex-end; display: flex;"
+        style="margin-top: 16px"
       />
     </el-card>
 
@@ -147,11 +171,11 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
-import { Search, Refresh, Plus } from '@element-plus/icons-vue'
+import { Search, Refresh, Plus, Tickets, VideoPlay, View, CircleCheck } from '@element-plus/icons-vue'
 import { getTaskListApi, createTaskApi, updateTaskApi, changeTaskStatusApi, listTaskPoolApi, claimPoolTaskApi, type TaskItem, type TaskDTO } from '@/api/task'
 import { getProjectListApi, type ProjectItem } from '@/api/project'
 import { getUserOptionsApi, type SysUser } from '@/api/user'
@@ -161,6 +185,34 @@ const loading = ref(false)
 const tableData = ref<TaskItem[]>([])
 const total = ref(0)
 const query = reactive({ pageNum: 1, pageSize: 10, keyword: '', status: undefined as number | undefined, priority: undefined as number | undefined })
+
+// ---------- 状态统计概览（大页本地聚合，点击即筛选） ----------
+const statusCounts = reactive({ 0: 0, 1: 0, 2: 0, 3: 0 })
+const statusCards = computed(() => [
+  { status: 0, label: '待办', count: statusCounts[0], icon: Tickets, iconClass: 'stat-icon--info' },
+  { status: 1, label: '进行中', count: statusCounts[1], icon: VideoPlay, iconClass: 'stat-icon--primary' },
+  { status: 2, label: '待审核', count: statusCounts[2], icon: View, iconClass: 'stat-icon--warning' },
+  { status: 3, label: '已完成', count: statusCounts[3], icon: CircleCheck, iconClass: 'stat-icon--success' }
+])
+async function loadStats() {
+  try {
+    const res = await getTaskListApi({ pageNum: 1, pageSize: 500 } as any)
+    const all = res.data.records || []
+    statusCounts[0] = all.filter((t: any) => t.status === 0).length
+    statusCounts[1] = all.filter((t: any) => t.status === 1).length
+    statusCounts[2] = all.filter((t: any) => t.status === 2).length
+    statusCounts[3] = all.filter((t: any) => t.status === 3).length
+  } catch (e) {}
+}
+function filterByStatus(status: number) {
+  query.status = query.status === status ? undefined : status
+  query.pageNum = 1
+  loadData()
+}
+function deadlineNear(row: any): boolean {
+  if (!row.deadline || row.status >= 3) return false
+  return Math.ceil((new Date(row.deadline).getTime() - Date.now()) / 86400000) <= 3
+}
 
 const dialogVisible = ref(false)
 const editing = ref(false)
@@ -256,6 +308,7 @@ async function changeStatus(row: TaskItem, target: number, action: string) {
     await changeTaskStatusApi(row.id, target, action)
     ElMessage.success('状态流转成功')
     loadData()
+    loadStats()
   } catch (e) {
     // 忽略
   }
@@ -300,6 +353,7 @@ async function claimTask() {
 
 onMounted(async () => {
   loadData()
+  loadStats()
   const [projRes, userRes] = await Promise.all([getProjectListApi({ pageSize: 100 }), getUserOptionsApi()])
   projectOptions.value = projRes.data.records
   userOptions.value = userRes.data
@@ -307,11 +361,7 @@ onMounted(async () => {
 </script>
 
 <style lang="scss" scoped>
-.search-bar {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  align-items: center;
-  margin-bottom: 16px;
-}
+.task-name { font-weight: 500; color: #303133; }
+.deadline-danger { color: #f56c6c; font-weight: 600; }
+:deep(.el-table__row) { cursor: pointer; }
 </style>

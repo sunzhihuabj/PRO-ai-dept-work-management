@@ -1,117 +1,83 @@
 <template>
   <el-container class="app-layout">
-    <el-aside :width="appStore.sidebarWidth" class="app-sidebar">
+    <!-- 桌面端侧边栏 -->
+    <el-aside v-if="!isMobile" :width="appStore.sidebarWidth" class="app-sidebar">
       <div class="logo">
         <el-icon :size="24" color="#fff"><Avatar /></el-icon>
         <span v-show="!appStore.sidebarCollapsed" class="logo-text">部门管理平台</span>
       </div>
-      <el-menu
-        :default-active="route.path"
-        :collapse="appStore.sidebarCollapsed"
-        :collapse-transition="false"
-        background-color="#001529"
-        text-color="rgba(255,255,255,0.85)"
-        active-text-color="#fff"
-        router
-      >
-        <el-menu-item index="/dashboard">
-          <el-icon><HomeFilled /></el-icon>
-          <span>工作台</span>
-        </el-menu-item>
-        <el-menu-item index="/task">
-          <el-icon><Document /></el-icon>
-          <span>任务管理</span>
-        </el-menu-item>
-        <el-menu-item index="/project">
-          <el-icon><Folder /></el-icon>
-          <span>项目管理</span>
-        </el-menu-item>
-        <el-menu-item index="/file/list">
-          <el-icon><Files /></el-icon>
-          <span>档案归档</span>
-        </el-menu-item>
-        <el-menu-item index="/event">
-          <el-icon><Bell /></el-icon>
-          <span>事件审批</span>
-        </el-menu-item>
-        <el-menu-item index="/kpi">
-          <el-icon><DataAnalysis /></el-icon>
-          <span>绩效管理</span>
-        </el-menu-item>
-        <el-menu-item index="/ai">
-          <el-icon><MagicStick /></el-icon>
-          <span>AI助手</span>
-        </el-menu-item>
-        <el-menu-item index="/lean">
-          <el-icon><Aim /></el-icon>
-          <span>精益改进</span>
-        </el-menu-item>
-        <el-menu-item index="/lean/stream">
-          <el-icon><DataLine /></el-icon>
-          <span>价值流分析</span>
-        </el-menu-item>
-        <el-menu-item index="/message">
-          <el-icon><Message /></el-icon>
-          <span>消息中心</span>
-          <el-badge v-if="unreadCount > 0" :value="unreadCount" :max="99" class="unread-badge" />
-        </el-menu-item>
-        <el-menu-item v-if="userStore.isAdmin" index="/system/user">
-          <el-icon><User /></el-icon>
-          <span>用户管理</span>
-        </el-menu-item>
-        <el-menu-item v-if="userStore.isAdmin" index="/system/dept">
-          <el-icon><OfficeBuilding /></el-icon>
-          <span>部门管理</span>
-        </el-menu-item>
-        <el-menu-item v-if="userStore.isAdmin" index="/system/notice">
-          <el-icon><BellFilled /></el-icon>
-          <span>通知公告</span>
-        </el-menu-item>
-        <el-menu-item v-if="userStore.isAdmin" index="/system/log">
-          <el-icon><Tickets /></el-icon>
-          <span>操作日志</span>
-        </el-menu-item>
-        <el-menu-item v-if="userStore.isAdmin" index="/system/ai-config">
-          <el-icon><MagicStick /></el-icon>
-          <span>AI 服务配置</span>
-        </el-menu-item>
-        <el-menu-item index="/agent">
-          <el-icon><ChatDotRound /></el-icon>
-          <span>Agent 工作台</span>
-        </el-menu-item>
-        <el-menu-item index="/contract">
-          <el-icon><Stamp /></el-icon>
-          <span>合同管理</span>
-        </el-menu-item>
-        <el-menu-item index="/design">
-          <el-icon><SetUp /></el-icon>
-          <span>设计管理</span>
-        </el-menu-item>
-        <el-menu-item v-if="userStore.isAdmin" index="/bonus">
-          <el-icon><Money /></el-icon>
-          <span>奖金管理</span>
-        </el-menu-item>
-      </el-menu>
+      <el-scrollbar class="menu-scroll">
+        <el-menu
+          :default-active="route.path"
+          :collapse="appStore.sidebarCollapsed"
+          :collapse-transition="false"
+          background-color="#001529"
+          text-color="rgba(255,255,255,0.85)"
+          active-text-color="#fff"
+          router
+        >
+          <template v-for="group in menuGroups" :key="group.title">
+            <div v-if="!appStore.sidebarCollapsed" class="menu-group-title">{{ group.title }}</div>
+            <template v-for="item in group.items" :key="item.index">
+              <el-menu-item v-if="!item.admin || userStore.isAdmin" :index="item.index">
+                <el-icon><component :is="item.icon" /></el-icon>
+                <span>{{ item.label }}</span>
+                <el-badge v-if="item.badge === 'unread' && unreadCount > 0" :value="unreadCount" :max="99" class="unread-badge" />
+              </el-menu-item>
+            </template>
+          </template>
+        </el-menu>
+      </el-scrollbar>
     </el-aside>
+
+    <!-- 移动端抽屉侧边栏 -->
+    <el-drawer v-model="mobileMenuOpen" direction="ltr" size="220px" :with-header="false" class="mobile-drawer">
+      <div class="logo">
+        <el-icon :size="24" color="#fff"><Avatar /></el-icon>
+        <span class="logo-text">部门管理平台</span>
+      </div>
+      <el-scrollbar class="menu-scroll">
+        <el-menu
+          :default-active="route.path"
+          background-color="#001529"
+          text-color="rgba(255,255,255,0.85)"
+          active-text-color="#fff"
+          router
+          @select="mobileMenuOpen = false"
+        >
+          <template v-for="group in menuGroups" :key="group.title">
+            <div class="menu-group-title">{{ group.title }}</div>
+            <template v-for="item in group.items" :key="item.index">
+              <el-menu-item v-if="!item.admin || userStore.isAdmin" :index="item.index">
+                <el-icon><component :is="item.icon" /></el-icon>
+                <span>{{ item.label }}</span>
+                <el-badge v-if="item.badge === 'unread' && unreadCount > 0" :value="unreadCount" :max="99" class="unread-badge" />
+              </el-menu-item>
+            </template>
+          </template>
+        </el-menu>
+      </el-scrollbar>
+    </el-drawer>
 
     <el-container>
       <el-header class="app-header">
         <div class="header-left">
-          <el-icon class="collapse-btn" @click="appStore.toggleSidebar">
-            <Fold v-if="!appStore.sidebarCollapsed" />
+          <el-icon class="collapse-btn" @click="toggleSidebar">
+            <Fold v-if="!appStore.sidebarCollapsed && !isMobile" />
             <Expand v-else />
           </el-icon>
-          <el-breadcrumb separator="/">
+          <el-breadcrumb v-if="!isMobile" separator="/">
             <el-breadcrumb-item :to="{ path: '/dashboard' }">首页</el-breadcrumb-item>
             <el-breadcrumb-item v-if="route.meta.title && route.path !== '/dashboard'">
               {{ route.meta.title }}
             </el-breadcrumb-item>
           </el-breadcrumb>
+          <span v-else class="mobile-title">{{ route.meta.title || '部门管理平台' }}</span>
         </div>
         <div class="header-right">
           <el-dropdown @command="handleCommand">
             <span class="user-info">
-              <el-avatar :size="32" :icon="UserFilled" />
+              <el-avatar :size="30" :icon="UserFilled" />
               <span class="username">{{ userStore.userName }}</span>
               <el-icon><ArrowDown /></el-icon>
             </span>
@@ -144,13 +110,91 @@ import { useRoute } from 'vue-router'
 import { useAppStore } from '@/store/app'
 import { useUserStore } from '@/store/user'
 import { ElMessageBox } from 'element-plus'
-import { UserFilled } from '@element-plus/icons-vue'
-import { onMounted, onUnmounted } from 'vue'
+import {
+  UserFilled, HomeFilled, Document, Folder, Message, Promotion, Stamp, SetUp,
+  Box, Van, RefreshRight, Coin, Service, Collection, Files, Bell, ChatDotRound,
+  MagicStick, DataAnalysis, Aim, DataLine, User, OfficeBuilding, BellFilled, Tickets, Money
+} from '@element-plus/icons-vue'
+import { ref, watch, markRaw, onMounted, onUnmounted } from 'vue'
 import { unreadCountApi } from '@/api/message'
 
 const route = useRoute()
 const appStore = useAppStore()
 const userStore = useUserStore()
+
+// ---------- 响应式：移动端侧栏抽屉化 ----------
+const isMobile = ref(window.innerWidth < 768)
+const mobileMenuOpen = ref(false)
+function onResize() {
+  const mobile = window.innerWidth < 768
+  if (mobile !== isMobile.value) {
+    isMobile.value = mobile
+    mobileMenuOpen.value = false
+  }
+}
+onMounted(() => window.addEventListener('resize', onResize))
+onUnmounted(() => window.removeEventListener('resize', onResize))
+
+function toggleSidebar() {
+  if (isMobile.value) {
+    mobileMenuOpen.value = !mobileMenuOpen.value
+  } else {
+    appStore.toggleSidebar()
+  }
+}
+
+// ---------- 菜单分组数据源（补全业务域入口） ----------
+interface MenuItem { index: string; label: string; icon: any; admin?: boolean; badge?: string }
+interface MenuGroup { title: string; items: MenuItem[] }
+
+const menuGroups: MenuGroup[] = [
+  {
+    title: '日常工作',
+    items: [
+      { index: '/dashboard', label: '工作台', icon: markRaw(HomeFilled) },
+      { index: '/task', label: '任务管理', icon: markRaw(Document) },
+      { index: '/project', label: '项目管理', icon: markRaw(Folder) },
+      { index: '/message', label: '消息中心', icon: markRaw(Message), badge: 'unread' }
+    ]
+  },
+  {
+    title: '业务域',
+    items: [
+      { index: '/tender', label: '投标管理', icon: markRaw(Promotion) },
+      { index: '/contract', label: '合同管理', icon: markRaw(Stamp) },
+      { index: '/design', label: '设计管理', icon: markRaw(SetUp) },
+      { index: '/workshop', label: '样机管理', icon: markRaw(Box) },
+      { index: '/delivery', label: '交付管理', icon: markRaw(Van) },
+      { index: '/ecn', label: '变更管理', icon: markRaw(RefreshRight) },
+      { index: '/cost', label: '成本管理', icon: markRaw(Coin) },
+      { index: '/aftermarket', label: '售后管理', icon: markRaw(Service) },
+      { index: '/archive', label: '档案管理', icon: markRaw(Collection) }
+    ]
+  },
+  {
+    title: '协同与智能',
+    items: [
+      { index: '/file/list', label: '文件归档', icon: markRaw(Files) },
+      { index: '/event', label: '事件审批', icon: markRaw(Bell) },
+      { index: '/agent', label: 'Agent 工作台', icon: markRaw(ChatDotRound) },
+      { index: '/ai', label: 'AI助手', icon: markRaw(MagicStick) },
+      { index: '/kpi', label: '绩效管理', icon: markRaw(DataAnalysis) },
+      { index: '/lean', label: '精益改进', icon: markRaw(Aim) },
+      { index: '/lean/stream', label: '价值流分析', icon: markRaw(DataLine) }
+    ]
+  },
+  {
+    title: '系统管理',
+    items: [
+      { index: '/system/user', label: '用户管理', icon: markRaw(User), admin: true },
+      { index: '/system/dept', label: '部门管理', icon: markRaw(OfficeBuilding), admin: true },
+      { index: '/system/notice', label: '通知公告', icon: markRaw(BellFilled), admin: true },
+      { index: '/system/log', label: '操作日志', icon: markRaw(Tickets), admin: true },
+      { index: '/system/ai-config', label: 'AI 服务配置', icon: markRaw(MagicStick), admin: true },
+      { index: '/bonus', label: '奖金管理', icon: markRaw(Money), admin: true }
+    ]
+  }
+]
 
 // ---------- 未读消息角标 ----------
 const unreadCount = ref(0)
@@ -210,9 +254,18 @@ async function handleCommand(command: string) {
     .logo-text { white-space: nowrap; }
   }
 
+  .menu-scroll { height: calc(100% - 50px); }
+
   :deep(.el-menu) {
     border-right: none;
   }
+}
+
+.menu-group-title {
+  padding: 14px 20px 6px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.4);
+  letter-spacing: 1px;
 }
 
 .app-header {
@@ -228,11 +281,20 @@ async function handleCommand(command: string) {
     display: flex;
     align-items: center;
     gap: 16px;
+    min-width: 0;
 
     .collapse-btn {
       font-size: 20px;
       cursor: pointer;
       &:hover { color: var(--el-color-primary); }
+    }
+    .mobile-title {
+      font-size: 15px;
+      font-weight: 600;
+      color: #303133;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
   }
 
@@ -251,6 +313,7 @@ async function handleCommand(command: string) {
   background: #f0f2f5;
   padding: 16px;
   overflow-y: auto;
+  @media (max-width: 768px) { padding: 10px; }
 }
 
 .fade-enter-active, .fade-leave-active {
@@ -262,5 +325,29 @@ async function handleCommand(command: string) {
 .unread-badge {
   margin-left: 4px;
   transform: translateY(-2px);
+}
+</style>
+
+<style lang="scss">
+/* 移动端抽屉（全局样式：抽屉内容在 body 下） */
+.mobile-drawer {
+  .el-drawer__body { padding: 0; background: #001529; }
+  .logo {
+    height: 50px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    color: #fff;
+    font-size: 16px;
+    font-weight: bold;
+  }
+  .menu-group-title {
+    padding: 14px 20px 6px;
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.4);
+    letter-spacing: 1px;
+  }
+  .el-menu { border-right: none; }
 }
 </style>

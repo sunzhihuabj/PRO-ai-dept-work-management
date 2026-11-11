@@ -23,7 +23,7 @@
               <el-button type="primary" @click="loadEcns">查询</el-button>
             </el-form-item>
           </el-form>
-          <el-table :data="ecns" v-loading="loading" border>
+          <el-table :data="ecns" v-loading="loading" border stripe :empty-text="'暂无变更单，点击右上角「新建变更单」发起'">
             <el-table-column prop="ecnNo" label="ECN 编号" width="150" />
             <el-table-column prop="title" label="变更标题" min-width="180" show-overflow-tooltip />
             <el-table-column prop="projectId" label="项目" width="80" />
@@ -55,7 +55,7 @@
 
         <el-tab-pane label="旧版资料回收" name="recalls">
           <el-button type="primary" plain @click="loadRecalls" style="margin-bottom: 12px">刷新</el-button>
-          <el-table :data="recalls" v-loading="recallsLoading" border>
+          <el-table :data="recalls" v-loading="recallsLoading" border stripe :empty-text="'暂无回收任务'">
             <el-table-column prop="id" label="ID" width="70" />
             <el-table-column prop="ecnId" label="ECN" width="80" />
             <el-table-column label="资料类型" width="110">

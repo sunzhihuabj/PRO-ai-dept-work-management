@@ -2,32 +2,148 @@
 @use './variables.scss' as *;
 @use './reset.scss';
 
-// 页面通用样式
+// ============================================================
+// 全局设计规范（全站 UI 统一：视觉层级/交互细节/响应式/留白）
+// ============================================================
+
+:root {
+  --dm-card-radius: 8px;
+  --dm-gap: 16px;
+  --dm-section-title-color: #303133;
+  --dm-muted: #909399;
+  --dm-border: #e4e7ed;
+  --dm-hover-bg: #f5f7fa;
+}
+
+// ---------- Element 组件全局统一 ----------
+.el-card {
+  border-radius: var(--dm-card-radius);
+  border-color: var(--dm-border);
+  transition: box-shadow .2s ease;
+}
+.el-table {
+  // 表头
+  --el-table-header-bg-color: #f7f9fc;
+  --el-table-header-text-color: #4e5969;
+  th.el-table__cell {
+    font-weight: 600;
+  }
+  // 行 hover 与斑马纹统一
+  --el-table-row-hover-bg-color: var(--dm-hover-bg);
+}
+.el-dialog {
+  border-radius: 10px;
+  .el-dialog__header {
+    border-bottom: 1px solid #f0f0f0;
+    margin-right: 0;
+    padding-bottom: 14px;
+  }
+  .el-dialog__footer {
+    border-top: 1px solid #f0f0f0;
+    padding-top: 14px;
+  }
+}
+.el-pagination {
+  justify-content: flex-end;
+  @media (max-width: 768px) {
+    justify-content: center;
+    .el-pagination__sizes, .el-pagination__jump { display: none; }
+  }
+}
+// 移动端表格横向滚动兜底（防挤压错位）
+@media (max-width: 768px) {
+  .el-table { width: 100%; }
+  .el-message { max-width: 92vw; }
+}
+
+// 全局滚动条（细条 + hover 加深）
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-thumb { background: #c1c6cd; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #a3abb8; }
+::-webkit-scrollbar-track { background: transparent; }
+
+// ---------- 页面通用样式 ----------
 .page-container {
   padding: 16px;
   background: #f0f2f5;
   min-height: calc(100vh - 84px);
 
+  @media (max-width: 768px) {
+    padding: 10px;
+  }
+
   .page-card {
     background: #fff;
-    border-radius: 4px;
+    border-radius: 8px;
     padding: 16px;
     margin-bottom: 16px;
     box-shadow: 0 1px 4px rgba(0, 21, 41, 0.08);
   }
 }
 
-// 搜索栏
-.search-bar {
+// 搜索/工具栏（统一间距与折行）
+.search-bar,
+.toolbar {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
   align-items: center;
   margin-bottom: 16px;
 
-  .el-form-item {
-    margin-bottom: 0;
+  .el-form-item { margin-bottom: 0; }
+  @media (max-width: 768px) {
+    .el-input, .el-select { width: 100% !important; }
+    .el-button { margin-left: 0; flex: 1 1 30%; }
   }
+}
+
+// 卡片头（标题 + 徽标 + 操作区）
+.card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.card-title {
+  font-weight: 600;
+  font-size: 14px;
+  color: #303133;
+  display: inline-flex;
+  align-items: center;
+}
+.card-badge { margin-left: 8px; }
+
+// 分区标题（蓝色左边线，主卡内分区）
+.section-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #303133;
+  margin-bottom: 12px;
+  padding-left: 8px;
+  border-left: 3px solid #409eff;
+  line-height: 1.3;
+}
+
+// 统计概览卡（点击跳转）
+.stat-row { margin-bottom: 12px; }
+.stat-card {
+  display: flex; align-items: center; gap: 12px;
+  background: #fff; border: 1px solid var(--dm-border); border-radius: 8px;
+  padding: 14px 16px; cursor: pointer; transition: box-shadow .2s, transform .2s;
+  &:hover { box-shadow: 0 4px 12px rgba(0, 0, 0, .08); transform: translateY(-2px); }
+  .stat-icon {
+    width: 42px; height: 42px; border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 22px; color: #fff; flex-shrink: 0;
+  }
+  .stat-icon--primary { background: linear-gradient(135deg, #409eff, #2f7cd8); }
+  .stat-icon--success { background: linear-gradient(135deg, #67c23a, #4f9e28); }
+  .stat-icon--warning { background: linear-gradient(135deg, #e6a23c, #cf8a29); }
+  .stat-icon--danger  { background: linear-gradient(135deg, #f56c6c, #d94848); }
+  .stat-icon--info    { background: linear-gradient(135deg, #909399, #6b6e75); }
+  .stat-value { font-size: 22px; font-weight: 600; line-height: 1.2; color: #303133; }
+  .stat-label { font-size: 12px; color: var(--dm-muted); margin-top: 2px; }
 }
 
 // 表格操作栏
@@ -51,3 +167,7 @@
   padding: 40px 0;
   color: #909399;
 }
+
+// 文字层级工具类
+.text-muted { color: #c0c4cc; }
+.text-secondary { color: var(--dm-muted); font-size: 12px; }

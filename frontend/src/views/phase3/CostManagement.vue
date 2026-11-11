@@ -19,7 +19,7 @@
               <el-button @click="manualVisible = true">手工录入</el-button>
             </el-form-item>
           </el-form>
-          <el-table :data="ledger" v-loading="loading" border>
+          <el-table :data="ledger" v-loading="loading" border stripe :empty-text="'暂无成本记录，可自动归集或手工录入'">
             <el-table-column prop="id" label="ID" width="70" />
             <el-table-column label="成本类型" width="100">
               <template #default="{ row }">{{ COST_TYPE_LABEL[row.costType] || row.costType }}</template>
@@ -63,7 +63,7 @@
 
         <el-tab-pane label="报价模型（F-08）" name="priceModel">
           <el-button type="primary" plain :loading="saving" @click="doRefreshModel" style="margin-bottom: 12px">刷新模型（按定稿样本重算，version+1）</el-button>
-          <el-table :data="priceModels" border>
+          <el-table :data="priceModels" border stripe :empty-text="'暂无报价模型，定稿核算单后刷新生成'">
             <el-table-column label="项目类型" width="120">
               <template #default="{ row }">{{ PRICE_TYPE_LABEL[row.projectType] || row.projectType }}</template>
             </el-table-column>

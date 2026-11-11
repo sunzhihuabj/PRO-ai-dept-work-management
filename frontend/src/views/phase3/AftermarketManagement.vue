@@ -25,7 +25,8 @@
               <el-button type="primary" @click="loadRepairs">查询</el-button>
             </el-form-item>
           </el-form>
-          <el-table :data="repairs" v-loading="loading" border>
+          <el-table :data="repairs" v-loading="loading" border stripe
+                    :empty-text="'暂无报修工单，点击右上角「报修登记」受理（AGT-23 自动分级）'">
             <el-table-column prop="ticketNo" label="工单号" width="150" />
             <el-table-column prop="faultDesc" label="故障描述" min-width="200" show-overflow-tooltip />
             <el-table-column label="分级" width="90">
@@ -57,7 +58,7 @@
 
         <el-tab-pane label="巡检记录" name="inspections">
           <el-button type="primary" plain @click="inspectionVisible = true" style="margin-bottom: 12px">登记巡检</el-button>
-          <el-table :data="inspections" v-loading="inspectionsLoading" border>
+          <el-table :data="inspections" v-loading="inspectionsLoading" border stripe :empty-text="'暂无巡检记录'">
             <el-table-column prop="id" label="ID" width="70" />
             <el-table-column prop="projectId" label="项目" width="80" />
             <el-table-column label="类型" width="100">
@@ -74,7 +75,7 @@
           <el-button type="primary" plain @click="warrantyVisible = true" style="margin-bottom: 12px">登记质保</el-button>
           <el-alert type="info" :closable="false" style="margin-bottom: 12px"
                     title="质保期满前 30 天自动提醒（AGT-24，幂等：reminded 标记防重复提醒）" />
-          <el-table :data="warranties" v-loading="warrantiesLoading" border>
+          <el-table :data="warranties" v-loading="warrantiesLoading" border stripe :empty-text="'暂无质保登记'">
             <el-table-column prop="id" label="ID" width="70" />
             <el-table-column prop="projectId" label="项目" width="80" />
             <el-table-column prop="warrantyEnd" label="质保期满" width="120" />
