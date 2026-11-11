@@ -6,13 +6,11 @@
 
     <el-form :model="form" label-width="120px">
       <el-form-item label="项目" required>
-        <el-select v-model="form.projectId" placeholder="请选择项目" filterable @change="loadPhases">
-          <el-option v-for="p in projects" :key="p.id" :label="p.projectName" :value="p.id" />
-        </el-select>
+        <project-select v-model="form.projectName" @change="onProjectChange" />
       </el-form-item>
 
       <el-form-item label="阶段" required>
-        <el-select v-model="form.phaseId" placeholder="请选择阶段" :disabled="!form.projectId">
+        <el-select v-model="form.phaseId" placeholder="请选择阶段" :disabled="!form.projectName">
           <el-option v-for="ph in phases" :key="ph.id" :label="ph.phaseName" :value="ph.id" />
         </el-select>
       </el-form-item>
@@ -63,11 +61,20 @@ import { getProjectListApi, getProjectPhasesApi } from '@/api/project'
 import { uploadFileApi } from '@/api/file'
 
 const form = reactive({
+  /** 项目名称（选择器交互口径） */
+  projectName: undefined as string | undefined,
+  /** 内部级联用：项目选择后反查的 ID（用于加载阶段与上传接口外键） */
   projectId: undefined as number | undefined,
   phaseId: undefined as number | undefined,
   fileType: '',
   description: ''
 })
+
+/** 项目选择联动（名称口径）：内部反查 projectId 用于阶段级联与上传接口 */
+function onProjectChange(project?: { id: number }) {
+  form.projectId = project?.id
+  loadPhases()
+}
 
 // 本地选中的文件（element-plus upload 内部会管理实际的 el-upload 列表）
 const fileList = ref<any[]>([])
@@ -121,7 +128,7 @@ function handleUpload(option: any) {
 }
 
 function submit() {
-  if (!form.projectId || !form.phaseId || !form.fileType || !form.description) {
+  if (!form.projectName || !form.phaseId || !form.fileType || !form.description) {
     ElMessage.error('请完整填写表单')
     return
   }
@@ -135,6 +142,7 @@ function submit() {
 }
 
 function reset() {
+  form.projectName = undefined
   form.projectId = undefined
   form.phaseId = undefined
   form.fileType = ''

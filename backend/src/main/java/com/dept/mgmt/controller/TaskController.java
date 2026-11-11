@@ -43,11 +43,12 @@ public class TaskController {
             @RequestParam(defaultValue = "1") Integer pageNum,
             @RequestParam(defaultValue = "10") Integer pageSize,
             @RequestParam(required = false) Long projectId,
+            @RequestParam(required = false) String projectName,
             @RequestParam(required = false) Integer status,
             @RequestParam(required = false) Integer priority,
             @RequestParam(required = false) Long assigneeId,
             @RequestParam(required = false) String keyword) {
-        return R.ok(taskService.list(pageNum, pageSize, projectId, status, priority, assigneeId, keyword));
+        return R.ok(taskService.list(pageNum, pageSize, projectId, projectName, status, priority, assigneeId, keyword));
     }
 
     /**

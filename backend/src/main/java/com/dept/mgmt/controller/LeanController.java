@@ -194,8 +194,9 @@ public class LeanController {
             @RequestParam(defaultValue = "1") Integer pageNum,
             @RequestParam(defaultValue = "10") Integer pageSize,
             @RequestParam(required = false) Long projectId,
+            @RequestParam(required = false) String projectName,
             @RequestParam(required = false) Integer status) {
-        return R.ok(leanService.listA3s(pageNum, pageSize, projectId, status));
+        return R.ok(leanService.listA3s(pageNum, pageSize, projectId, projectName, status));
     }
 
     @GetMapping("/a3-reports/{id}")
@@ -242,8 +243,9 @@ public class LeanController {
     public R<PageResult<ValueStreamRecord>> listValueStreams(
             @RequestParam(defaultValue = "1") Integer pageNum,
             @RequestParam(defaultValue = "10") Integer pageSize,
-            @RequestParam(required = false) Long projectId) {
-        return R.ok(leanService.listValueStreams(pageNum, pageSize, projectId));
+            @RequestParam(required = false) Long projectId,
+            @RequestParam(required = false) String projectName) {
+        return R.ok(leanService.listValueStreams(pageNum, pageSize, projectId, projectName));
     }
 
     @PostMapping("/value-streams")
@@ -269,9 +271,10 @@ public class LeanController {
             @RequestParam(defaultValue = "1") Integer pageNum,
             @RequestParam(defaultValue = "10") Integer pageSize,
             @RequestParam(required = false) Long projectId,
+            @RequestParam(required = false) String projectName,
             @RequestParam(required = false) String wasteType,
             @RequestParam(required = false) Integer status) {
-        return R.ok(leanService.listWastes(pageNum, pageSize, projectId, wasteType, status));
+        return R.ok(leanService.listWastes(pageNum, pageSize, projectId, projectName, wasteType, status));
     }
 
     @PostMapping("/wastes")

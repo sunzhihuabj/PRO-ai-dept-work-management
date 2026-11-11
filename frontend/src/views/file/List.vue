@@ -6,12 +6,10 @@
 
     <el-form :inline="true" :model="query" class="search-bar">
       <el-form-item label="项目">
-        <el-select v-model="query.projectId" placeholder="请选择项目" @change="loadPhases">
-          <el-option v-for="p in projects" :key="p.id" :label="p.projectName" :value="p.id" />
-        </el-select>
+        <project-select v-model="query.projectName" width="220px" @change="onProjectChange" />
       </el-form-item>
       <el-form-item label="阶段">
-        <el-select v-model="query.phaseId" placeholder="请选择阶段" :disabled="!query.projectId">
+        <el-select v-model="query.phaseId" placeholder="请选择阶段" :disabled="!query.projectName">
           <el-option v-for="ph in phases" :key="ph.id" :label="ph.phaseName" :value="ph.id" />
         </el-select>
       </el-form-item>
@@ -107,6 +105,9 @@ interface FileInfo {
 const query = reactive({
   pageNum: 1,
   pageSize: 10,
+  /** 项目名称（选择器/查询传参口径） */
+  projectName: undefined as string | undefined,
+  /** 内部级联用：项目选择后反查的 ID（用于加载阶段） */
   projectId: undefined as number | undefined,
   phaseId: undefined as number | undefined,
   keyword: ''
@@ -136,13 +137,19 @@ async function loadPhases() {
   phases.value = res?.data ?? []
 }
 
+/** 项目选择联动（名称口径）：内部反查 projectId 用于阶段级联与内部 API */
+function onProjectChange(project?: { id: number }) {
+  query.projectId = project?.id
+  loadPhases()
+}
+
 async function fetchList() {
   loading.value = true
   try {
     const res = await listFilesApi({
       pageNum: query.pageNum,
       pageSize: query.pageSize,
-      projectId: query.projectId,
+      projectName: query.projectName,
       phaseId: query.phaseId,
       keyword: query.keyword
     })
@@ -156,6 +163,7 @@ async function fetchList() {
 }
 
 function reset() {
+  query.projectName = undefined
   query.projectId = undefined
   query.phaseId = undefined
   query.keyword = ''
@@ -195,7 +203,7 @@ const ledger = ref<FileArchiveRecord[]>([])
 
 async function loadLedger() {
   try {
-    const res = await listArchiveRecordsApi({ projectId: query.projectId })
+    const res = await listArchiveRecordsApi({ projectName: query.projectName })
     ledger.value = res?.data ?? []
   } catch (e) {}
 }

@@ -143,9 +143,7 @@
           <el-input v-model="pForm.title" maxlength="200" />
         </el-form-item>
         <el-form-item label="所属项目">
-          <el-select v-model="pForm.projectId" clearable filterable style="width: 100%">
-            <el-option v-for="p in projects" :key="p.id" :label="p.projectName" :value="p.id" />
-          </el-select>
+          <project-select v-model="pForm.projectName" @change="onPProjectChange" />
         </el-form-item>
         <el-form-item label="提案类型">
           <el-select v-model="pForm.proposalType" allow-create filterable clearable style="width: 100%">
@@ -188,9 +186,7 @@
           <el-input v-model="rForm.problemDesc" type="textarea" :rows="2" />
         </el-form-item>
         <el-form-item label="所属项目">
-          <el-select v-model="rForm.projectId" clearable filterable style="width: 100%">
-            <el-option v-for="p in projects" :key="p.id" :label="p.projectName" :value="p.id" />
-          </el-select>
+          <project-select v-model="rForm.projectName" @change="onRProjectChange" />
         </el-form-item>
         <el-form-item label="分析方法">
           <el-select v-model="rForm.analysisMethod" style="width: 100%">
@@ -223,9 +219,7 @@
           <el-input v-model="lForm.title" maxlength="200" />
         </el-form-item>
         <el-form-item label="所属项目" prop="projectId">
-          <el-select v-model="lForm.projectId" filterable style="width: 100%">
-            <el-option v-for="p in projects" :key="p.id" :label="p.projectName" :value="p.id" />
-          </el-select>
+          <project-select v-model="lForm.projectName" @change="onLProjectChange" />
         </el-form-item>
         <el-form-item label="类别">
           <el-select v-model="lForm.category" style="width: 100%">
@@ -283,10 +277,15 @@ const pQuery = reactive({ pageNum: 1, pageSize: 10, status: undefined as number 
 const pDialog = ref(false)
 const pEditing = ref<ImprovementProposal | null>(null)
 const pFormRef = ref<FormInstance>()
-const pForm = reactive<Partial<ImprovementProposal>>({
-  title: '', projectId: undefined, proposalType: '', currentState: '', targetState: '', proposalContent: ''
+const pForm = reactive<Partial<ImprovementProposal> & { projectName?: string }>({
+  title: '', projectId: undefined, projectName: undefined, proposalType: '', currentState: '', targetState: '', proposalContent: ''
 })
 const pRules: FormRules = { title: [{ required: true, message: '请输入标题', trigger: 'blur' }] }
+
+/** 项目选择联动：名称口径交互，内部记录 projectId 供业务提交 */
+function onPProjectChange(project?: ProjectItem) {
+  pForm.projectId = project?.id
+}
 const reviewDialog = ref(false)
 const reviewApproved = ref(true)
 const reviewComment = ref('')
@@ -307,11 +306,13 @@ function openProposalDialog(row?: ImprovementProposal) {
   pEditing.value = row ?? null
   if (row) {
     Object.assign(pForm, {
-      title: row.title, projectId: row.projectId, proposalType: row.proposalType,
+      title: row.title, projectId: row.projectId,
+      projectName: projects.value.find(p => p.id === row.projectId)?.projectName,
+      proposalType: row.proposalType,
       currentState: row.currentState, targetState: row.targetState, proposalContent: row.proposalContent
     })
   } else {
-    Object.assign(pForm, { title: '', projectId: undefined, proposalType: '', currentState: '', targetState: '', proposalContent: '' })
+    Object.assign(pForm, { title: '', projectId: undefined, projectName: undefined, proposalType: '', currentState: '', targetState: '', proposalContent: '' })
   }
   pDialog.value = true
 }
@@ -382,11 +383,16 @@ const rQuery = reactive({ pageNum: 1, pageSize: 10, analysisMethod: undefined as
 const rDialog = ref(false)
 const rEditing = ref<RootCauseAnalysis | null>(null)
 const rFormRef = ref<FormInstance>()
-const rForm = reactive<Partial<RootCauseAnalysis>>({
-  problemDesc: '', projectId: undefined, analysisMethod: '5Why',
+const rForm = reactive<Partial<RootCauseAnalysis> & { projectName?: string }>({
+  problemDesc: '', projectId: undefined, projectName: undefined, analysisMethod: '5Why',
   findings: '', rootCause: '', correctiveAction: '', preventiveAction: ''
 })
 const rRules: FormRules = { problemDesc: [{ required: true, message: '请输入问题描述', trigger: 'blur' }] }
+
+/** 项目选择联动：名称口径交互，内部记录 projectId 供业务提交 */
+function onRProjectChange(project?: ProjectItem) {
+  rForm.projectId = project?.id
+}
 
 async function loadRcas() {
   rLoading.value = true
@@ -403,12 +409,14 @@ function openRcaDialog(row?: RootCauseAnalysis) {
   rEditing.value = row ?? null
   if (row) {
     Object.assign(rForm, {
-      problemDesc: row.problemDesc, projectId: row.projectId, analysisMethod: row.analysisMethod || '5Why',
+      problemDesc: row.problemDesc, projectId: row.projectId,
+      projectName: projects.value.find(p => p.id === row.projectId)?.projectName,
+      analysisMethod: row.analysisMethod || '5Why',
       findings: row.findings, rootCause: row.rootCause, correctiveAction: row.correctiveAction, preventiveAction: row.preventiveAction
     })
   } else {
     Object.assign(rForm, {
-      problemDesc: '', projectId: undefined, analysisMethod: '5Why',
+      problemDesc: '', projectId: undefined, projectName: undefined, analysisMethod: '5Why',
       findings: '', rootCause: '', correctiveAction: '', preventiveAction: ''
     })
   }
@@ -460,12 +468,17 @@ const lQuery = reactive({ pageNum: 1, pageSize: 10, category: undefined as strin
 const lDialog = ref(false)
 const lEditing = ref<LessonsLearned | null>(null)
 const lFormRef = ref<FormInstance>()
-const lForm = reactive<Partial<LessonsLearned>>({
-  title: '', projectId: undefined, category: '成功经验', impactLevel: '中', content: '', keywords: ''
+const lForm = reactive<Partial<LessonsLearned> & { projectName?: string }>({
+  title: '', projectId: undefined, projectName: undefined, category: '成功经验', impactLevel: '中', content: '', keywords: ''
 })
 const lRules: FormRules = {
   title: [{ required: true, message: '请输入标题', trigger: 'blur' }],
   projectId: [{ required: true, message: '请选择项目', trigger: 'change' }]
+}
+
+/** 项目选择联动：名称口径交互，内部记录 projectId 供业务提交 */
+function onLProjectChange(project?: ProjectItem) {
+  lForm.projectId = project?.id
 }
 
 async function loadLessons() {
@@ -483,11 +496,13 @@ function openLessonDialog(row?: LessonsLearned) {
   lEditing.value = row ?? null
   if (row) {
     Object.assign(lForm, {
-      title: row.title, projectId: row.projectId, category: row.category || '成功经验',
+      title: row.title, projectId: row.projectId,
+      projectName: projects.value.find(p => p.id === row.projectId)?.projectName,
+      category: row.category || '成功经验',
       impactLevel: row.impactLevel || '中', content: row.content, keywords: row.keywords
     })
   } else {
-    Object.assign(lForm, { title: '', projectId: undefined, category: '成功经验', impactLevel: '中', content: '', keywords: '' })
+    Object.assign(lForm, { title: '', projectId: undefined, projectName: undefined, category: '成功经验', impactLevel: '中', content: '', keywords: '' })
   }
   lDialog.value = true
 }

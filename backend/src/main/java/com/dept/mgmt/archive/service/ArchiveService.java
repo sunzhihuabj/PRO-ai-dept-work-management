@@ -9,6 +9,7 @@ import com.dept.mgmt.common.result.PageResult;
 import com.dept.mgmt.mapper.ArchiveBorrowMapper;
 import com.dept.mgmt.mapper.ArchiveInfoMapper;
 import com.dept.mgmt.platform.code.service.CodeEngineService;
+import com.dept.mgmt.service.support.ProjectScopeResolver;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -35,6 +36,7 @@ public class ArchiveService {
     private final ArchiveInfoMapper archiveMapper;
     private final ArchiveBorrowMapper borrowMapper;
     private final CodeEngineService codeEngineService;
+    private final ProjectScopeResolver projectScopeResolver;
 
     @Transactional(rollbackFor = Exception.class)
     public Long registerArchive(Long projectId, String archiveType, String title, String medium,
@@ -133,9 +135,11 @@ public class ArchiveService {
         log.info("档案鉴定销毁: {} 意见 {}", archive.getArchiveNo(), remark);
     }
 
-    public PageResult<ArchiveInfo> listArchives(int pageNum, int pageSize, Long projectId, String status) {
+    public PageResult<ArchiveInfo> listArchives(int pageNum, int pageSize, Long projectId, String projectName, String status) {
         LambdaQueryWrapper<ArchiveInfo> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(projectId != null, ArchiveInfo::getProjectId, projectId);
+        // T-405 项目名称口径：projectName 模糊过滤优先，projectId 精确入参向后兼容
+        projectScopeResolver.applyProjectScope(wrapper, ArchiveInfo::getProjectId, projectId,
+                projectScopeResolver.resolveIds(projectName));
         wrapper.eq(status != null && !status.isBlank(), ArchiveInfo::getStatus, status);
         wrapper.orderByDesc(ArchiveInfo::getId);
         return PageResult.of(archiveMapper.selectPage(new Page<>(pageNum, pageSize), wrapper));

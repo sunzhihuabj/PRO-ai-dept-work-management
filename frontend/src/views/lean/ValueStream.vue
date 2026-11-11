@@ -9,9 +9,7 @@
         <!-- 价值流记录 -->
         <el-tab-pane label="价值流记录" name="vs">
           <div class="search-bar">
-            <el-select v-model="vsQuery.projectId" placeholder="项目" clearable filterable style="width: 220px" @change="loadVs">
-              <el-option v-for="p in projects" :key="p.id" :label="p.projectName" :value="p.id" />
-            </el-select>
+            <project-select v-model="vsQuery.projectName" width="220px" @change="loadVs" />
             <el-button type="primary" @click="loadVs">查询</el-button>
             <el-button type="success" @click="openVsDialog()">登记流程</el-button>
           </div>
@@ -50,9 +48,7 @@
         <!-- 浪费登记 -->
         <el-tab-pane label="浪费登记" name="waste">
           <div class="search-bar">
-            <el-select v-model="wQuery.projectId" placeholder="项目" clearable filterable style="width: 220px" @change="loadWaste">
-              <el-option v-for="p in projects" :key="p.id" :label="p.projectName" :value="p.id" />
-            </el-select>
+            <project-select v-model="wQuery.projectName" width="220px" @change="loadWaste" />
             <el-select v-model="wQuery.wasteType" placeholder="浪费类型" clearable style="width: 130px" @change="loadWaste">
               <el-option v-for="t in WASTE_TYPES" :key="t" :label="t" :value="t" />
             </el-select>
@@ -103,9 +99,7 @@
     <el-dialog :close-on-click-modal="false" v-model="vsDialog" :title="vsEditing ? '编辑流程' : '登记流程'" width="560px">
       <el-form ref="vsFormRef" :model="vsForm" :rules="vsRules" label-width="100px">
         <el-form-item label="所属项目" prop="projectId">
-          <el-select v-model="vsForm.projectId" filterable style="width: 100%">
-            <el-option v-for="p in projects" :key="p.id" :label="p.projectName" :value="p.id" />
-          </el-select>
+          <project-select v-model="vsForm.projectName" @change="onVsProjectChange" />
         </el-form-item>
         <el-form-item label="流程名称" prop="processName">
           <el-input v-model="vsForm.processName" maxlength="200" />
@@ -142,9 +136,7 @@
     <el-dialog :close-on-click-modal="false" v-model="wDialog" :title="wEditing ? '编辑浪费' : '登记浪费'" width="560px">
       <el-form ref="wFormRef" :model="wForm" :rules="wRules" label-width="100px">
         <el-form-item label="所属项目" prop="projectId">
-          <el-select v-model="wForm.projectId" filterable style="width: 100%">
-            <el-option v-for="p in projects" :key="p.id" :label="p.projectName" :value="p.id" />
-          </el-select>
+          <project-select v-model="wForm.projectName" @change="onWProjectChange" />
         </el-form-item>
         <el-form-item label="浪费类型" prop="wasteType">
           <el-select v-model="wForm.wasteType" style="width: 100%">
@@ -196,17 +188,22 @@ const projects = ref<ProjectItem[]>([])
 const vsLoading = ref(false)
 const vsList = ref<ValueStreamRecord[]>([])
 const vsTotal = ref(0)
-const vsQuery = reactive({ pageNum: 1, pageSize: 10, projectId: undefined as number | undefined })
+const vsQuery = reactive({ pageNum: 1, pageSize: 10, projectName: undefined as string | undefined })
 const vsDialog = ref(false)
 const vsEditing = ref<ValueStreamRecord | null>(null)
 const vsFormRef = ref<FormInstance>()
-const vsForm = reactive<Partial<ValueStreamRecord>>({
-  projectId: undefined, processName: '', processType: '', recordDate: '',
+const vsForm = reactive<Partial<ValueStreamRecord> & { projectName?: string }>({
+  projectId: undefined, projectName: undefined, processName: '', processType: '', recordDate: '',
   cycleTime: 0, valueAddedTime: 0, nonValueAddedTime: 0, leadTime: 0, description: ''
 })
 const vsRules: FormRules = {
   projectId: [{ required: true, message: '请选择项目', trigger: 'change' }],
   processName: [{ required: true, message: '请输入流程名称', trigger: 'blur' }]
+}
+
+/** 项目选择联动：名称口径交互，内部记录 projectId 供业务提交 */
+function onVsProjectChange(project?: ProjectItem) {
+  vsForm.projectId = project?.id
 }
 
 async function loadVs() {
@@ -223,11 +220,13 @@ async function loadVs() {
 function openVsDialog(row?: ValueStreamRecord) {
   vsEditing.value = row ?? null
   Object.assign(vsForm, row ? {
-    id: row.id, projectId: row.projectId, processName: row.processName, processType: row.processType,
+    id: row.id, projectId: row.projectId,
+    projectName: projects.value.find(p => p.id === row.projectId)?.projectName,
+    processName: row.processName, processType: row.processType,
     recordDate: row.recordDate, cycleTime: row.cycleTime ?? 0, valueAddedTime: row.valueAddedTime ?? 0,
     nonValueAddedTime: row.nonValueAddedTime ?? 0, leadTime: row.leadTime ?? 0, description: row.description
   } : {
-    id: undefined, projectId: undefined, processName: '', processType: '', recordDate: '',
+    id: undefined, projectId: undefined, projectName: undefined, processName: '', processType: '', recordDate: '',
     cycleTime: 0, valueAddedTime: 0, nonValueAddedTime: 0, leadTime: 0, description: ''
   })
   vsDialog.value = true
@@ -263,16 +262,21 @@ async function removeVs(row: ValueStreamRecord) {
 const wLoading = ref(false)
 const wasteList = ref<WasteRecord[]>([])
 const wTotal = ref(0)
-const wQuery = reactive({ pageNum: 1, pageSize: 10, projectId: undefined as number | undefined, wasteType: undefined as string | undefined })
+const wQuery = reactive({ pageNum: 1, pageSize: 10, projectName: undefined as string | undefined, wasteType: undefined as string | undefined })
 const wDialog = ref(false)
 const wEditing = ref<WasteRecord | null>(null)
 const wFormRef = ref<FormInstance>()
-const wForm = reactive<Partial<WasteRecord>>({
-  projectId: undefined, wasteType: '等待', wasteDesc: '', wasteSource: '', severity: 2, improvementAction: ''
+const wForm = reactive<Partial<WasteRecord> & { projectName?: string }>({
+  projectId: undefined, projectName: undefined, wasteType: '等待', wasteDesc: '', wasteSource: '', severity: 2, improvementAction: ''
 })
 const wRules: FormRules = {
   projectId: [{ required: true, message: '请选择项目', trigger: 'change' }],
   wasteType: [{ required: true, message: '请选择浪费类型', trigger: 'change' }]
+}
+
+/** 项目选择联动：名称口径交互，内部记录 projectId 供业务提交 */
+function onWProjectChange(project?: ProjectItem) {
+  wForm.projectId = project?.id
 }
 
 async function loadWaste() {
@@ -289,10 +293,12 @@ async function loadWaste() {
 function openWasteDialog(row?: WasteRecord) {
   wEditing.value = row ?? null
   Object.assign(wForm, row ? {
-    id: row.id, projectId: row.projectId, wasteType: row.wasteType, wasteDesc: row.wasteDesc,
+    id: row.id, projectId: row.projectId,
+    projectName: projects.value.find(p => p.id === row.projectId)?.projectName,
+    wasteType: row.wasteType, wasteDesc: row.wasteDesc,
     wasteSource: row.wasteSource, severity: row.severity ?? 2, improvementAction: row.improvementAction
   } : {
-    id: undefined, projectId: undefined, wasteType: '等待', wasteDesc: '', wasteSource: '', severity: 2, improvementAction: ''
+    id: undefined, projectId: undefined, projectName: undefined, wasteType: '等待', wasteDesc: '', wasteSource: '', severity: 2, improvementAction: ''
   })
   wDialog.value = true
 }

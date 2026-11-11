@@ -16,6 +16,7 @@ import com.dept.mgmt.mapper.LessonsLearnedMapper;
 import com.dept.mgmt.mapper.RootCauseAnalysisMapper;
 import com.dept.mgmt.mapper.ValueStreamRecordMapper;
 import com.dept.mgmt.mapper.WasteRecordMapper;
+import com.dept.mgmt.service.support.ProjectScopeResolver;
 import com.dept.mgmt.security.LoginUser;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -44,6 +45,7 @@ public class LeanService {
     private final RootCauseAnalysisMapper rcaMapper;
     private final LessonsLearnedMapper lessonMapper;
     private final A3ReportMapper a3Mapper;
+    private final ProjectScopeResolver projectScopeResolver;
     private final ValueStreamRecordMapper vsMapper;
     private final WasteRecordMapper wasteMapper;
 
@@ -296,10 +298,13 @@ public class LeanService {
 
     // ==================== A3 报告 ====================
 
-    public PageResult<A3Report> listA3s(Integer pageNum, Integer pageSize, Long projectId, Integer status) {
+    public PageResult<A3Report> listA3s(Integer pageNum, Integer pageSize, Long projectId, String projectName,
+                                        Integer status) {
         Page<A3Report> page = new Page<>(pageNum == null ? 1 : pageNum, pageSize == null ? 10 : pageSize);
         LambdaQueryWrapper<A3Report> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(projectId != null, A3Report::getProjectId, projectId);
+        // T-405 项目名称口径：projectName 模糊过滤优先，projectId 精确入参向后兼容
+        projectScopeResolver.applyProjectScope(wrapper, A3Report::getProjectId, projectId,
+                projectScopeResolver.resolveIds(projectName));
         wrapper.eq(status != null, A3Report::getStatus, status);
         wrapper.orderByDesc(A3Report::getCreateTime);
         a3Mapper.selectPage(page, wrapper);
@@ -370,10 +375,13 @@ public class LeanService {
 
     // ==================== 价值流记录 ====================
 
-    public PageResult<ValueStreamRecord> listValueStreams(Integer pageNum, Integer pageSize, Long projectId) {
+    public PageResult<ValueStreamRecord> listValueStreams(Integer pageNum, Integer pageSize,
+                                                          Long projectId, String projectName) {
         Page<ValueStreamRecord> page = new Page<>(pageNum == null ? 1 : pageNum, pageSize == null ? 10 : pageSize);
         LambdaQueryWrapper<ValueStreamRecord> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(projectId != null, ValueStreamRecord::getProjectId, projectId);
+        // T-405 项目名称口径：projectName 模糊过滤优先，projectId 精确入参向后兼容
+        projectScopeResolver.applyProjectScope(wrapper, ValueStreamRecord::getProjectId, projectId,
+                projectScopeResolver.resolveIds(projectName));
         wrapper.orderByDesc(ValueStreamRecord::getRecordDate);
         vsMapper.selectPage(page, wrapper);
         return PageResult.of(page);
@@ -413,10 +421,12 @@ public class LeanService {
     // ==================== 浪费记录 ====================
 
     public PageResult<WasteRecord> listWastes(Integer pageNum, Integer pageSize,
-                                              Long projectId, String wasteType, Integer status) {
+                                              Long projectId, String projectName, String wasteType, Integer status) {
         Page<WasteRecord> page = new Page<>(pageNum == null ? 1 : pageNum, pageSize == null ? 10 : pageSize);
         LambdaQueryWrapper<WasteRecord> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(projectId != null, WasteRecord::getProjectId, projectId);
+        // T-405 项目名称口径：projectName 模糊过滤优先，projectId 精确入参向后兼容
+        projectScopeResolver.applyProjectScope(wrapper, WasteRecord::getProjectId, projectId,
+                projectScopeResolver.resolveIds(projectName));
         wrapper.eq(StringUtils.hasText(wasteType), WasteRecord::getWasteType, wasteType);
         wrapper.eq(status != null, WasteRecord::getStatus, status);
         wrapper.orderByAsc(WasteRecord::getSeverity).orderByDesc(WasteRecord::getCreateTime);

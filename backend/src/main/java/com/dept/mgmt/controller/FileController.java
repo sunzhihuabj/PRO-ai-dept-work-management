@@ -41,6 +41,7 @@ public class FileController {
     private final com.dept.mgmt.mapper.FileVersionMapper fileVersionMapper;
     private final com.dept.mgmt.mapper.ArchiveRecordMapper archiveRecordMapper;
     private final com.dept.mgmt.service.AiService aiService;
+    private final com.dept.mgmt.service.support.ProjectScopeResolver projectScopeResolver;
 
     @Value("${file.local.upload-path}")
     private String uploadRootPath;
@@ -65,13 +66,16 @@ public class FileController {
             @RequestParam(defaultValue = "1") Integer pageNum,
             @RequestParam(defaultValue = "10") Integer pageSize,
             @RequestParam(required = false) Long projectId,
+            @RequestParam(required = false) String projectName,
             @RequestParam(required = false) Long phaseId,
             @RequestParam(required = false) Long taskId,
             @RequestParam(required = false) String keyword) {
         com.baomidou.mybatisplus.extension.plugins.pagination.Page<FileInfo> page =
                 new com.baomidou.mybatisplus.extension.plugins.pagination.Page<>(pageNum, pageSize);
         LambdaQueryWrapper<FileInfo> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(projectId != null, FileInfo::getProjectId, projectId);
+        // T-405 项目名称口径：projectName 模糊过滤优先，projectId 精确入参向后兼容
+        projectScopeResolver.applyProjectScope(wrapper, FileInfo::getProjectId, projectId,
+                projectScopeResolver.resolveIds(projectName));
         wrapper.eq(phaseId != null, FileInfo::getPhaseId, phaseId);
         wrapper.eq(taskId != null, FileInfo::getTaskId, taskId);
         if (StringUtils.hasText(keyword)) {

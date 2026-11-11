@@ -13,6 +13,7 @@ import com.dept.mgmt.mapper.TaskLogMapper;
 import com.dept.mgmt.mapper.TaskMapper;
 import com.dept.mgmt.mapper.WorkHourMapper;
 import com.dept.mgmt.security.LoginUser;
+import com.dept.mgmt.service.support.ProjectScopeResolver;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -39,15 +40,18 @@ public class TaskService {
     private final TaskMapper taskMapper;
     private final TaskLogMapper taskLogMapper;
     private final WorkHourMapper workHourMapper;
+    private final ProjectScopeResolver projectScopeResolver;
 
     /**
      * 任务列表分页
      */
-    public PageResult<Task> list(Integer pageNum, Integer pageSize, Long projectId, Integer status,
-                                  Integer priority, Long assigneeId, String keyword) {
+    public PageResult<Task> list(Integer pageNum, Integer pageSize, Long projectId, String projectName,
+                                  Integer status, Integer priority, Long assigneeId, String keyword) {
         Page<Task> page = new Page<>(pageNum == null ? 1 : pageNum, pageSize == null ? 10 : pageSize);
         LambdaQueryWrapper<Task> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(projectId != null, Task::getProjectId, projectId);
+        // T-405 项目名称口径：projectName 模糊过滤优先，projectId 精确入参向后兼容
+        projectScopeResolver.applyProjectScope(wrapper, Task::getProjectId, projectId,
+                projectScopeResolver.resolveIds(projectName));
         wrapper.eq(status != null, Task::getStatus, status);
         wrapper.eq(priority != null, Task::getPriority, priority);
         wrapper.eq(assigneeId != null, Task::getAssigneeId, assigneeId);

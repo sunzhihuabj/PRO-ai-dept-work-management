@@ -96,9 +96,7 @@
           <el-input v-model="form.taskName" placeholder="请输入任务名称" maxlength="100" />
         </el-form-item>
         <el-form-item label="所属项目" prop="projectId">
-          <el-select v-model="form.projectId" placeholder="请选择项目" filterable style="width: 100%">
-            <el-option v-for="p in projectOptions" :key="p.id" :label="p.projectName" :value="p.id" />
-          </el-select>
+          <project-select v-model="form.projectName" @change="onFormProjectChange" />
         </el-form-item>
         <el-form-item label="任务类型">
           <el-select v-model="form.taskType" placeholder="请选择" style="width: 100%">
@@ -223,6 +221,8 @@ const userOptions = ref<SysUser[]>([])
 
 const form = reactive({
   id: undefined as number | undefined,
+  /** 项目名称（选择器交互口径）；提交时同步反查 projectId 作为业务外键 */
+  projectName: undefined as string | undefined,
   projectId: undefined as number | undefined,
   taskName: '',
   taskType: '',
@@ -233,6 +233,11 @@ const form = reactive({
   deadline: '',
   description: ''
 })
+
+/** 项目选择联动：名称口径交互，内部记录 projectId 供业务提交 */
+function onFormProjectChange(project?: { id: number }) {
+  form.projectId = project?.id
+}
 
 const rules: FormRules = {
   taskName: [{ required: true, message: '请输入任务名称', trigger: 'blur' }],
@@ -267,14 +272,16 @@ const goDetail = (id: number) => router.push(`/task/detail/${id}`)
 
 function openCreate() {
   editing.value = false
-  Object.assign(form, { id: undefined, projectId: undefined, taskName: '', taskType: '', assigneeId: undefined, priority: 2, planHours: 8, startDate: '', deadline: '', description: '' })
+  Object.assign(form, { id: undefined, projectId: undefined, projectName: undefined, taskName: '', taskType: '', assigneeId: undefined, priority: 2, planHours: 8, startDate: '', deadline: '', description: '' })
   dialogVisible.value = true
 }
 
 function openEdit(row: TaskItem) {
   editing.value = true
   Object.assign(form, {
-    id: row.id, projectId: row.projectId, taskName: row.taskName, taskType: row.taskType || '',
+    id: row.id, projectId: row.projectId,
+    projectName: projectOptions.value.find(p => p.id === row.projectId)?.projectName,
+    taskName: row.taskName, taskType: row.taskType || '',
     assigneeId: row.assigneeId, priority: row.priority, planHours: row.planHours,
     startDate: row.startDate, deadline: row.deadline, description: row.description || ''
   })

@@ -6,9 +6,7 @@
 
     <el-card shadow="hover">
       <div class="search-bar">
-        <el-select v-model="query.projectId" placeholder="项目" clearable filterable style="width: 220px" @change="loadData">
-          <el-option v-for="p in projects" :key="p.id" :label="p.projectName" :value="p.id" />
-        </el-select>
+        <project-select v-model="query.projectName" width="220px" @change="loadData" />
         <el-select v-model="query.status" placeholder="状态" clearable style="width: 110px" @change="loadData">
           <el-option v-for="(l, i) in A3_STATUS" :key="i" :label="l" :value="i" />
         </el-select>
@@ -53,9 +51,7 @@
           <el-input v-model="form.title" maxlength="200" />
         </el-form-item>
         <el-form-item label="所属项目">
-          <el-select v-model="form.projectId" clearable filterable style="width: 100%">
-            <el-option v-for="p in projects" :key="p.id" :label="p.projectName" :value="p.id" />
-          </el-select>
+          <project-select v-model="form.projectName" @change="onFormProjectChange" />
         </el-form-item>
         <el-form-item label="背景描述">
           <el-input v-model="form.background" type="textarea" :rows="2" />
@@ -102,14 +98,19 @@ const saving = ref(false)
 const list = ref<A3Report[]>([])
 const total = ref(0)
 const projects = ref<ProjectItem[]>([])
-const query = reactive({ pageNum: 1, pageSize: 10, projectId: undefined as number | undefined, status: undefined as number | undefined })
+const query = reactive({ pageNum: 1, pageSize: 10, projectName: undefined as string | undefined, status: undefined as number | undefined })
 const dialog = ref(false)
 const editing = ref<A3Report | null>(null)
 const formRef = ref<FormInstance>()
-const form = reactive<Partial<A3Report>>({
-  title: '', projectId: undefined, background: '', currentCondition: '', goal: '',
+const form = reactive<Partial<A3Report> & { projectName?: string }>({
+  title: '', projectId: undefined, projectName: undefined, background: '', currentCondition: '', goal: '',
   rootCause: '', countermeasures: '', checkResult: '', followUp: ''
 })
+
+/** 项目选择联动：名称口径交互，内部记录 projectId 供业务提交 */
+function onFormProjectChange(project?: ProjectItem) {
+  form.projectId = project?.id
+}
 const rules: FormRules = { title: [{ required: true, message: '请输入标题', trigger: 'blur' }] }
 
 async function loadData() {
@@ -126,11 +127,13 @@ async function loadData() {
 function openDialog(row?: A3Report) {
   editing.value = row ?? null
   Object.assign(form, row ? {
-    title: row.title, projectId: row.projectId, background: row.background,
+    title: row.title, projectId: row.projectId,
+    projectName: projects.value.find(p => p.id === row.projectId)?.projectName,
+    background: row.background,
     currentCondition: row.currentCondition, goal: row.goal, rootCause: row.rootCause,
     countermeasures: row.countermeasures, checkResult: row.checkResult, followUp: row.followUp
   } : {
-    title: '', projectId: undefined, background: '', currentCondition: '', goal: '',
+    title: '', projectId: undefined, projectName: undefined, background: '', currentCondition: '', goal: '',
     rootCause: '', countermeasures: '', checkResult: '', followUp: ''
   })
   dialog.value = true

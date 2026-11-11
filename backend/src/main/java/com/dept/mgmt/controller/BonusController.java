@@ -34,10 +34,11 @@ public class BonusController {
             @RequestParam(defaultValue = "1") Integer pageNum,
             @RequestParam(defaultValue = "10") Integer pageSize,
             @RequestParam(required = false) Long projectId,
+            @RequestParam(required = false) String projectName,
             @RequestParam(required = false) Long userId,
             @RequestParam(required = false) Integer bonusType,
             @RequestParam(required = false) Integer status) {
-        return R.ok(bonusService.list(pageNum, pageSize, projectId, userId, bonusType, status));
+        return R.ok(bonusService.list(pageNum, pageSize, projectId, projectName, userId, bonusType, status));
     }
 
     @PostMapping
@@ -84,9 +85,10 @@ public class BonusController {
             @RequestParam(defaultValue = "1") Integer pageNum,
             @RequestParam(defaultValue = "10") Integer pageSize,
             @RequestParam(required = false) Long projectId,
+            @RequestParam(required = false) String projectName,
             @RequestParam(required = false) Long userId,
             @RequestParam(required = false) Integer payType,
             @RequestParam(required = false) String payPeriod) {
-        return R.ok(bonusService.records(pageNum, pageSize, projectId, userId, payType, payPeriod));
+        return R.ok(bonusService.records(pageNum, pageSize, projectId, projectName, userId, payType, payPeriod));
     }
 }

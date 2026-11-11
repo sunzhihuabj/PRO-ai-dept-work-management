@@ -45,8 +45,9 @@ public class ArchiveController {
     public R<PageResult<ArchiveInfo>> list(@RequestParam(defaultValue = "1") Integer pageNum,
                                            @RequestParam(defaultValue = "10") Integer pageSize,
                                            @RequestParam(required = false) Long projectId,
+                                           @RequestParam(required = false) String projectName,
                                            @RequestParam(required = false) String status) {
-        return R.ok(archiveService.listArchives(pageNum, pageSize, projectId, status));
+        return R.ok(archiveService.listArchives(pageNum, pageSize, projectId, projectName, status));
     }
 
     @PostMapping("/{id}/borrow")

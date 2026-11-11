@@ -43,7 +43,7 @@ export function uploadFileApi(formData: FormData) {
 /**
  * 查询文件列表（分页，可按项目/阶段/关键字过滤）
  */
-export function listFilesApi(params: { pageNum?: number; pageSize?: number; projectId?: number; phaseId?: number; taskId?: number; keyword?: string }) {
+export function listFilesApi(params: { pageNum?: number; pageSize?: number; projectId?: number; projectName?: string; phaseId?: number; taskId?: number; keyword?: string }) {
   return request<{ records: FileInfo[]; total: number }>({ method: 'GET', url: '/v1/files', params })
 }
 
@@ -131,7 +131,7 @@ export interface FileArchiveRecord {
   description?: string
 }
 
-export function listArchiveRecordsApi(params: { projectId?: number; fileId?: number }) {
+export function listArchiveRecordsApi(params: { projectId?: number; projectName?: string; fileId?: number }) {
   return request<FileArchiveRecord[]>({ method: 'GET', url: '/v1/files/archive-records', params })
 }
 

@@ -9,9 +9,7 @@
         <!-- ============ 奖金配置 ============ -->
         <el-tab-pane label="奖金配置" name="config">
           <div class="search-bar">
-            <el-select v-model="query.projectId" placeholder="项目" clearable filterable style="width: 200px">
-              <el-option v-for="p in projects" :key="p.id" :label="p.projectName" :value="p.id" />
-            </el-select>
+            <project-select v-model="query.projectName" width="200px" @change="loadConfig" />
             <el-select v-model="query.userId" placeholder="用户" clearable filterable style="width: 150px">
               <el-option v-for="u in users" :key="u.id" :label="u.realName" :value="u.id" />
             </el-select>
@@ -117,9 +115,7 @@
     <el-dialog :close-on-click-modal="false" v-model="configDialog" :title="editing ? '编辑配置' : '新建配置'" width="520px">
       <el-form ref="formRef" :model="form" :rules="rules" label-width="90px">
         <el-form-item label="项目" prop="projectId">
-          <el-select v-model="form.projectId" filterable style="width: 100%">
-            <el-option v-for="p in projects" :key="p.id" :label="p.projectName" :value="p.id" />
-          </el-select>
+          <project-select v-model="form.projectName" @change="onFormProjectChange" />
         </el-form-item>
         <el-form-item label="用户" prop="userId">
           <el-select v-model="form.userId" filterable style="width: 100%">
@@ -223,7 +219,7 @@ const configs = ref<ProjectBonus[]>([])
 const configTotal = ref(0)
 const query = reactive({
   pageNum: 1, pageSize: 10,
-  projectId: undefined as number | undefined,
+  projectName: undefined as string | undefined,
   userId: undefined as number | undefined,
   bonusType: undefined as number | undefined
 })
@@ -231,6 +227,8 @@ const configDialog = ref(false)
 const editing = ref<ProjectBonus | null>(null)
 const formRef = ref<FormInstance>()
 const form = reactive({
+  /** 项目名称（选择器交互口径）；提交时同步反查 projectId 作为业务外键 */
+  projectName: undefined as string | undefined,
   projectId: undefined as number | undefined,
   userId: undefined as number | undefined,
   bonusType: undefined as number | undefined,
@@ -238,6 +236,11 @@ const form = reactive({
   baseAmount: 0,
   coefficient: 1
 })
+
+/** 项目选择联动：名称口径交互，内部记录 projectId 供业务提交与阶段/校验使用 */
+function onFormProjectChange(project?: ProjectItem) {
+  form.projectId = project?.id
+}
 const rules: FormRules = {
   projectId: [{ required: true, message: '请选择项目', trigger: 'change' }],
   userId: [{ required: true, message: '请选择用户', trigger: 'change' }],
@@ -260,11 +263,12 @@ function openConfigDialog(row?: ProjectBonus) {
   editing.value = row ?? null
   if (row) {
     Object.assign(form, {
+      projectName: projectNameOf(row.projectId),
       projectId: row.projectId, userId: row.userId, bonusType: row.bonusType,
       projectPeriod: row.projectPeriod, baseAmount: row.baseAmount ?? 0, coefficient: row.coefficient ?? 1
     })
   } else {
-    Object.assign(form, { projectId: undefined, userId: undefined, bonusType: undefined, projectPeriod: undefined, baseAmount: 0, coefficient: 1 })
+    Object.assign(form, { projectName: undefined, projectId: undefined, userId: undefined, bonusType: undefined, projectPeriod: undefined, baseAmount: 0, coefficient: 1 })
   }
   configDialog.value = true
 }

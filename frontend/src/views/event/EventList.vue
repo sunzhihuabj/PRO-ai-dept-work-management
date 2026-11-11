@@ -66,9 +66,7 @@
           <el-input v-model="form.eventTitle" placeholder="请输入事件标题" maxlength="100" />
         </el-form-item>
         <el-form-item label="所属项目" prop="projectId">
-          <el-select v-model="form.projectId" placeholder="请选择项目" filterable style="width: 100%">
-            <el-option v-for="p in projectOptions" :key="p.id" :label="p.projectName" :value="p.id" />
-          </el-select>
+          <project-select v-model="form.projectName" @change="onFormProjectChange" />
         </el-form-item>
         <el-form-item label="事件类型" prop="eventType">
           <el-select v-model="form.eventType" placeholder="请选择类型" style="width: 100%">
@@ -135,14 +133,20 @@ const projectOptions = ref<ProjectItem[]>([])
 const userOptions = ref<SysUser[]>([])
 const editingId = ref<number>()
 
-const form = reactive<EventCreateDTO>({
+const form = reactive<EventCreateDTO & { projectName?: string }>({
   projectId: undefined as unknown as number,
+  projectName: undefined,
   eventType: undefined as unknown as number,
   eventTitle: '',
   urgency: 2,
   handlerId: undefined,
   description: ''
 })
+
+/** 项目选择联动：名称口径交互，内部记录 projectId 供业务提交 */
+function onFormProjectChange(project?: { id: number }) {
+  form.projectId = project?.id as number
+}
 
 const rules: FormRules = {
   eventTitle: [{ required: true, message: '请输入事件标题', trigger: 'blur' }],
@@ -181,7 +185,7 @@ const goDetail = (id: number) => router.push(`/event/detail/${id}`)
 function openCreate() {
   editing.value = false
   editingId.value = undefined
-  Object.assign(form, { projectId: undefined, eventType: undefined, eventTitle: '', urgency: 2, handlerId: undefined, description: '' })
+  Object.assign(form, { projectId: undefined, projectName: undefined, eventType: undefined, eventTitle: '', urgency: 2, handlerId: undefined, description: '' })
   dialogVisible.value = true
 }
 
@@ -189,7 +193,9 @@ function openEdit(row: EventItem) {
   editing.value = true
   editingId.value = row.id
   Object.assign(form, {
-    projectId: row.projectId, eventType: row.eventType, eventTitle: row.eventTitle,
+    projectId: row.projectId,
+    projectName: projectOptions.value.find(p => p.id === row.projectId)?.projectName,
+    eventType: row.eventType, eventTitle: row.eventTitle,
     urgency: row.urgency, handlerId: row.handlerId, description: row.description || ''
   })
   dialogVisible.value = true

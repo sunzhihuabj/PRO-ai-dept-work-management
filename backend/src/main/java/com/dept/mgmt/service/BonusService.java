@@ -10,6 +10,7 @@ import com.dept.mgmt.entity.ProjectBonus;
 import com.dept.mgmt.entity.ProjectBonusRecord;
 import com.dept.mgmt.mapper.ProjectBonusMapper;
 import com.dept.mgmt.mapper.ProjectBonusRecordMapper;
+import com.dept.mgmt.service.support.ProjectScopeResolver;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -37,14 +38,17 @@ public class BonusService {
     private final ProjectBonusMapper projectBonusMapper;
     private final ProjectBonusRecordMapper projectBonusRecordMapper;
     private final KpiService kpiService;
+    private final ProjectScopeResolver projectScopeResolver;
 
     // ==================== 配置管理 ====================
 
-    public PageResult<ProjectBonus> list(Integer pageNum, Integer pageSize, Long projectId, Long userId,
-                                         Integer bonusType, Integer status) {
+    public PageResult<ProjectBonus> list(Integer pageNum, Integer pageSize, Long projectId, String projectName,
+                                         Long userId, Integer bonusType, Integer status) {
         Page<ProjectBonus> page = new Page<>(pageNum == null ? 1 : pageNum, pageSize == null ? 10 : pageSize);
         LambdaQueryWrapper<ProjectBonus> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(projectId != null, ProjectBonus::getProjectId, projectId);
+        // T-405 项目名称口径：projectName 模糊过滤优先，projectId 精确入参向后兼容
+        projectScopeResolver.applyProjectScope(wrapper, ProjectBonus::getProjectId, projectId,
+                projectScopeResolver.resolveIds(projectName));
         wrapper.eq(userId != null, ProjectBonus::getUserId, userId);
         wrapper.eq(bonusType != null, ProjectBonus::getBonusType, bonusType);
         wrapper.eq(status != null, ProjectBonus::getStatus, status);
@@ -215,11 +219,13 @@ public class BonusService {
         return record;
     }
 
-    public PageResult<ProjectBonusRecord> records(Integer pageNum, Integer pageSize, Long projectId,
+    public PageResult<ProjectBonusRecord> records(Integer pageNum, Integer pageSize, Long projectId, String projectName,
                                                   Long userId, Integer payType, String payPeriod) {
         Page<ProjectBonusRecord> page = new Page<>(pageNum == null ? 1 : pageNum, pageSize == null ? 10 : pageSize);
         LambdaQueryWrapper<ProjectBonusRecord> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(projectId != null, ProjectBonusRecord::getProjectId, projectId);
+        // T-405 项目名称口径：projectName 模糊过滤优先，projectId 精确入参向后兼容
+        projectScopeResolver.applyProjectScope(wrapper, ProjectBonusRecord::getProjectId, projectId,
+                projectScopeResolver.resolveIds(projectName));
         wrapper.eq(userId != null, ProjectBonusRecord::getUserId, userId);
         wrapper.eq(payType != null, ProjectBonusRecord::getPayType, payType);
         wrapper.eq(StringUtils.hasText(payPeriod), ProjectBonusRecord::getPayPeriod, payPeriod);
