@@ -48,6 +48,9 @@ public class Material extends BaseEntity {
     /** 一码一物核验（待核验/通过/不通过） */
     private String verifyStatus;
 
+    /** 标准成本价（元/单位，AGT-21 归集计算基础，T-303 补充） */
+    private java.math.BigDecimal standardPrice;
+
     /** 备注 */
     private String remark;
 }
