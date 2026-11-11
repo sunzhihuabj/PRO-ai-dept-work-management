@@ -110,8 +110,8 @@
     <!-- 报修登记 -->
     <el-dialog :close-on-click-modal="false" v-model="repairVisible" title="报修登记（AGT-23 自动分级：紧急/一般/咨询）" width="540px">
       <el-form label-width="90px">
-        <el-form-item label="项目ID" required>
-          <el-input-number v-model="repairForm.projectId" :min="1" controls-position="right" style="width: 200px" />
+        <el-form-item label="所属项目" required>
+          <project-select v-model="repairForm.projectName" @change="onRepairProjectChange" />
         </el-form-item>
         <el-form-item label="故障描述" required>
           <el-input v-model="repairForm.faultDesc" type="textarea" :rows="3"
@@ -166,8 +166,8 @@
     <!-- 登记巡检 -->
     <el-dialog :close-on-click-modal="false" v-model="inspectionVisible" title="登记巡检" width="540px">
       <el-form label-width="90px">
-        <el-form-item label="项目ID" required>
-          <el-input-number v-model="inspectionForm.projectId" :min="1" controls-position="right" style="width: 200px" />
+        <el-form-item label="所属项目" required>
+          <project-select v-model="inspectionForm.projectName" @change="onInspectionProjectChange" />
         </el-form-item>
         <el-form-item label="类型">
           <el-radio-group v-model="inspectionForm.inspectionType">
@@ -194,8 +194,8 @@
     <!-- 登记质保 -->
     <el-dialog :close-on-click-modal="false" v-model="warrantyVisible" title="登记质保信息" width="480px">
       <el-form label-width="110px">
-        <el-form-item label="项目ID" required>
-          <el-input-number v-model="warrantyForm.projectId" :min="1" controls-position="right" style="width: 200px" />
+        <el-form-item label="所属项目" required>
+          <project-select v-model="warrantyForm.projectName" @change="onWarrantyProjectChange" />
         </el-form-item>
         <el-form-item label="质保期满日" required>
           <el-date-picker v-model="warrantyForm.warrantyEnd" type="date" value-format="YYYY-MM-DD" style="width: 200px" />
@@ -221,8 +221,37 @@ import {
   addInspectionApi, listInspectionsApi, addWarrantyApi, listWarrantiesApi, monthlyReportApi
 } from '@/api/phase3'
 import type { RepairTicket, InspectionRecord, WarrantyInfo } from '@/api/phase3'
+import { getProjectListApi, type ProjectItem } from '@/api/project'
 
-const INSPECTION_TYPE_LABEL: Record<string, string> = { HALF_YEAR: '半年检', ANNUAL: '年度检' }
+// ---------- 项目名称口径（T-405）：项目列表与 id→name 映射 ----------
+const projects = ref<ProjectItem[]>([])
+const projectNameOf = (id?: number) => projects.value.find(p => p.id === id)?.projectName || `#${id}`
+
+async function loadProjects() {
+  try {
+    const res = await getProjectListApi({ pageNum: 1, pageSize: 500 })
+    projects.value = res.data?.records || []
+  } catch (e) {}
+}
+
+const repairForm = reactive({ projectId: undefined as number | undefined, projectName: undefined as string | undefined, faultDesc: '', reporter: '' })
+const startForm = reactive({ handler: '' })
+const closeForm = reactive({ rootCause: '', solution: '' })
+const inspectionForm = reactive({ projectId: undefined as number | undefined, projectName: undefined as string | undefined, inspectionType: 'HALF_YEAR', inspector: '', content: '', issues: '' })
+const warrantyForm = reactive({ projectId: undefined as number | undefined, projectName: undefined as string | undefined, warrantyEnd: '', depositAmount: 0 })
+
+/** 项目选择联动：名称口径交互，内部反查 id 供业务提交 */
+function onRepairProjectChange(project?: ProjectItem) {
+  repairForm.projectId = project?.id
+}
+
+function onInspectionProjectChange(project?: ProjectItem) {
+  inspectionForm.projectId = project?.id
+}
+
+function onWarrantyProjectChange(project?: ProjectItem) {
+  warrantyForm.projectId = project?.id
+}
 const WARRANTY_STATUS_LABEL: Record<string, string> = { ACTIVE: '质保中', CLAIMED: '已申请质保金', EXPIRED: '已过期' }
 
 const activeTab = ref('repairs')
@@ -251,11 +280,7 @@ const inspectionVisible = ref(false)
 const warrantyVisible = ref(false)
 let current: RepairTicket | null = null
 
-const repairForm = reactive({ projectId: 1, faultDesc: '', reporter: '' })
-const startForm = reactive({ handler: '' })
-const closeForm = reactive({ rootCause: '', solution: '' })
-const inspectionForm = reactive({ projectId: 1, inspectionType: 'HALF_YEAR', inspector: '', content: '', issues: '' })
-const warrantyForm = reactive({ projectId: 1, warrantyEnd: '', depositAmount: 0 })
+const INSPECTION_TYPE_LABEL: Record<string, string> = { HALF_YEAR: '半年检', ANNUAL: '年度检' }
 
 async function loadRepairs() {
   loading.value = true
@@ -309,7 +334,7 @@ async function doCreateRepair() {
   }
   saving.value = true
   try {
-    const res = await createRepairApi({ ...repairForm })
+    const res = await createRepairApi({ projectId: repairForm.projectId!, faultDesc: repairForm.faultDesc, reporter: repairForm.reporter })
     const t = res.data
     ElMessage.success(`工单 ${t.ticketNo} 已登记，AGT-23 分级：${REPAIR_LEVEL_LABEL[t.level] || t.level}（SLA ${t.responseSla || '-'}）`)
     repairVisible.value = false
@@ -377,7 +402,7 @@ async function doAddInspection() {
   }
   saving.value = true
   try {
-    await addInspectionApi({ ...inspectionForm })
+    await addInspectionApi({ projectId: inspectionForm.projectId!, inspectionType: inspectionForm.inspectionType, inspector: inspectionForm.inspector, content: inspectionForm.content, issues: inspectionForm.issues })
     ElMessage.success('巡检已登记')
     inspectionVisible.value = false
     await loadInspections()
@@ -393,7 +418,7 @@ async function doAddWarranty() {
   }
   saving.value = true
   try {
-    await addWarrantyApi({ ...warrantyForm })
+    await addWarrantyApi({ projectId: warrantyForm.projectId!, warrantyEnd: warrantyForm.warrantyEnd, depositAmount: warrantyForm.depositAmount })
     ElMessage.success('质保信息已登记')
     warrantyVisible.value = false
     await loadWarranties()
@@ -403,6 +428,7 @@ async function doAddWarranty() {
 }
 
 onMounted(() => {
+  loadProjects()
   loadRepairs()
   loadInspections()
   loadWarranties()

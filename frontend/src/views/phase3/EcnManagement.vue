@@ -11,8 +11,8 @@
       <el-tabs v-model="activeTab">
         <el-tab-pane label="变更单" name="ecns">
           <el-form inline>
-            <el-form-item label="项目ID">
-              <el-input-number v-model="queryProjectId" :min="1" controls-position="right" style="width: 140px" />
+            <el-form-item label="所属项目">
+              <project-select v-model="queryProjectName" width="220px" @change="onQueryProjectChange" />
             </el-form-item>
             <el-form-item label="状态">
               <el-select v-model="queryStatus" clearable placeholder="全部" style="width: 140px">
@@ -26,7 +26,9 @@
           <el-table :data="ecns" v-loading="loading" border stripe :empty-text="'暂无变更单，点击右上角「新建变更单」发起'">
             <el-table-column prop="ecnNo" label="ECN 编号" width="150" />
             <el-table-column prop="title" label="变更标题" min-width="180" show-overflow-tooltip />
-            <el-table-column prop="projectId" label="项目" width="80" />
+            <el-table-column label="项目" width="150" show-overflow-tooltip>
+              <template #default="{ row }">{{ projectNameOf(row.projectId) }}</template>
+            </el-table-column>
             <el-table-column label="类型" width="90">
               <template #default="{ row }">{{ ECN_TYPE_LABEL[row.changeType] || row.changeType }}</template>
             </el-table-column>
@@ -84,8 +86,8 @@
     <!-- 新建 ECN -->
     <el-dialog :close-on-click-modal="false" v-model="createVisible" title="新建 ECN 变更单" width="560px">
       <el-form :model="createForm" label-width="90px">
-        <el-form-item label="项目ID" required>
-          <el-input-number v-model="createForm.projectId" :min="1" controls-position="right" style="width: 200px" />
+        <el-form-item label="所属项目" required>
+          <project-select v-model="createForm.projectName" @change="onCreateProjectChange" />
         </el-form-item>
         <el-form-item label="变更标题" required>
           <el-input v-model="createForm.title" maxlength="200" placeholder="如：塔筒法兰规格变更" />
@@ -168,6 +170,7 @@ import {
   listRecallTasksApi, confirmRecallApi
 } from '@/api/phase3'
 import type { EcnChange, EcnRecallTask } from '@/api/phase3'
+import { getProjectListApi, type ProjectItem } from '@/api/project'
 
 const ECN_TYPE_LABEL: Record<string, string> = { DESIGN: '设计', PROCESS: '工艺', MATERIAL: '物料' }
 const ECN_ITEM_TYPE_LABEL: Record<string, string> = { SCHEME: '方案', BOM: 'BOM明细', DRAWING: '图纸', DOC: '文档' }
@@ -181,7 +184,25 @@ const recalls = ref<EcnRecallTask[]>([])
 const pageNum = ref(1)
 const pageSize = ref(10)
 const total = ref(0)
+// ---------- 项目名称口径（T-405）：项目列表与 id→name 映射 ----------
+const projects = ref<ProjectItem[]>([])
+const projectNameOf = (id?: number) => projects.value.find(p => p.id === id)?.projectName || `#${id}`
+
+async function loadProjects() {
+  try {
+    const res = await getProjectListApi({ pageNum: 1, pageSize: 500 })
+    projects.value = res.data?.records || []
+  } catch (e) {}
+}
+
+/** 项目名称（选择器交互口径）；projectId 为内部 API 调用所需 */
+const queryProjectName = ref<string>()
 const queryProjectId = ref<number | undefined>()
+
+/** 项目选择联动：名称口径交互，内部反查 id 供 API 调用 */
+function onQueryProjectChange(project?: ProjectItem) {
+  queryProjectId.value = project?.id
+}
 const queryStatus = ref<string>('')
 
 const createVisible = ref(false)
@@ -189,9 +210,14 @@ const approveVisible = ref(false)
 const implementVisible = ref(false)
 let currentEcn: EcnChange | null = null
 
-const createForm = reactive({ projectId: 1, title: '', reason: '', changeType: 'DESIGN', impactLevel: 'B' })
+const createForm = reactive({ projectId: undefined as number | undefined, projectName: undefined as string | undefined, title: '', reason: '', changeType: 'DESIGN', impactLevel: 'B' })
 const approveForm = reactive({ approver: '', approved: true, remark: '' })
 const implementForm = reactive({ newSchemeId: undefined as number | undefined, recallOwner: '', recallDueDays: 7 })
+
+/** 项目选择联动：名称口径交互，内部反查 id 供业务提交 */
+function onCreateProjectChange(project?: ProjectItem) {
+  createForm.projectId = project?.id
+}
 
 async function loadEcns() {
   loading.value = true
@@ -215,7 +241,7 @@ async function loadRecalls() {
 }
 
 function openCreate() {
-  Object.assign(createForm, { projectId: 1, title: '', reason: '', changeType: 'DESIGN', impactLevel: 'B' })
+  Object.assign(createForm, { projectId: undefined, projectName: undefined, title: '', reason: '', changeType: 'DESIGN', impactLevel: 'B' })
   createVisible.value = true
 }
 
@@ -226,7 +252,7 @@ async function doCreate() {
   }
   saving.value = true
   try {
-    await createEcnApi({ ...createForm })
+    await createEcnApi({ projectId: createForm.projectId!, title: createForm.title, reason: createForm.reason, changeType: createForm.changeType, impactLevel: createForm.impactLevel })
     ElMessage.success('ECN 已创建')
     createVisible.value = false
     await loadEcns()
@@ -288,6 +314,7 @@ async function confirmRecall(row: any) {
 }
 
 onMounted(() => {
+  loadProjects()
   loadEcns()
   loadRecalls()
 })

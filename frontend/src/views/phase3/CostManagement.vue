@@ -10,8 +10,8 @@
       <el-tabs v-model="activeTab">
         <el-tab-pane label="成本台账" name="ledger">
           <el-form inline>
-            <el-form-item label="项目ID">
-              <el-input-number v-model="projectId" :min="1" controls-position="right" style="width: 140px" />
+            <el-form-item label="所属项目">
+              <project-select v-model="projectName" width="220px" @change="onProjectChange" />
             </el-form-item>
             <el-form-item>
               <el-button type="primary" @click="loadLedger">查询台账</el-button>
@@ -37,8 +37,8 @@
           <el-alert type="info" :closable="false" style="margin-bottom: 12px"
                     title="三口径披露：完全成本=台账全量；标准成本=Σ入库×标准价；现金支出=已完结 PO 部分入库×标准价" />
           <el-form inline>
-            <el-form-item label="项目ID">
-              <el-input-number v-model="projectId" :min="1" controls-position="right" style="width: 140px" />
+            <el-form-item label="所属项目">
+              <project-select v-model="projectName" width="220px" @change="onProjectChange" />
             </el-form-item>
             <el-form-item>
               <el-button type="primary" :loading="settling" @click="doSettle">生成核算单（AGT-22）</el-button>
@@ -80,8 +80,8 @@
     <!-- 手工录入成本 -->
     <el-dialog :close-on-click-modal="false" v-model="manualVisible" title="手工录入人工/费用成本" width="480px">
       <el-form label-width="90px">
-        <el-form-item label="项目ID">
-          <el-input-number v-model="manualForm.projectId" :min="1" controls-position="right" style="width: 200px" />
+        <el-form-item label="所属项目">
+          <project-select v-model="manualForm.projectName" @change="onManualProjectChange" />
         </el-form-item>
         <el-form-item label="成本类型">
           <el-radio-group v-model="manualForm.costType">
@@ -113,6 +113,7 @@ import {
   refreshPriceModelApi, listPriceModelApi
 } from '@/api/phase3'
 import type { CostLedger, PriceModel } from '@/api/phase3'
+import { getProjectListApi, type ProjectItem } from '@/api/project'
 
 const PRICE_TYPE_LABEL: Record<string, string> = { 1: '整机厂', 2: '技改', 3: '研发' }
 
@@ -120,12 +121,34 @@ const activeTab = ref('ledger')
 const loading = ref(false)
 const settling = ref(false)
 const saving = ref(false)
-const projectId = ref(1)
+// ---------- 项目名称口径（T-405）：项目列表与 id→name 映射 ----------
+const projects = ref<ProjectItem[]>([])
+const projectNameOf = (id?: number) => projects.value.find(p => p.id === id)?.projectName || `#${id}`
+
+async function loadProjects() {
+  try {
+    const res = await getProjectListApi({ pageNum: 1, pageSize: 500 })
+    projects.value = res.data?.records || []
+  } catch (e) {}
+}
+
+/** 项目名称（选择器交互口径）；projectId 为内部 API 调用所需 */
+const projectName = ref<string>()
+const projectId = ref<number>()
 const ledger = ref<CostLedger[]>([])
 const priceModels = ref<PriceModel[]>([])
 const settlement = ref<Record<string, any> | null>(null)
 const manualVisible = ref(false)
-const manualForm = reactive({ projectId: 1, costType: 'LABOR', amount: 0, remark: '' })
+const manualForm = reactive({ projectId: undefined as number | undefined, projectName: undefined as string | undefined, costType: 'LABOR', amount: 0, remark: '' })
+
+/** 项目选择联动：名称口径交互，内部反查 id 供 API 调用 */
+function onProjectChange(project?: ProjectItem) {
+  projectId.value = project?.id
+}
+
+function onManualProjectChange(project?: ProjectItem) {
+  manualForm.projectId = project?.id
+}
 
 function fmt(v: any) {
   if (v === null || v === undefined) return '-'
@@ -133,6 +156,10 @@ function fmt(v: any) {
 }
 
 async function loadLedger() {
+  if (!projectId.value) {
+    ElMessage.warning('请先选择所属项目')
+    return
+  }
   loading.value = true
   try {
     const res = await listLedgerApi(projectId.value)
@@ -143,6 +170,10 @@ async function loadLedger() {
 }
 
 async function doCollect() {
+  if (!projectId.value) {
+    ElMessage.warning('请先选择所属项目')
+    return
+  }
   saving.value = true
   try {
     const res = await collectCostApi(projectId.value)
@@ -154,12 +185,17 @@ async function doCollect() {
 }
 
 async function doAddCost() {
+  if (!manualForm.projectId) {
+    ElMessage.warning('请先选择所属项目')
+    return
+  }
   saving.value = true
   try {
-    await addCostApi({ ...manualForm })
+    await addCostApi({ projectId: manualForm.projectId!, costType: manualForm.costType, amount: manualForm.amount, remark: manualForm.remark })
     ElMessage.success('成本已录入')
     manualVisible.value = false
     projectId.value = manualForm.projectId
+    projectName.value = manualForm.projectName
     await loadLedger()
   } finally {
     saving.value = false
@@ -167,6 +203,10 @@ async function doAddCost() {
 }
 
 async function doSettle() {
+  if (!projectId.value) {
+    ElMessage.warning('请先选择所属项目')
+    return
+  }
   settling.value = true
   try {
     const res = await settleApi(projectId.value)
@@ -205,7 +245,7 @@ async function loadPriceModels() {
 }
 
 onMounted(() => {
-  loadLedger()
+  loadProjects()
   loadPriceModels()
 })
 </script>

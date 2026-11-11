@@ -10,7 +10,7 @@
       </el-form-item>
 
       <el-form-item label="阶段" required>
-        <el-select v-model="form.phaseId" placeholder="请选择阶段" :disabled="!form.projectName">
+        <el-select v-model="form.phaseId" placeholder="请选择阶段" :disabled="!form.projectName" style="width: 100%">
           <el-option v-for="ph in phases" :key="ph.id" :label="ph.phaseName" :value="ph.id" />
         </el-select>
       </el-form-item>

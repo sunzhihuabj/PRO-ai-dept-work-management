@@ -5,7 +5,7 @@
       <el-tab-pane label="方案版本" name="schemes">
         <el-card shadow="never">
           <div class="toolbar">
-            <el-input-number v-model="queryProjectId" placeholder="项目ID" :controls="false" style="width: 140px" />
+            <project-select v-model="queryProjectName" width="220px" @change="onQueryProjectChange" />
             <el-select v-model="queryStatus" placeholder="状态" clearable style="width: 130px">
               <el-option label="草稿" value="DRAFT" />
               <el-option label="已受控发布" value="RELEASED" />
@@ -16,7 +16,9 @@
           </div>
           <el-table v-loading="loading" :data="schemes" border stripe>
             <el-table-column prop="id" label="ID" width="70" />
-            <el-table-column prop="projectId" label="项目" width="80" />
+            <el-table-column label="项目" width="150" show-overflow-tooltip>
+              <template #default="{ row }">{{ projectNameOf(row.projectId) }}</template>
+            </el-table-column>
             <el-table-column label="版本" width="70" align="center">
               <template #default="{ row }">v{{ row.versionNo }}</template>
             </el-table-column>
@@ -51,8 +53,8 @@
           <el-alert type="info" :closable="false" show-icon title="AGT-09 依据模板库 + 项目信息 + 勘测记录起草方案草稿；受控发布须人工执行"
                     style="margin-bottom: 16px" />
           <el-form label-width="100px">
-            <el-form-item label="项目 ID" required>
-              <el-input-number v-model="draftProjectId" :min="1" :controls="false" style="width: 160px" />
+            <el-form-item label="所属项目" required>
+              <project-select v-model="draftProjectName" @change="onDraftProjectChange" />
             </el-form-item>
             <el-form-item label="场景">
               <el-select v-model="draftScene" style="width: 200px" allow-create filterable>
@@ -125,8 +127,7 @@
       <el-tab-pane label="勘测记录" name="survey">
         <el-card shadow="never" style="max-width: 720px">
           <div class="toolbar">
-            <span>项目 ID：</span>
-            <el-input-number v-model="surveyProjectId" :min="1" :controls="false" style="width: 120px" />
+            <project-select v-model="surveyProjectName" width="220px" @change="onSurveyProjectChange" />
             <el-button type="primary" @click="loadSurveys">查询</el-button>
           </div>
           <el-table :data="surveys" border size="small">
@@ -201,6 +202,18 @@ import {
   type BomItem, type DesignScheme, type DesignSurvey, type DesignTemplate, type BomViolation
 } from '@/api/design'
 import { submitInstructionApi, getTaskDetailApi } from '@/api/agent'
+import { getProjectListApi, type ProjectItem } from '@/api/project'
+
+// ---------- 项目名称口径（T-405）：项目列表与 id→name 映射 ----------
+const projects = ref<ProjectItem[]>([])
+const projectNameOf = (id?: number) => projects.value.find(p => p.id === id)?.projectName || `#${id}`
+
+async function loadProjects() {
+  try {
+    const res = await getProjectListApi({ pageNum: 1, pageSize: 500 })
+    projects.value = res.data?.records || []
+  } catch (e) {}
+}
 
 const SCHEME_STATUS_LABEL: Record<string, string> = { DRAFT: '草稿', RELEASED: '已受控发布', ARCHIVED: '已归档' }
 const SCHEME_STATUS_TYPE: Record<string, any> = { DRAFT: 'info', RELEASED: 'success', ARCHIVED: 'info' }
@@ -212,7 +225,14 @@ const loading = ref(false)
 const pageNum = ref(1)
 const pageSize = ref(10)
 const total = ref(0)
+/** 项目名称（选择器交互口径）；projectId 为内部 API 调用所需 */
+const queryProjectName = ref<string>()
 const queryProjectId = ref<number | undefined>()
+
+/** 项目选择联动：名称口径交互，内部反查 id 供 API 调用 */
+function onQueryProjectChange(project?: ProjectItem) {
+  queryProjectId.value = project?.id
+}
 const queryStatus = ref('')
 
 async function loadSchemes() {
@@ -247,7 +267,14 @@ async function openDetail(id: number) {
 
 // ===== AI 起草 =====
 const templates = ref<DesignTemplate[]>([])
+/** 项目名称（选择器交互口径）；projectId 为内部 API 调用所需 */
+const draftProjectName = ref<string>()
 const draftProjectId = ref<number>()
+
+/** 项目选择联动：名称口径交互，内部反查 id 供 API 调用 */
+function onDraftProjectChange(project?: ProjectItem) {
+  draftProjectId.value = project?.id
+}
 const draftScene = ref('塔筒')
 const drafting = ref(false)
 const draftResult = ref<any>(null)
@@ -316,7 +343,14 @@ async function onCheckBom() {
 
 // ===== 勘测记录 =====
 const surveys = ref<DesignSurvey[]>([])
+/** 项目名称（选择器交互口径）；projectId 为内部 API 调用所需 */
+const surveyProjectName = ref<string>()
 const surveyProjectId = ref<number>()
+
+/** 项目选择联动：名称口径交互，内部反查 id 供 API 调用 */
+function onSurveyProjectChange(project?: ProjectItem) {
+  surveyProjectId.value = project?.id
+}
 const newSurvey = ref<DesignSurvey>({ projectId: 0, siteName: '', surveyor: '', windClass: '', content: '' })
 
 async function loadSurveys() {
@@ -333,6 +367,7 @@ async function onCreateSurvey() {
 }
 
 onMounted(() => {
+  loadProjects()
   loadSchemes()
   listTemplatesApi().then((res) => (templates.value = res.data))
 })

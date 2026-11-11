@@ -5,7 +5,7 @@
       <el-tab-pane label="发货与物流" name="shipment">
         <el-card shadow="never">
           <div class="toolbar">
-            <el-input-number v-model="spQueryProjectId" placeholder="项目ID" :controls="false" style="width: 140px" />
+            <project-select v-model="spQueryProjectName" width="220px" @change="onSpQueryProjectChange" />
             <el-select v-model="spQueryStatus" placeholder="状态" clearable style="width: 130px">
               <el-option label="草稿" value="DRAFT" />
               <el-option label="已发运" value="SUBMITTED" />
@@ -17,7 +17,9 @@
                     title="硬卡点 BR-02：整机厂项目首次发货必须持有 PASS 的 FAI 首件检验报告，否则发货单禁止提交" />
           <el-table v-loading="spLoading" :data="shipments" border stripe>
             <el-table-column prop="shipmentNo" label="发货单号" width="160" />
-            <el-table-column prop="projectId" label="项目" width="80" />
+            <el-table-column label="项目" width="150" show-overflow-tooltip>
+              <template #default="{ row }">{{ projectNameOf(row.projectId) }}</template>
+            </el-table-column>
             <el-table-column prop="batchNo" label="批次" width="90" />
             <el-table-column prop="qty" label="台数" width="80" align="right" />
             <el-table-column prop="carrier" label="承运商" width="130" show-overflow-tooltip />
@@ -51,9 +53,8 @@
           <el-form label-width="110px" style="max-width: 760px">
             <el-row :gutter="12">
               <el-col :xs="24" :sm="8">
-                <el-form-item label="项目 ID" required>
-                  <el-input-number v-model="clogForm.projectId" :min="1" :controls="false" style="width: 100%"
-                                   @change="loadProgress" />
+                <el-form-item label="所属项目" required>
+                  <project-select v-model="clogForm.projectName" @change="onClogProjectChange" />
                 </el-form-item>
               </el-col>
               <el-col :xs="24" :sm="8">
@@ -123,7 +124,7 @@
       <el-tab-pane label="分级验收" name="accept">
         <el-card shadow="never">
           <div class="toolbar">
-            <el-input-number v-model="accQueryProjectId" placeholder="项目ID" :controls="false" style="width: 140px" />
+            <project-select v-model="accQueryProjectName" width="220px" @change="onAccQueryProjectChange" />
             <el-select v-model="accQueryStage" placeholder="阶段" clearable style="width: 130px">
               <el-option label="首台验收" value="FIRST" />
               <el-option label="中期验收" value="MID" />
@@ -137,7 +138,9 @@
                     title="硬卡点 BR-05：验收单必须三方签字（业主+监理+我方）齐备才生效；终验生效自动触发验收款收款提醒（AGT-20）" />
           <el-table v-loading="accLoading" :data="acceptances" border stripe>
             <el-table-column prop="id" label="ID" width="70" />
-            <el-table-column prop="projectId" label="项目" width="80" />
+            <el-table-column label="项目" width="150" show-overflow-tooltip>
+              <template #default="{ row }">{{ projectNameOf(row.projectId) }}</template>
+            </el-table-column>
             <el-table-column label="阶段" width="110" align="center">
               <template #default="{ row }">{{ STAGE_LABEL[row.stage] || row.stage }}</template>
             </el-table-column>
@@ -171,8 +174,8 @@
     <!-- 新建发货单对话框 -->
     <el-dialog :close-on-click-modal="false" v-model="spDialogVisible" title="新建发货单" width="520px">
       <el-form label-width="100px">
-        <el-form-item label="项目 ID" required>
-          <el-input-number v-model="spForm.projectId" :min="1" :controls="false" style="width: 160px" />
+        <el-form-item label="所属项目" required>
+          <project-select v-model="spForm.projectName" @change="onSpFormProjectChange" />
         </el-form-item>
         <el-form-item label="工单 ID">
           <el-input-number v-model="spForm.workorderId" :min="1" :controls="false" style="width: 160px" />
@@ -224,8 +227,8 @@
     <!-- 新建验收单对话框 -->
     <el-dialog :close-on-click-modal="false" v-model="accDialogVisible" title="手动创建验收单" width="480px">
       <el-form label-width="100px">
-        <el-form-item label="项目 ID" required>
-          <el-input-number v-model="accForm.projectId" :min="1" :controls="false" style="width: 160px" />
+        <el-form-item label="所属项目" required>
+          <project-select v-model="accForm.projectName" @change="onAccFormProjectChange" />
         </el-form-item>
         <el-form-item label="验收阶段" required>
           <el-select v-model="accForm.stage" style="width: 180px">
@@ -279,6 +282,19 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
+import { getProjectListApi, type ProjectItem } from '@/api/project'
+
+// ---------- 项目名称口径（T-405）：项目列表与 id→name 映射 ----------
+const projects = ref<ProjectItem[]>([])
+const projectNameOf = (id?: number) => projects.value.find(p => p.id === id)?.projectName || `#${id}`
+
+async function loadProjects() {
+  try {
+    const res = await getProjectListApi({ pageNum: 1, pageSize: 500 })
+    projects.value = res.data?.records || []
+  } catch (e) {}
+}
+
 import {
   addConstructionLogApi, addLogisticsApi, checkAcceptanceApi, createAcceptanceApi, createShipmentApi,
   getProgressApi, listAcceptancesApi, listConstructionLogsApi, listLogisticsApi, listShipmentsApi,
@@ -299,11 +315,22 @@ const spLoading = ref(false)
 const spPageNum = ref(1)
 const spPageSize = ref(10)
 const spTotal = ref(0)
+/** 项目名称（选择器交互口径）；projectId 为内部 API 调用所需 */
+const spQueryProjectName = ref<string>()
 const spQueryProjectId = ref<number>()
 const spQueryStatus = ref('')
 const spDialogVisible = ref(false)
 const spSubmitting = ref(false)
-const spForm = ref({ projectId: undefined as number | undefined, workorderId: undefined as number | undefined, batchNo: '', qty: 1, carrier: '' })
+const spForm = ref({ projectId: undefined as number | undefined, projectName: undefined as string | undefined, workorderId: undefined as number | undefined, batchNo: '', qty: 1, carrier: '' })
+
+/** 项目选择联动：名称口径交互，内部反查 id 供 API 调用 */
+function onSpQueryProjectChange(project?: ProjectItem) {
+  spQueryProjectId.value = project?.id
+}
+
+function onSpFormProjectChange(project?: ProjectItem) {
+  spForm.value.projectId = project?.id
+}
 
 async function loadShipments() {
   spLoading.value = true
@@ -318,7 +345,7 @@ async function loadShipments() {
 
 async function onCreateShipment() {
   if (!spForm.value.projectId) {
-    ElMessage.warning('请填写项目 ID')
+    ElMessage.warning('请选择所属项目')
     return
   }
   spSubmitting.value = true
@@ -369,6 +396,7 @@ async function onAddLogistics() {
 // ===== 施工日志 =====
 const clogForm = ref({
   projectId: undefined as number | undefined,
+  projectName: undefined as string | undefined,
   logDate: '',
   weather: '',
   personnelCount: undefined as number | undefined,
@@ -378,6 +406,12 @@ const clogForm = ref({
   recorder: ''
 })
 const clogSubmitting = ref(false)
+
+/** 项目选择联动：名称口径交互，内部反查 id 供 API 调用（联动加载工程进度） */
+function onClogProjectChange(project?: ProjectItem) {
+  clogForm.value.projectId = project?.id
+  loadProgress()
+}
 const currentProgress = ref(0)
 const clogs = ref<ConstructionLog[]>([])
 const clogLoading = ref(false)
@@ -430,11 +464,23 @@ async function onCheckAcceptance() {
 // ===== 分级验收 =====
 const acceptances = ref<Acceptance[]>([])
 const accLoading = ref(false)
+/** 项目名称（选择器交互口径）；projectId 为内部 API 调用所需 */
+const accQueryProjectName = ref<string>()
 const accQueryProjectId = ref<number>()
+
+/** 项目选择联动：名称口径交互，内部反查 id 供 API 调用 */
+function onAccQueryProjectChange(project?: ProjectItem) {
+  accQueryProjectId.value = project?.id
+}
 const accQueryStage = ref('')
 const accDialogVisible = ref(false)
 const accSubmitting = ref(false)
-const accForm = ref({ projectId: undefined as number | undefined, stage: 'MID', progressPct: 0, comment: '' })
+const accForm = ref({ projectId: undefined as number | undefined, projectName: undefined as string | undefined, stage: 'MID', progressPct: 0, comment: '' })
+
+/** 项目选择联动：名称口径交互，内部反查 id 供 API 调用 */
+function onAccFormProjectChange(project?: ProjectItem) {
+  accForm.value.projectId = project?.id
+}
 const signDialogVisible = ref(false)
 const signSubmitting = ref(false)
 const signRow = ref<Acceptance | null>(null)
@@ -452,7 +498,7 @@ async function loadAcceptances() {
 
 async function onCreateAcceptance() {
   if (!accForm.value.projectId) {
-    ElMessage.warning('请填写项目 ID')
+    ElMessage.warning('请选择所属项目')
     return
   }
   accSubmitting.value = true
@@ -486,6 +532,7 @@ async function onSign() {
 }
 
 onMounted(() => {
+  loadProjects()
   loadShipments()
   loadAcceptances()
 })

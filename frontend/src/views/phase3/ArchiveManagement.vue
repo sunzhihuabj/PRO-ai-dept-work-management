@@ -51,7 +51,7 @@
       <el-tabs v-model="activeTab">
         <el-tab-pane label="档案库" name="archives">
           <div class="toolbar">
-            <el-input v-model="queryKeyword" placeholder="搜索档号 / 标题 / 项目ID" clearable
+            <el-input v-model="queryKeyword" placeholder="搜索档号 / 标题" clearable
                       :prefix-icon="Search" style="width: 260px" @input="pageNum = 1" />
             <el-select v-model="queryStatus" clearable placeholder="全部状态" style="width: 130px" @change="pageNum = 1; loadArchives()">
               <el-option v-for="(label, key) in ARCHIVE_STATUS_LABEL" :key="key" :label="label" :value="key" />
@@ -149,8 +149,8 @@
       <el-alert type="info" :closable="false" style="margin-bottom: 14px"
                 title="DA 档号由编码引擎自动生成；纸质/双轨载体必须填写实物存放位置" />
       <el-form label-width="100px">
-        <el-form-item label="项目ID" required>
-          <el-input-number v-model="registerForm.projectId" :min="1" controls-position="right" style="width: 200px" />
+        <el-form-item label="所属项目" required>
+          <project-select v-model="registerForm.projectName" @change="onRegisterProjectChange" />
         </el-form-item>
         <el-form-item label="档案标题" required>
           <el-input v-model="registerForm.title" maxlength="200" placeholder="如：3 号风场竣工验收记录" />
@@ -267,6 +267,7 @@ import {
   listBorrowsApi, overdueBorrowsApi, destroyArchiveApi
 } from '@/api/phase3'
 import type { ArchiveInfo, ArchiveBorrow } from '@/api/phase3'
+import { getProjectListApi, type ProjectItem } from '@/api/project'
 
 const ARCHIVE_TYPE_LABEL: Record<string, string> = { CONTRACT: '合同', SCHEME: '方案', DRAWING: '图纸', RECORD: '记录', ACCEPTANCE: '验收' }
 const ARCHIVE_TYPE_COLOR: Record<string, string> = {
@@ -295,17 +296,33 @@ const borrowsVisible = ref(false)
 const destroyVisible = ref(false)
 let current: ArchiveInfo | null = null
 
-const registerForm = reactive({ projectId: 1, title: '', archiveType: 'CONTRACT', medium: 'ELECTRONIC', location: '', remark: '' })
+// ---------- 项目名称口径（T-405）：项目列表与 id→name 映射 ----------
+const projects = ref<ProjectItem[]>([])
+const projectNameOf = (id?: number) => projects.value.find(p => p.id === id)?.projectName || `#${id}`
+
+async function loadProjects() {
+  try {
+    const res = await getProjectListApi({ pageNum: 1, pageSize: 500 })
+    projects.value = res.data?.records || []
+  } catch (e) {}
+}
+
+const registerForm = reactive({ projectId: undefined as number | undefined, projectName: undefined as string | undefined, title: '', archiveType: 'CONTRACT', medium: 'ELECTRONIC', location: '', remark: '' })
 const borrowForm = reactive({ borrower: '', purpose: '', dueDays: 7, approveBy: '' })
 const destroyRemark = ref('')
 
-/** 关键词+类型本地过滤（状态由服务端过滤） */
+/** 项目选择联动：名称口径交互，内部反查 id 供业务提交 */
+function onRegisterProjectChange(project?: ProjectItem) {
+  registerForm.projectId = project?.id
+}
+
+/** 关键词+类型本地过滤（状态由服务端过滤；关键词命中档号/标题/项目名称） */
 const filteredArchives = computed(() => {
   const kw = queryKeyword.value.trim().toLowerCase()
   return archives.value.filter((a) => {
     const typeOk = !queryType.value || a.archiveType === queryType.value
     if (!kw) return typeOk
-    const hit = [a.archiveNo, a.title, String(a.projectId)].some((v) => String(v || '').toLowerCase().includes(kw))
+    const hit = [a.archiveNo, a.title, projectNameOf(a.projectId)].some((v) => String(v || '').toLowerCase().includes(kw))
     return typeOk && hit
   })
 })
@@ -378,7 +395,7 @@ async function doRegister() {
   }
   saving.value = true
   try {
-    await registerArchiveApi({ ...registerForm })
+    await registerArchiveApi({ projectId: registerForm.projectId!, title: registerForm.title, archiveType: registerForm.archiveType, medium: registerForm.medium, location: registerForm.location, remark: registerForm.remark })
     ElMessage.success('档案已登记（DA 档号已生成）')
     registerVisible.value = false
     await Promise.all([loadArchives(), loadStats()])
@@ -445,6 +462,7 @@ async function doDestroy() {
 }
 
 onMounted(() => {
+  loadProjects()
   loadArchives()
   loadOverdue()
   loadStats()

@@ -5,7 +5,7 @@
       <el-tab-pane label="齐套看板" name="kitting">
         <el-card shadow="never">
           <div class="toolbar">
-            <el-input-number v-model="kitProjectId" placeholder="项目ID" :controls="false" style="width: 140px" />
+            <project-select v-model="kitProjectName" width="220px" @change="onKitProjectChange" />
             <el-button type="primary" :disabled="!kitProjectId" @click="loadKitting">查询齐套历史</el-button>
             <el-button type="success" :loading="kittingRunning" :disabled="!kitProjectId" @click="onRunKitting('AGT-13')">
               AGT-13 齐套检查
@@ -47,7 +47,7 @@
       <el-tab-pane label="PO 管理" name="po">
         <el-card shadow="never">
           <div class="toolbar">
-            <el-input-number v-model="poQueryProjectId" placeholder="项目ID" :controls="false" style="width: 140px" />
+            <project-select v-model="poQueryProjectName" width="220px" @change="onPoQueryProjectChange" />
             <el-button type="primary" @click="loadPos">查询</el-button>
             <el-button type="success" @click="poDialogVisible = true">新建 PO</el-button>
             <el-button type="warning" :loading="overdueRunning" :disabled="!poQueryProjectId" @click="onOverdueScan">
@@ -58,7 +58,9 @@
                     :title="`逾期未完结 PO：${overdueList.overdueCount} 张`" style="margin-bottom: 12px" />
           <el-table v-loading="poLoading" :data="pos" border stripe>
             <el-table-column prop="poNo" label="PO 编号" width="160" />
-            <el-table-column prop="projectId" label="项目" width="80" />
+            <el-table-column label="项目" width="150" show-overflow-tooltip>
+              <template #default="{ row }">{{ projectNameOf(row.projectId) }}</template>
+            </el-table-column>
             <el-table-column prop="materialCode" label="物料编码" width="130" />
             <el-table-column prop="materialName" label="物料名称" min-width="140" show-overflow-tooltip />
             <el-table-column prop="qty" label="采购量" width="90" align="right" />
@@ -86,7 +88,7 @@
       <el-tab-pane label="工单管理" name="wo">
         <el-card shadow="never">
           <div class="toolbar">
-            <el-input-number v-model="woQueryProjectId" placeholder="项目ID" :controls="false" style="width: 140px" />
+            <project-select v-model="woQueryProjectName" width="220px" @change="onWoQueryProjectChange" />
             <el-select v-model="woQueryStatus" placeholder="状态" clearable style="width: 130px">
               <el-option label="草稿" value="DRAFT" />
               <el-option label="已开工" value="STARTED" />
@@ -99,7 +101,9 @@
                     title="硬卡点：BR-01 技改项目样机验收未通过禁建批量工单；BR-08 齐套率<95% 禁开工；BR-09 交底未签字禁开工" />
           <el-table v-loading="woLoading" :data="workOrders" border stripe>
             <el-table-column prop="woNo" label="工单编号" width="160" />
-            <el-table-column prop="projectId" label="项目" width="80" />
+            <el-table-column label="项目" width="150" show-overflow-tooltip>
+              <template #default="{ row }">{{ projectNameOf(row.projectId) }}</template>
+            </el-table-column>
             <el-table-column label="类型" width="100" align="center">
               <template #default="{ row }">{{ row.orderType === 'BATCH' ? '批量' : '样机' }}</template>
             </el-table-column>
@@ -163,7 +167,7 @@
       <el-tab-pane label="出入库记录" name="records">
         <el-card shadow="never">
           <div class="toolbar">
-            <el-input-number v-model="invQueryProjectId" placeholder="项目ID" :controls="false" style="width: 140px" />
+            <project-select v-model="invQueryProjectName" width="220px" @change="onInvQueryProjectChange" />
             <el-select v-model="invQueryDirection" placeholder="方向" clearable style="width: 120px">
               <el-option label="入库" value="IN" />
               <el-option label="出库" value="OUT" />
@@ -183,7 +187,9 @@
                 <el-tag :type="row.direction === 'IN' ? 'success' : 'warning'" size="small">{{ row.direction === 'IN' ? '入库' : '出库' }}</el-tag>
               </template>
             </el-table-column>
-            <el-table-column prop="projectId" label="项目" width="80" />
+            <el-table-column label="项目" width="150" show-overflow-tooltip>
+              <template #default="{ row }">{{ projectNameOf(row.projectId) }}</template>
+            </el-table-column>
             <el-table-column prop="materialCode" label="物料编码" width="130" />
             <el-table-column prop="qty" label="数量" width="90" align="right" />
             <el-table-column prop="operator" label="操作人" width="100" />
@@ -239,8 +245,8 @@
     <!-- 新建 PO 对话框 -->
     <el-dialog :close-on-click-modal="false" v-model="poDialogVisible" title="新建采购订单" width="520px">
       <el-form label-width="100px">
-        <el-form-item label="项目 ID" required>
-          <el-input-number v-model="poForm.projectId" :min="1" :controls="false" style="width: 160px" />
+        <el-form-item label="所属项目" required>
+          <project-select v-model="poForm.projectName" @change="onPoFormProjectChange" />
         </el-form-item>
         <el-form-item label="物料编码" required>
           <el-input v-model="poForm.materialCode" style="width: 200px" />
@@ -267,8 +273,8 @@
     <!-- 新建工单对话框 -->
     <el-dialog :close-on-click-modal="false" v-model="woDialogVisible" title="新建生产工单" width="480px">
       <el-form label-width="100px">
-        <el-form-item label="项目 ID" required>
-          <el-input-number v-model="woForm.projectId" :min="1" :controls="false" style="width: 160px" />
+        <el-form-item label="所属项目" required>
+          <project-select v-model="woForm.projectName" @change="onWoFormProjectChange" />
         </el-form-item>
         <el-form-item label="工单类型" required>
           <el-radio-group v-model="woForm.orderType">
@@ -342,6 +348,18 @@ import {
   type InventoryRecord, type KittingCheck, type PurchaseOrder, type TplusReconciliation, type WorkOrder
 } from '@/api/workshop'
 import { getTaskDetailApi, submitInstructionApi } from '@/api/agent'
+import { getProjectListApi, type ProjectItem } from '@/api/project'
+
+// ---------- 项目名称口径（T-405）：项目列表与 id→name 映射 ----------
+const projects = ref<ProjectItem[]>([])
+const projectNameOf = (id?: number) => projects.value.find(p => p.id === id)?.projectName || `#${id}`
+
+async function loadProjects() {
+  try {
+    const res = await getProjectListApi({ pageNum: 1, pageSize: 500 })
+    projects.value = res.data?.records || []
+  } catch (e) {}
+}
 
 const PO_STATUS_LABEL: Record<string, string> = { DRAFT: '草稿', SUBMITTED: '已下达', CLOSED: '已完结' }
 const PO_STATUS_TYPE: Record<string, any> = { DRAFT: 'info', SUBMITTED: 'primary', CLOSED: 'success' }
@@ -366,8 +384,15 @@ async function runAgentTask(instruction: string, code: string) {
 }
 
 // ===== 齐套看板 =====
+/** 项目名称（选择器交互口径）；projectId 为内部 API 调用所需 */
+const kitProjectName = ref<string>()
 const kitProjectId = ref<number>()
 const kitLoading = ref(false)
+
+/** 项目选择联动：名称口径交互，内部反查 id 供 API 调用 */
+function onKitProjectChange(project?: ProjectItem) {
+  kitProjectId.value = project?.id
+}
 const kittingRecords = ref<KittingCheck[]>([])
 const kitResult = ref<{ kitRate: number; totalItems: number; shortages: any[] } | null>(null)
 const kittingRunning = ref(false)
@@ -411,10 +436,21 @@ const poLoading = ref(false)
 const poPageNum = ref(1)
 const poPageSize = ref(10)
 const poTotal = ref(0)
+/** 项目名称（选择器交互口径）；projectId 为内部 API 调用所需 */
+const poQueryProjectName = ref<string>()
 const poQueryProjectId = ref<number>()
 const poDialogVisible = ref(false)
 const poSubmitting = ref(false)
-const poForm = ref({ projectId: undefined as number | undefined, materialCode: '', materialName: '', qty: 1, supplier: '', expectedDate: '' })
+const poForm = ref({ projectId: undefined as number | undefined, projectName: undefined as string | undefined, materialCode: '', materialName: '', qty: 1, supplier: '', expectedDate: '' })
+
+/** 项目选择联动：名称口径交互，内部反查 id 供 API 调用 */
+function onPoQueryProjectChange(project?: ProjectItem) {
+  poQueryProjectId.value = project?.id
+}
+
+function onPoFormProjectChange(project?: ProjectItem) {
+  poForm.value.projectId = project?.id
+}
 const overdueRunning = ref(false)
 const overdueList = ref<{ overdueCount: number; overdueList: any[] } | null>(null)
 
@@ -431,7 +467,7 @@ async function loadPos() {
 
 async function onCreatePo() {
   if (!poForm.value.projectId || !poForm.value.materialCode) {
-    ElMessage.warning('请填写项目 ID 与物料编码')
+    ElMessage.warning('请选择所属项目与物料编码')
     return
   }
   poSubmitting.value = true
@@ -491,11 +527,22 @@ const woLoading = ref(false)
 const woPageNum = ref(1)
 const woPageSize = ref(10)
 const woTotal = ref(0)
+/** 项目名称（选择器交互口径）；projectId 为内部 API 调用所需 */
+const woQueryProjectName = ref<string>()
 const woQueryProjectId = ref<number>()
 const woQueryStatus = ref('')
 const woDialogVisible = ref(false)
 const woSubmitting = ref(false)
-const woForm = ref({ projectId: undefined as number | undefined, orderType: 'PROTOTYPE', qty: 1 })
+const woForm = ref({ projectId: undefined as number | undefined, projectName: undefined as string | undefined, orderType: 'PROTOTYPE', qty: 1 })
+
+/** 项目选择联动：名称口径交互，内部反查 id 供 API 调用 */
+function onWoQueryProjectChange(project?: ProjectItem) {
+  woQueryProjectId.value = project?.id
+}
+
+function onWoFormProjectChange(project?: ProjectItem) {
+  woForm.value.projectId = project?.id
+}
 
 async function loadWorkOrders() {
   woLoading.value = true
@@ -510,7 +557,7 @@ async function loadWorkOrders() {
 
 async function onCreateWo() {
   if (!woForm.value.projectId) {
-    ElMessage.warning('请填写项目 ID')
+    ElMessage.warning('请选择所属项目')
     return
   }
   woSubmitting.value = true
@@ -602,10 +649,17 @@ const invLoading = ref(false)
 const invPageNum = ref(1)
 const invPageSize = ref(10)
 const invTotal = ref(0)
+/** 项目名称（选择器交互口径）；projectId 为内部 API 调用所需 */
+const invQueryProjectName = ref<string>()
 const invQueryProjectId = ref<number>()
 const invQueryDirection = ref('')
 const invQueryStatus = ref('')
 const queueProcessing = ref(false)
+
+/** 项目选择联动：名称口径交互，内部反查 id 供 API 调用 */
+function onInvQueryProjectChange(project?: ProjectItem) {
+  invQueryProjectId.value = project?.id
+}
 
 async function loadInventory() {
   invLoading.value = true
@@ -684,6 +738,7 @@ async function onReconcile(auto: boolean) {
 }
 
 onMounted(() => {
+  loadProjects()
   loadPos()
   loadWorkOrders()
   loadInventory()

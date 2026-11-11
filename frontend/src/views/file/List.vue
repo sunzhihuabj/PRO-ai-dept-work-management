@@ -9,7 +9,7 @@
         <project-select v-model="query.projectName" width="220px" @change="onProjectChange" />
       </el-form-item>
       <el-form-item label="阶段">
-        <el-select v-model="query.phaseId" placeholder="请选择阶段" :disabled="!query.projectName">
+        <el-select v-model="query.phaseId" placeholder="请选择阶段" :disabled="!query.projectName" style="width: 220px">
           <el-option v-for="ph in phases" :key="ph.id" :label="ph.phaseName" :value="ph.id" />
         </el-select>
       </el-form-item>
