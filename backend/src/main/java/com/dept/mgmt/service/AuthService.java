@@ -4,6 +4,7 @@ import com.dept.mgmt.common.exception.BusinessException;
 import com.dept.mgmt.dto.LoginDTO;
 import com.dept.mgmt.dto.LoginVO;
 import com.dept.mgmt.entity.SysUser;
+import com.dept.mgmt.fineperm.service.FinePermCacheService;
 import com.dept.mgmt.mapper.SysUserMapper;
 import com.dept.mgmt.security.JwtUtils;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -40,6 +41,7 @@ public class AuthService {
     private final JwtUtils jwtUtils;
     private final PasswordEncoder passwordEncoder;
     private final ObjectMapper objectMapper;
+    private final FinePermCacheService finePermCacheService;
 
     @Value("${wechat.miniapp.appid:}")
     private String wxAppId;
@@ -197,6 +199,7 @@ public class AuthService {
         userInfo.setPhone(user.getPhone());
         userInfo.setRoles(roleList);
         userInfo.setPermissions(roleList);
+        fillFinePerms(userInfo, user.getId());
         vo.setUser(userInfo);
         return vo;
     }
@@ -226,7 +229,25 @@ public class AuthService {
         info.setPhone(user.getPhone());
         info.setRoles(parseRoleCodes(user.getRoleCodes()));
         info.setPermissions(parseRoleCodes(user.getRoleCodes()));
+        fillFinePerms(info, userId);
         return info;
+    }
+
+    /**
+     * 填充精细权限信息（T-404：菜单/按钮/接口三级权限点，缓存版本实时生效）
+     */
+    private void fillFinePerms(LoginVO.UserInfoVO info, Long userId) {
+        try {
+            FinePermCacheService.CacheEntry entry = finePermCacheService.get(userId);
+            info.setFinePermissions(List.copyOf(entry.grantedPerms()));
+            info.setFinePermEnabled(entry.finePermEnabled());
+            info.setPermVersion(finePermCacheService.currentVersion());
+        } catch (Exception e) {
+            log.warn("精细权限加载失败,降级为空集合: userId={}, {}", userId, e.getMessage());
+            info.setFinePermissions(List.of());
+            info.setFinePermEnabled(false);
+            info.setPermVersion(finePermCacheService.currentVersion());
+        }
     }
 
     /**

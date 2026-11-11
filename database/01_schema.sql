@@ -2215,8 +2215,137 @@ CREATE TABLE `sys_dingtalk_config` (
     PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='钉钉企业应用配置';
 
+-- ============================================================================
+-- 9.30 精细化权限配置（T-404：部门/固定职位/临时职位三维度权限 + 权限点目录
+--      + 权限模板 + 变更日志；完整种子见 03_fine_permission.sql）
+-- ============================================================================
+
+-- 职位定义表（固定职位与临时职位共用定义，区分方式见 sys_user_position.kind）
+DROP TABLE IF EXISTS `sys_position`;
+CREATE TABLE `sys_position` (
+    `id`            BIGINT       NOT NULL AUTO_INCREMENT COMMENT '职位ID',
+    `position_code` VARCHAR(50)  NOT NULL                COMMENT '职位编码',
+    `position_name` VARCHAR(100) NOT NULL                COMMENT '职位名称',
+    `description`   VARCHAR(500) DEFAULT NULL            COMMENT '描述',
+    `status`        TINYINT      DEFAULT 1               COMMENT '状态（0停用 1正常）',
+    `create_time`   DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `update_time`   DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    `deleted`       TINYINT      DEFAULT 0               COMMENT '逻辑删除（0未删除 1已删除）',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_position_code` (`position_code`),
+    KEY             `idx_status` (`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='职位定义表（T-404）';
+
+-- 用户职位关联表（FIXED 固定职位；TEMP 临时职位必须带有效期）
+DROP TABLE IF EXISTS `sys_user_position`;
+CREATE TABLE `sys_user_position` (
+    `id`            BIGINT   NOT NULL AUTO_INCREMENT COMMENT '关联ID',
+    `user_id`       BIGINT   NOT NULL                COMMENT '用户ID',
+    `position_id`   BIGINT   NOT NULL                COMMENT '职位ID',
+    `position_kind` VARCHAR(10) NOT NULL             COMMENT '职位性质（FIXED固定 TEMP临时）',
+    `start_time`    DATETIME DEFAULT NULL            COMMENT '生效开始时间（TEMP 必填）',
+    `end_time`      DATETIME DEFAULT NULL            COMMENT '生效结束时间（TEMP 必填，到期自动失效）',
+    `create_time`   DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `update_time`   DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    `deleted`       TINYINT  DEFAULT 0               COMMENT '逻辑删除（0未删除 1已删除）',
+    PRIMARY KEY (`id`),
+    KEY `idx_user_id` (`user_id`),
+    KEY `idx_position_id` (`position_id`),
+    KEY `idx_kind` (`position_kind`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户职位关联表（T-404）';
+
+-- 权限点目录表（MENU 菜单级 / BUTTON 按钮级 / API 接口级）
+DROP TABLE IF EXISTS `sys_perm_point`;
+CREATE TABLE `sys_perm_point` (
+    `id`          BIGINT       NOT NULL AUTO_INCREMENT COMMENT '权限点ID',
+    `perm_code`   VARCHAR(120) NOT NULL                COMMENT '权限点编码（/路由path / btn:xxx / api:xxx）',
+    `perm_name`   VARCHAR(100) NOT NULL                COMMENT '权限点名称',
+    `perm_type`   VARCHAR(10)  NOT NULL                COMMENT '权限类型（MENU菜单 BUTTON按钮 API接口）',
+    `parent_code` VARCHAR(120) DEFAULT NULL            COMMENT '父权限点编码（BUTTON/API 挂 MENU）',
+    `sort_order`  INT          DEFAULT 0               COMMENT '排序号',
+    `status`      TINYINT      DEFAULT 1               COMMENT '状态（0停用 1正常）',
+    `create_time` DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `update_time` DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    `deleted`     TINYINT      DEFAULT 0               COMMENT '逻辑删除（0未删除 1已删除）',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_perm_code` (`perm_code`),
+    KEY `idx_parent_code` (`parent_code`),
+    KEY `idx_perm_type` (`perm_type`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='权限点目录表（T-404）';
+
+-- 权限分配表（部门维度 subject_type=DEPT；职位维度 subject_type=POSITION）
+DROP TABLE IF EXISTS `sys_perm_assignment`;
+CREATE TABLE `sys_perm_assignment` (
+    `id`           BIGINT       NOT NULL AUTO_INCREMENT COMMENT '分配ID',
+    `subject_type` VARCHAR(10)  NOT NULL                COMMENT '主体类型（DEPT部门维度 POSITION职位维度）',
+    `subject_id`   BIGINT       NOT NULL                COMMENT '主体ID（部门ID/职位ID）',
+    `perm_code`    VARCHAR(120) NOT NULL                COMMENT '权限点编码',
+    `perm_type`    VARCHAR(10)  NOT NULL                COMMENT '权限类型（MENU/BUTTON/API）',
+    `effect`       VARCHAR(10)  NOT NULL DEFAULT 'GRANT' COMMENT '效果（GRANT授予 DENY拒绝）',
+    `create_time`  DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `update_time`  DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    `deleted`      TINYINT      DEFAULT 0               COMMENT '逻辑删除（0未删除 1已删除）',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_subject_perm` (`subject_type`, `subject_id`, `perm_code`),
+    KEY `idx_subject` (`subject_type`, `subject_id`),
+    KEY `idx_perm_code` (`perm_code`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='权限分配表（T-404）';
+
+-- 权限模板表
+DROP TABLE IF EXISTS `sys_perm_template`;
+CREATE TABLE `sys_perm_template` (
+    `id`            BIGINT       NOT NULL AUTO_INCREMENT COMMENT '模板ID',
+    `template_code` VARCHAR(50)  NOT NULL                COMMENT '模板编码',
+    `template_name` VARCHAR(100) NOT NULL                COMMENT '模板名称',
+    `description`   VARCHAR(500) DEFAULT NULL            COMMENT '描述',
+    `create_time`   DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `update_time`   DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    `deleted`       TINYINT      DEFAULT 0               COMMENT '逻辑删除（0未删除 1已删除）',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_template_code` (`template_code`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='权限模板表（T-404）';
+
+-- 权限模板条目表
+DROP TABLE IF EXISTS `sys_perm_template_item`;
+CREATE TABLE `sys_perm_template_item` (
+    `id`          BIGINT       NOT NULL AUTO_INCREMENT COMMENT '条目ID',
+    `template_id` BIGINT       NOT NULL                COMMENT '模板ID',
+    `perm_code`   VARCHAR(120) NOT NULL                COMMENT '权限点编码',
+    `perm_type`   VARCHAR(10)  NOT NULL                COMMENT '权限类型（MENU/BUTTON/API）',
+    `effect`      VARCHAR(10)  NOT NULL DEFAULT 'GRANT' COMMENT '效果（GRANT/DENY）',
+    `sort_order`  INT          DEFAULT 0               COMMENT '排序号',
+    `create_time` DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `update_time` DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    `deleted`     TINYINT      DEFAULT 0               COMMENT '逻辑删除（0未删除 1已删除）',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_template_perm` (`template_id`, `perm_code`),
+    KEY `idx_template_id` (`template_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='权限模板条目表（T-404）';
+
+-- 权限变更日志表（审计：操作人/时间/主体/维度/变更前后内容）
+DROP TABLE IF EXISTS `sys_perm_change_log`;
+CREATE TABLE `sys_perm_change_log` (
+    `id`           BIGINT       NOT NULL AUTO_INCREMENT COMMENT '日志ID',
+    `operator_id`  BIGINT       DEFAULT NULL            COMMENT '操作人ID',
+    `operator_name` VARCHAR(50) DEFAULT NULL            COMMENT '操作人姓名（冗余）',
+    `subject_type` VARCHAR(10)  NOT NULL                COMMENT '主体类型（USER用户视角 DEPT部门 POSITION职位）',
+    `subject_id`   BIGINT       DEFAULT NULL            COMMENT '主体ID（用户ID/部门ID/职位ID）',
+    `subject_name` VARCHAR(100) DEFAULT NULL            COMMENT '主体名称（冗余便于审计阅读）',
+    `dimension`    VARCHAR(10)  DEFAULT NULL            COMMENT '变更维度（DEPT部门 FIXED固定职位 TEMP临时职位）',
+    `operation`    VARCHAR(30)  NOT NULL                COMMENT '操作类型（GRANT/DENY/CLEAR/ASSIGN_POSITION/REMOVE_POSITION/APPLY_TEMPLATE/BATCH_GRANT/BATCH_CLEAR）',
+    `perm_codes`   TEXT         DEFAULT NULL            COMMENT '本次变更涉及的权限点编码（JSON数组）',
+    `before_json`  TEXT         DEFAULT NULL            COMMENT '变更前权限内容快照（JSON）',
+    `after_json`   TEXT         DEFAULT NULL            COMMENT '变更后权限内容快照（JSON）',
+    `remark`       VARCHAR(500) DEFAULT NULL            COMMENT '备注',
+    `create_time`  DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '操作时间',
+    PRIMARY KEY (`id`),
+    KEY `idx_subject` (`subject_type`, `subject_id`),
+    KEY `idx_operator` (`operator_id`),
+    KEY `idx_create_time` (`create_time`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='权限变更日志表（T-404）';
+
 SET FOREIGN_KEY_CHECKS = 1;
 
 -- ============================================================================
--- DDL脚本执行完毕，共创建90张业务表（含钉钉企业应用配置）
+-- DDL脚本执行完毕，共创建96张业务表（含钉钉企业应用配置与T-404精细化权限6张表）
 -- ============================================================================

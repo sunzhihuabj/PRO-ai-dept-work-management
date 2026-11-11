@@ -16,7 +16,7 @@
           active-text-color="#fff"
           router
         >
-          <template v-for="group in menuGroups" :key="group.title">
+          <template v-for="group in visibleMenuGroups" :key="group.title">
             <div v-if="!appStore.sidebarCollapsed" class="menu-group-title">{{ group.title }}</div>
             <template v-for="item in group.items" :key="item.index">
               <el-menu-item v-if="!item.admin || userStore.isAdmin" :index="item.index">
@@ -45,7 +45,7 @@
           router
           @select="mobileMenuOpen = false"
         >
-          <template v-for="group in menuGroups" :key="group.title">
+          <template v-for="group in visibleMenuGroups" :key="group.title">
             <div class="menu-group-title">{{ group.title }}</div>
             <template v-for="item in group.items" :key="item.index">
               <el-menu-item v-if="!item.admin || userStore.isAdmin" :index="item.index">
@@ -122,9 +122,9 @@ import { ElMessageBox } from 'element-plus'
 import {
   UserFilled, HomeFilled, Document, Folder, Message, Promotion, Stamp, SetUp,
   Box, Van, RefreshRight, Coin, Service, Collection, Files, Bell, ChatDotRound,
-  MagicStick, DataAnalysis, Aim, DataLine, User, OfficeBuilding, BellFilled, Tickets, Money
+  MagicStick, DataAnalysis, Aim, DataLine, User, OfficeBuilding, BellFilled, Tickets, Money, Key
 } from '@element-plus/icons-vue'
-import { ref, watch, markRaw, onMounted, onUnmounted } from 'vue'
+import { ref, watch, computed, markRaw, onMounted, onUnmounted } from 'vue'
 import { unreadCountApi } from '@/api/message'
 
 const route = useRoute()
@@ -196,6 +196,7 @@ const menuGroups: MenuGroup[] = [
     title: '系统管理',
     items: [
       { index: '/system/user', label: '用户管理', icon: markRaw(User), admin: true },
+      { index: '/system/perm-config', label: '权限配置', icon: markRaw(Key), admin: true },
       { index: '/system/dept', label: '组织架构', icon: markRaw(OfficeBuilding), admin: true },
       { index: '/system/notice', label: '通知公告', icon: markRaw(BellFilled), admin: true },
       { index: '/system/log', label: '操作日志', icon: markRaw(Tickets), admin: true },
@@ -204,6 +205,14 @@ const menuGroups: MenuGroup[] = [
     ]
   }
 ]
+
+// T-404 菜单级权限过滤：启用精细控制的用户仅显示其 MENU 权限点覆盖的菜单
+const visibleMenuGroups = computed<MenuGroup[]>(() => {
+  if (!userStore.finePermEnabled) return menuGroups
+  return menuGroups
+    .map(g => ({ title: g.title, items: g.items.filter(it => userStore.canAccessMenu(it.index)) }))
+    .filter(g => g.items.length > 0)
+})
 
 // ---------- 未读消息角标 ----------
 const unreadCount = ref(0)

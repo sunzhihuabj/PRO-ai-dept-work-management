@@ -37,5 +37,11 @@ public class LoginVO {
         private String phone;
         private List<String> roles;
         private List<String> permissions;
+        /** 精细权限点（T-404：MENU/BUTTON/API 三级权限编码，实时生效） */
+        private List<String> finePermissions;
+        /** 是否启用精细控制（false=未配置任何维度，行为与纯角色一致） */
+        private Boolean finePermEnabled;
+        /** 全局权限版本号（前端轮询比对） */
+        private Long permVersion;
     }
 }

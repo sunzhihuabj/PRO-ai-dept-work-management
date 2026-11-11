@@ -26,4 +26,7 @@ app.use(createPinia())
 app.use(router)
 // 注册 v-loading 指令（按需引入模式下不再由全量安装提供）
 app.use(ElLoading)
+// 注册 v-perm 按钮级权限指令（T-404 精细化权限）
+import { perm } from './directive/perm'
+app.directive('perm', perm)
 app.mount('#app')

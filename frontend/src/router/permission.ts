@@ -1,10 +1,14 @@
 import type { Router } from 'vue-router'
 import router from './index'
 import { useUserStore } from '@/store/user'
+import { getPermVersionApi } from '@/api/finePerm'
 import { ElMessage } from 'element-plus'
 import NProgress from 'nprogress'
 
 const whiteList = ['/login', '/404']
+
+/** T-404 权限版本轮询节流：30 秒内不重复查询 */
+let lastVersionCheck = 0
 
 export function setupRouterGuards(router: Router) {
   NProgress.configure({ showSpinner: false })
@@ -31,6 +35,19 @@ export function setupRouterGuards(router: Router) {
             NProgress.done()
           }
         } else {
+          // T-404 实时生效：路由切换时比对全局权限版本，变更即静默刷新权限
+          const now = Date.now()
+          if (now - lastVersionCheck > 30000) {
+            lastVersionCheck = now
+            try {
+              const remote = await getPermVersionApi()
+              if (remote.data !== userStore.permVersion) {
+                await userStore.fetchUserInfo()
+              }
+            } catch (e) {
+              // 版本检查失败不阻断导航
+            }
+          }
           next()
         }
       }

@@ -4,6 +4,7 @@ import com.dept.mgmt.common.result.PageResult;
 import com.dept.mgmt.common.result.R;
 import com.dept.mgmt.dto.SysUserDTO;
 import com.dept.mgmt.entity.SysUser;
+import com.dept.mgmt.fineperm.annotation.RequirePerm;
 import com.dept.mgmt.service.SysUserService;
 import com.dept.mgmt.common.annotation.OperLog;
 import io.swagger.v3.oas.annotations.Operation;
@@ -36,6 +37,7 @@ public class UserController {
      */
     @GetMapping
     @Operation(summary = "用户列表分页查询")
+    @RequirePerm("api:system/user:list")
     public R<PageResult<SysUser>> list(
             @RequestParam(defaultValue = "1") Integer pageNum,
             @RequestParam(defaultValue = "10") Integer pageSize,
@@ -69,6 +71,7 @@ public class UserController {
     @PostMapping
     @Operation(summary = "创建用户")
     @OperLog(title = "用户管理", businessType = 1)
+    @RequirePerm("api:system/user:create")
     public R<Long> create(@Valid @RequestBody SysUserDTO dto) {
         Long id = sysUserService.create(dto);
         return R.ok("用户创建成功", id);
@@ -80,6 +83,7 @@ public class UserController {
     @PutMapping("/{id}")
     @Operation(summary = "更新用户")
     @OperLog(title = "用户管理", businessType = 2)
+    @RequirePerm("api:system/user:update")
     public R<Void> update(@PathVariable Long id, @Valid @RequestBody SysUserDTO dto) {
         sysUserService.update(id, dto);
         return R.ok("用户更新成功", null);
@@ -91,6 +95,7 @@ public class UserController {
     @DeleteMapping("/{id}")
     @Operation(summary = "删除用户")
     @OperLog(title = "用户管理", businessType = 3)
+    @RequirePerm("api:system/user:delete")
     public R<Void> delete(@PathVariable Long id) {
         sysUserService.delete(id);
         return R.ok("用户删除成功", null);
@@ -101,6 +106,7 @@ public class UserController {
      */
     @PutMapping("/{id}/reset-password")
     @PreAuthorize("hasAuthority('ROLE_DEPT_LEADER')")
+    @RequirePerm("api:system/user:reset-password")
     @Operation(summary = "重置用户密码（仅部门领导）")
     @OperLog(title = "用户管理", businessType = 2)
     public R<Void> resetPassword(@PathVariable Long id, @RequestBody ResetPasswordDTO dto) {
@@ -114,6 +120,7 @@ public class UserController {
     @PutMapping("/{id}/status")
     @Operation(summary = "切换用户状态")
     @OperLog(title = "用户管理", businessType = 2)
+    @RequirePerm("api:system/user:status")
     public R<Void> toggleStatus(@PathVariable Long id, @RequestBody StatusDTO dto) {
         SysUserDTO update = new SysUserDTO();
         update.setStatus(dto.getStatus());

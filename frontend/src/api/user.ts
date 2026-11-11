@@ -5,6 +5,7 @@ export interface SysUser {
   id: number
   username: string
   realName?: string
+  deptId?: number
   phone?: string
   email?: string
   avatar?: string

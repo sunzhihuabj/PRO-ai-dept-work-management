@@ -32,6 +32,7 @@ import java.util.stream.Collectors;
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private final JwtUtils jwtUtils;
+    private final com.dept.mgmt.fineperm.service.FinePermCacheService finePermCacheService;
 
     /** 白名单路径（不需要认证） */
     private static final List<String> WHITE_LIST = Arrays.asList(
@@ -69,15 +70,26 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 String username = claims.getSubject();
                 String roles = claims.get("roles", String.class);
 
-                // 构建权限列表
-                List<SimpleGrantedAuthority> authorities = List.of();
+                // 构建权限列表（角色，来自Token）
+                List<SimpleGrantedAuthority> authorities = new java.util.ArrayList<>();
                 if (StringUtils.hasText(roles)) {
                     String cleanRoles = roles.replaceAll("[\\[\\]\"]", "");
-                    authorities = Arrays.stream(cleanRoles.split(","))
+                    authorities.addAll(Arrays.stream(cleanRoles.split(","))
                             .map(String::trim)
                             .filter(StringUtils::hasText)
                             .map(SimpleGrantedAuthority::new)
-                            .collect(Collectors.toList());
+                            .collect(Collectors.toList()));
+                }
+
+                // T-404: 合并精细权限点（MENU/BUTTON/API 三级，缓存版本实时生效，
+                // 权限配置变更后无需重新登录即对下一次请求生效）
+                try {
+                    var entry = finePermCacheService.get(userId);
+                    if (entry != null && entry.finePermEnabled()) {
+                        entry.grantedPerms().forEach(code -> authorities.add(new SimpleGrantedAuthority(code)));
+                    }
+                } catch (Exception e) {
+                    log.warn("精细权限加载失败,降级仅角色鉴权: userId={}, {}", userId, e.getMessage());
                 }
 
                 LoginUser loginUser = new LoginUser(userId, username, roles, authorities);

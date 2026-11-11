@@ -128,6 +128,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: 'AI 服务配置', icon: 'MagicStick' }
       },
       {
+        path: 'system/perm-config',
+        name: 'PermConfig',
+        component: () => import('@/views/system/PermConfig.vue'),
+        meta: { title: '权限配置', icon: 'Key' }
+      },
+      {
         path: 'agent',
         name: 'AgentWorkbench',
         component: () => import('@/views/agent/AgentWorkbench.vue'),
