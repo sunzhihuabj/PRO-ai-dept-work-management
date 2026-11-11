@@ -1143,6 +1143,10 @@ CREATE TABLE `kb_document` (
     `char_count`    INT          NOT NULL DEFAULT 0      COMMENT '提取后的正文字符数',
     `chunk_count`   INT          NOT NULL DEFAULT 0      COMMENT '分块数量',
     `status`        VARCHAR(20)  NOT NULL DEFAULT 'DRAFT' COMMENT '状态（DRAFT解析中/INDEXED已索引/FAILED失败）',
+    `doc_category`  VARCHAR(20)  NOT NULL DEFAULT 'SOP'  COMMENT '知识分类（SOP/REGULATION制度/SPEC规范/CASE案例，T-306）',
+    `sensitive`     TINYINT      NOT NULL DEFAULT 0      COMMENT '敏感知识（0/1，敏感须人工审核后可检索，T-306）',
+    `audit_status`  VARCHAR(20)  NOT NULL DEFAULT 'APPROVED' COMMENT '审核状态（非敏感默认APPROVED；敏感PENDING/APPROVED/REJECTED，T-306）',
+    `hit_count`     INT          NOT NULL DEFAULT 0      COMMENT '检索命中计数（评分来源之一，T-306）',
     `fail_reason`   VARCHAR(500) DEFAULT NULL            COMMENT '解析失败原因（收敛后）',
     `content`       MEDIUMTEXT   DEFAULT NULL            COMMENT '提取后的正文全文（检索展示用）',
     `create_time`   DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
@@ -1163,6 +1167,7 @@ CREATE TABLE `kb_chunk` (
     `char_count`       INT         NOT NULL DEFAULT 0      COMMENT '块字符数',
     `embedding_model`  VARCHAR(100) DEFAULT NULL           COMMENT '向量化模型标识（mock/真实模型名）',
     `embedding`        JSON        DEFAULT NULL            COMMENT '向量（JSON 数组，双精度）',
+    `score`            INT         NOT NULL DEFAULT 0      COMMENT '知识评分（检索命中+1/点赞+3/点踩-2，淘汰依据，T-306）',
     `create_time`      DATETIME    DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     PRIMARY KEY (`id`),
     KEY                `idx_document` (`document_id`, `chunk_index`)

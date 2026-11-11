@@ -40,6 +40,9 @@ public class KbChunk implements Serializable {
     /** 向量 JSON 数组（双精度） */
     private String embedding;
 
+    /** 知识评分（检索命中+1/点赞+3/点踩-2，淘汰依据，T-306） */
+    private Integer score;
+
     /** 创建时间 */
     private LocalDateTime createTime;
 }
