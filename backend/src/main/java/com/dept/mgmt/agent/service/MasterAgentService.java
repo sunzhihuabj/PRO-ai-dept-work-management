@@ -48,6 +48,15 @@ public class MasterAgentService {
      */
     @Transactional(rollbackFor = Exception.class)
     public AgentTask submit(String instruction, String capabilityCode) {
+        return submit(instruction, capabilityCode, null);
+    }
+
+    /**
+     * 提交任务（T-301 扩展：params 支持结构化扩展参数，如标讯原文）
+     *
+     * @param params 任务扩展参数对象（Map 或任意 JSON 对象，落库序列化为 JSON 字符串）
+     */
+    public AgentTask submit(String instruction, String capabilityCode, Object params) {
         if (!StringUtils.hasText(instruction) || instruction.length() > 2000) {
             throw new BusinessException(400, "指令为空或超过 2000 字符");
         }
@@ -74,6 +83,14 @@ public class MasterAgentService {
         task.setTaskNo(codeEngineService.nextCode("AGTT", null));
         task.setCapabilityCode(routed);
         task.setInstruction(instruction);
+        if (params != null) {
+            try {
+                task.setParams(params instanceof String ? (String) params
+                        : objectMapper.writeValueAsString(params));
+            } catch (Exception e) {
+                log.warn("任务 params 序列化失败，忽略: {}", e.getMessage());
+            }
+        }
         task.setStatus(TaskStatus.QUEUED.getCode());
         task.setCallerUserId(user.getUserId());
         task.setAgentInstanceKey("user:" + user.getUserId());

@@ -59,13 +59,20 @@ public class MockProvider implements AiProvider {
         return switch (field) {
             case "contract_name" -> "MOCK提取-塔筒制造合同";
             case "customer_name" -> "MOCK客户-国电联合动力";
-            case "amount" -> 1000000;
-            case "sign_date" -> "2026-11-10";
+            case "amount", "budget", "deposit" -> 1000000;
+            case "sign_date", "deadline" -> "2026-12-20";
             case "warranty_months" -> 24;
             case "pay_ratios" -> java.util.Map.of("prepay", 30, "delivery", 30, "accept", 30, "warranty", 10);
             case "risk_level" -> "中";
             case "risk_summary" -> "MOCK风险摘要：付款条件与验收标准建议复核";
             case "risks" -> List.of();
+            // W1 投标域（T-301）
+            case "title" -> "MOCK标讯-风电机组塔筒采购项目";
+            case "platform" -> "MOCK平台-国电联合电子商务平台";
+            case "qualification_req" -> "具备电力工程施工总承包三级及以上资质；具有有效的 ISO9001 质量管理体系认证；具备安全生产许可证";
+            case "requirements" -> List.of("塔筒满足图纸技术要求", "交货期不超过 90 天", "质保期 24 个月");
+            case "disqualify_clauses" -> List.of("未按要求提交投标保证金", "资质证书不在有效期内");
+            case "scoring_method" -> "综合评分法：技术 60 分 + 商务 40 分，价格分按最低价基准计算";
             default -> "MOCK_" + field;
         };
     }

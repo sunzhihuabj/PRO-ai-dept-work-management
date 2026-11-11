@@ -360,11 +360,11 @@ INSERT INTO `sys_capability` (`capability_code`, `capability_name`, `category`, 
 -- ============================================================================
 
 INSERT INTO `sys_capability` (`capability_code`, `capability_name`, `category`, `allowed_identities`, `is_never`, `status`, `remark`) VALUES
-('AGT-01', '标讯采集解析',       'agent', 'EXPERT,WORKER,ASSISTANT', 0, 1, 'W1 投标域'),
-('AGT-02', '资格比对',           'agent', 'EXPERT,WORKER,ASSISTANT', 0, 1, 'W1 投标域'),
-('AGT-03', '报价建议',           'agent', 'EXPERT,WORKER,ASSISTANT', 0, 1, 'W1 投标域'),
-('AGT-04', '竞品分析',           'agent', 'EXPERT,WORKER,ASSISTANT', 0, 1, 'W1 投标域'),
-('AGT-05', '预留能力点',         'agent', 'EXPERT,WORKER,ASSISTANT', 0, 1, '规划文档未明确，编号预留待补'),
+('AGT-01', '标讯采集解析',       'agent', 'EXPERT,WORKER,ASSISTANT', 0, 1, 'W1 投标域，Auto 级'),
+('AGT-02', '资格条件比对',       'agent', 'EXPERT,WORKER,ASSISTANT', 0, 1, 'W1 投标域，Ask 级（V2 定义口径）'),
+('AGT-03', '招标文件分析',       'agent', 'EXPERT,WORKER,ASSISTANT', 0, 1, 'W1 投标域，Ask 级（V2 定义口径）'),
+('AGT-04', '投标报价建议',       'agent', 'EXPERT,WORKER,ASSISTANT', 0, 1, 'W1 投标域，Ask 级（V2 定义口径）'),
+('AGT-05', '开标竞品分析',       'agent', 'EXPERT,WORKER,ASSISTANT', 0, 1, 'W1 投标域，Ask 级（V2 定义口径）'),
 ('AGT-07', '合同风险分析',       'agent', 'EXPERT,WORKER,ASSISTANT', 0, 1, 'W2 合同域'),
 ('AGT-08', '预付款收款提醒',     'agent', 'EXPERT,WORKER,ASSISTANT', 0, 1, 'W2 合同域，Auto 级'),
 ('AGT-10', '预留能力点',         'agent', 'EXPERT,WORKER,ASSISTANT', 0, 1, '规划文档未明确，编号预留待补'),

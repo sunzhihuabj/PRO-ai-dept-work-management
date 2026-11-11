@@ -27,11 +27,12 @@ public class AgentTaskController {
     private final MasterAgentService masterAgentService;
 
     @PostMapping
-    @Operation(summary = "提交指令（自动意图识别并路由能力点）")
-    public R<AgentTask> submit(@RequestBody Map<String, String> body) {
-        String instruction = body.get("instruction");
-        String capabilityCode = body.get("capabilityCode");
-        return R.ok("任务已受理", masterAgentService.submit(instruction, capabilityCode));
+    @Operation(summary = "提交指令（自动意图识别并路由能力点；params 支持结构化扩展参数）")
+    public R<AgentTask> submit(@RequestBody Map<String, Object> body) {
+        String instruction = (String) body.get("instruction");
+        String capabilityCode = (String) body.get("capabilityCode");
+        Object params = body.get("params");
+        return R.ok("任务已受理", masterAgentService.submit(instruction, capabilityCode, params));
     }
 
     @GetMapping

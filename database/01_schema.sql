@@ -1792,8 +1792,111 @@ CREATE TABLE `mdm_customer` (
     UNIQUE KEY `uk_customer_name` (`customer_name`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='客户主体库';
 
+-- ============================================================================
+-- 9.23 W1 投标域（T-301：标讯/资格比对/招标文件分析/报价建议/竞品分析，AGT-01~05）
+-- 标讯采集器按规划砍序规则改人工导入路径（AGT-01 解析结构化仍为 Auto），DMZ 抓取后续切换
+-- ============================================================================
+
+-- 标讯表（招标信息结构化；AGT-01 解析产出）
+DROP TABLE IF EXISTS `tender_notice`;
+CREATE TABLE `tender_notice` (
+    `id`               BIGINT        NOT NULL AUTO_INCREMENT COMMENT '标讯ID',
+    `tender_no`        VARCHAR(30)   NOT NULL                COMMENT '标讯编号（TN 编码引擎）',
+    `title`            VARCHAR(300)  NOT NULL                COMMENT '标讯标题',
+    `platform`         VARCHAR(50)   DEFAULT NULL            COMMENT '来源平台',
+    `budget`           DECIMAL(18,2) DEFAULT NULL            COMMENT '预算金额',
+    `deposit`          DECIMAL(18,2) DEFAULT NULL            COMMENT '投标保证金',
+    `qualification_req` TEXT         DEFAULT NULL            COMMENT '资质要求（原文，分号/换行分隔）',
+    `deadline`         DATE          DEFAULT NULL            COMMENT '投标截止日期',
+    `publish_date`     DATE          DEFAULT NULL            COMMENT '发布日期',
+    `status`           VARCHAR(20)   NOT NULL DEFAULT 'NEW'  COMMENT '状态（NEW/FOLLOWED跟进/APPLIED已报名/PREPARED投标准备/DECIDED已决策/WON中标/LOST未中标）',
+    `analysis_json`    LONGTEXT      DEFAULT NULL            COMMENT 'AGT-03 招标文件分析结果 JSON',
+    `import_source`    VARCHAR(20)   NOT NULL DEFAULT 'MANUAL' COMMENT '来源（MANUAL人工导入/AGENT采集）',
+    `raw_text`         LONGTEXT      DEFAULT NULL            COMMENT '标讯原文',
+    `remark`           VARCHAR(500)  DEFAULT NULL            COMMENT '备注',
+    `create_time`      DATETIME      DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `update_time`      DATETIME      DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    `deleted`          TINYINT       DEFAULT 0               COMMENT '逻辑删除（0未删除 1已删除）',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_tender_no` (`tender_no`),
+    KEY `idx_status` (`status`),
+    KEY `idx_deadline` (`deadline`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='标讯表';
+
+-- 公司资质清单（AGT-02 资格比对基准）
+DROP TABLE IF EXISTS `company_qualification`;
+CREATE TABLE `company_qualification` (
+    `id`          BIGINT      NOT NULL AUTO_INCREMENT COMMENT '资质ID',
+    `qual_name`   VARCHAR(200) NOT NULL               COMMENT '资质名称',
+    `cert_no`     VARCHAR(100) DEFAULT NULL            COMMENT '证书编号',
+    `valid_until` DATE        DEFAULT NULL            COMMENT '有效期至',
+    `remark`      VARCHAR(200) DEFAULT NULL            COMMENT '备注',
+    `create_time` DATETIME    DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_qual_name` (`qual_name`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='公司资质清单';
+
+-- 资格比对结果（AGT-02 产出）
+DROP TABLE IF EXISTS `tender_qualification_check`;
+CREATE TABLE `tender_qualification_check` (
+    `id`             BIGINT       NOT NULL AUTO_INCREMENT COMMENT '比对ID',
+    `tender_id`      BIGINT       NOT NULL                COMMENT '标讯ID',
+    `requirement`    VARCHAR(500) NOT NULL                COMMENT '招标要求项',
+    `company_status` VARCHAR(20)  NOT NULL                COMMENT '比对结论（SATISFIED满足/NOT_SATISFIED不满足/UNCERTAIN待核实）',
+    `evidence`       VARCHAR(500) DEFAULT NULL            COMMENT '比对依据（命中的公司资质或缺失说明）',
+    `checked_by`     VARCHAR(20)  NOT NULL DEFAULT 'AGT-02' COMMENT '比对方',
+    `create_time`    DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '比对时间',
+    PRIMARY KEY (`id`),
+    KEY `idx_tender` (`tender_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='资格比对结果';
+
+-- 投标报价记录（AGT-04 建议载体 / 历史成交价数据源）
+DROP TABLE IF EXISTS `tender_bid`;
+CREATE TABLE `tender_bid` (
+    `id`             BIGINT        NOT NULL AUTO_INCREMENT COMMENT '报价ID',
+    `tender_id`      BIGINT        NOT NULL                COMMENT '标讯ID',
+    `price`          DECIMAL(18,2) DEFAULT NULL            COMMENT '我方报价',
+    `cost_estimate`  DECIMAL(18,2) DEFAULT NULL            COMMENT '预估成本',
+    `gross_margin`   DECIMAL(5,2)  DEFAULT NULL            COMMENT '预估毛利率%',
+    `strategy_text`  VARCHAR(1000) DEFAULT NULL            COMMENT '投标策略说明',
+    `submitted_at`   DATETIME      DEFAULT NULL            COMMENT '递交时间',
+    `open_date`      DATE          DEFAULT NULL            COMMENT '开标日期',
+    `open_result`    VARCHAR(200)  DEFAULT NULL            COMMENT '开标结果（我方名次/中标价）',
+    `create_time`    DATETIME      DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `update_time`    DATETIME      DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    PRIMARY KEY (`id`),
+    KEY `idx_tender` (`tender_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='投标报价记录';
+
+-- 竞品开标记录（AGT-05 数据源）
+DROP TABLE IF EXISTS `tender_competitor`;
+CREATE TABLE `tender_competitor` (
+    `id`              BIGINT        NOT NULL AUTO_INCREMENT COMMENT '记录ID',
+    `tender_id`       BIGINT        NOT NULL                COMMENT '标讯ID',
+    `competitor_name` VARCHAR(200)  NOT NULL                COMMENT '竞品单位',
+    `price`           DECIMAL(18,2) DEFAULT NULL            COMMENT '竞品报价',
+    `note`            VARCHAR(500)  DEFAULT NULL            COMMENT '备注',
+    `create_time`     DATETIME      DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    PRIMARY KEY (`id`),
+    KEY `idx_tender` (`tender_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='竞品开标记录';
+
+-- 编码规则：TN 标讯编号
+INSERT INTO `sys_code_rule` (`rule_code`, `rule_name`, `pattern`, `date_pattern`, `status`, `remark`) VALUES
+('TN', '标讯编号', 'TN-{yyyyMM}-{seq:4}', 'yyyyMM', 1, 'W1 投标域标讯')
+ON DUPLICATE KEY UPDATE `pattern` = VALUES(`pattern`);
+
+-- 公司资质种子（AGT-02 比对基准）
+INSERT INTO `company_qualification` (`qual_name`, `cert_no`, `valid_until`, `remark`) VALUES
+('电力工程施工总承包叁级', 'D361000001', '2027-12-31', '承接 35kV 及以下电力工程'),
+('钢结构工程专业承包贰级', 'D261000002', '2028-06-30', '塔筒/钢结构制作安装'),
+('ISO9001 质量管理体系认证', '00122Q30001R0M', '2027-03-31', '覆盖设计生产服务'),
+('安全生产许可证', '(京)JZ安许证字[2024]000001', '2027-01-15', ''),
+('起重机械安装改造维修许可', 'TS3310001-2026', '2028-01-01', '')
+ON DUPLICATE KEY UPDATE `valid_until` = VALUES(`valid_until`);
+
 SET FOREIGN_KEY_CHECKS = 1;
 
 -- ============================================================================
--- DDL脚本执行完毕，共创建74张业务表
+-- DDL脚本执行完毕，共创建78张业务表
 -- ============================================================================
