@@ -62,6 +62,7 @@
         <el-form-item v-if="form.providerType === 'OPENAI_COMPAT'" label="API Key" :required="!editingId">
           <el-input v-model="form.apiKey" type="password" show-password
                     :placeholder="editingId ? '留空表示不修改' : 'sk-...'" />
+          <span v-if="editingId && savedKeyHint" class="field-hint">已保存密钥：{{ savedKeyHint }}（加密存储，仅写入不回显）</span>
         </el-form-item>
         <el-form-item label="优先级">
           <el-input-number v-model="form.priority" :min="1" />
@@ -103,6 +104,7 @@ const configs = ref<AiProviderConfig[]>([])
 const dialogVisible = ref(false)
 const editingId = ref<number | null>(null)
 const testingId = ref<number | null>(null)
+const savedKeyHint = ref('')
 
 const form = reactive({
   providerCode: '', providerName: '', providerType: 'OPENAI_COMPAT' as AiProviderConfig['providerType'],
@@ -122,6 +124,7 @@ async function load() {
 
 function openCreate() {
   editingId.value = null
+  savedKeyHint.value = ''
   Object.assign(form, {
     providerCode: '', providerName: '', providerType: 'OPENAI_COMPAT',
     endpoint: '', model: '', apiKey: '', priority: 100, rpmLimit: 35, dailyLimit: 500,
@@ -132,6 +135,7 @@ function openCreate() {
 
 function openEdit(row: Record<string, any>) {
   editingId.value = row.id || null
+  savedKeyHint.value = row.apiKeyHint || ''
   Object.assign(form, {
     providerCode: row.providerCode, providerName: row.providerName, providerType: row.providerType,
     endpoint: row.endpoint || '', model: row.model || '', apiKey: '',
