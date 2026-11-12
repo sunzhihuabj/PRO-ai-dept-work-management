@@ -54,15 +54,25 @@ public class ContractExtractHandler implements CapabilityHandler {
         Long documentId = firstNonNull(support.fromParams(params, "documentId"), support.parseDocumentId(instruction));
         String text = support.resolveText(documentId, contractId);
 
+        // T-407：required 声明全部提取字段（网关校验为 containsKey 语义，未提及字段输出 null 仍通过）
         Map<String, Object> schema = Map.of(
-                "required", List.of("contract_name", "customer_name", "amount", "pay_ratios"),
+                "required", List.of(
+                        "contract_name", "contract_no", "customer_name", "party_b", "amount", "sign_date",
+                        "warranty_months", "pay_ratios", "payment_terms", "payment_method",
+                        "delivery_time", "delivery_place", "contact_info", "acceptance_condition", "summary"),
                 "contract_name", "string", "customer_name", "string",
                 "amount", "number", "pay_ratios", "object");
         String prompt = "你是合同要素提取助手。请从以下合同文本中提取结构化要素，只输出 JSON，"
-                + "不要任何解释文字。字段定义：contract_name（合同名称）、customer_name（甲方/客户名称）、"
+                + "不要任何解释文字。字段定义：contract_name（合同名称）、"
+                + "contract_no（合同编号，找不到为 null）、customer_name（甲方/客户名称）、"
+                + "party_b（乙方主体，即合同承接方，找不到为 null）、"
                 + "amount（合同金额，数字，单位元）、sign_date（签订日期 yyyy-MM-dd，找不到为 null）、"
                 + "warranty_months（质保期月数，数字）、pay_ratios（对象：prepay/delivery/accept/warranty 四个整数比例，"
-                + "找不到按 0 处理）。文本中未提及的字段填 null，禁止编造。\n\n合同文本：\n" + text;
+                + "找不到按 0 处理）、payment_terms（付款条件描述）、payment_method（付款方式，如银行转账/承兑汇票）、"
+                + "delivery_time（交货时间）、delivery_place（交货地点）、"
+                + "contact_info（联系人信息：姓名/电话/邮箱）、acceptance_condition（验收条件描述）、"
+                + "summary（合同摘要，100 字以内概括合同标的与主要义务）。"
+                + "文本中未提及的字段填 null，禁止编造；置信度不足的字段也填 null 由人工补全。\n\n合同文本：\n" + text;
         String content = support.stripCodeFence(aiGatewayClient.chat(capabilityCode(), prompt, userId, schema));
 
         Map<?, ?> extracted;

@@ -54,18 +54,33 @@ public class ContractService {
      * Phase 2 关联能力独立建域后改为 RPC/事件投影
      */
     private final ProjectMapper projectMapper;
+    private final com.dept.mgmt.fineperm.service.FinePermCacheService finePermCacheService;
 
     /**
-     * 创建合同草稿（编号由 T-101 引擎 HT 规则生成）
+     * 创建合同草稿（建档，T-407）。
+     * 编号规则：用户/AI 提供了 contractNo 则校验唯一后采用，否则由 T-101 引擎 HT 规则生成；
+     * 核心字段（甲乙方/付款/交货/联系人/验收/摘要）支持 AI 预填 + 人工校验编辑后保存
      */
     @Transactional(rollbackFor = Exception.class)
     public Long create(Contract dto) {
         validateRatios(dto);
         LoginUser user = LoginUser.current();
         Contract contract = new Contract();
-        contract.setContractNo(codeEngineService.nextCode("HT", null));
+        String contractNo = StringUtils.hasText(dto.getContractNo()) ? dto.getContractNo().trim() : null;
+        if (contractNo != null) {
+            Long dup = contractMapper.selectCount(new LambdaQueryWrapper<Contract>()
+                    .eq(Contract::getContractNo, contractNo));
+            if (dup != null && dup > 0) {
+                throw new BusinessException(400, "合同编号已存在: " + contractNo
+                        + "（AI 提取编号与台账冲突，请人工核对修改后保存）");
+            }
+        } else {
+            contractNo = codeEngineService.nextCode("HT", null);
+        }
+        contract.setContractNo(contractNo);
         contract.setName(dto.getName());
         contract.setCustomerName(dto.getCustomerName());
+        contract.setPartyB(dto.getPartyB());
         contract.setAmount(dto.getAmount());
         contract.setSignDate(dto.getSignDate());
         contract.setWarrantyMonths(dto.getWarrantyMonths() == null ? 24 : dto.getWarrantyMonths());
@@ -73,15 +88,24 @@ public class ContractService {
         contract.setPayRatioDelivery(dto.getPayRatioDelivery());
         contract.setPayRatioAccept(dto.getPayRatioAccept());
         contract.setPayRatioWarranty(dto.getPayRatioWarranty());
+        // 建档扩展字段（T-407）
+        contract.setPaymentTerms(dto.getPaymentTerms());
+        contract.setPaymentMethod(dto.getPaymentMethod());
+        contract.setDeliveryTime(dto.getDeliveryTime());
+        contract.setDeliveryPlace(dto.getDeliveryPlace());
+        contract.setContactInfo(dto.getContactInfo());
+        contract.setAcceptanceCondition(dto.getAcceptanceCondition());
+        contract.setSummary(dto.getSummary());
+        contract.setFilingMainFileId(dto.getFilingMainFileId());
         contract.setRemark(dto.getRemark());
         contract.setStatus("DRAFT");
         contractMapper.insert(contract);
-        log.info("合同草稿创建: {} by user:{}", contract.getContractNo(), user == null ? "?" : user.getUserId());
+        log.info("合同建档完成: {} by user:{}", contract.getContractNo(), user == null ? "?" : user.getUserId());
         return contract.getId();
     }
 
     /**
-     * 合同分页（列表项附实时关联项目数）
+     * 合同分页（列表项附实时关联项目数 + 敏感字段按权限脱敏）
      */
     public PageResult<Contract> list(int pageNum, int pageSize, String name, String status) {
         LambdaQueryWrapper<Contract> wrapper = new LambdaQueryWrapper<>();
@@ -90,14 +114,16 @@ public class ContractService {
         wrapper.orderByDesc(Contract::getCreateTime);
         Page<Contract> page = contractMapper.selectPage(new Page<>(pageNum, pageSize), wrapper);
         fillProjectCount(page.getRecords());
+        page.getRecords().forEach(this::maskSensitive);
         return PageResult.of(page);
     }
 
     /**
-     * 合同详情（含审批记录）
+     * 合同详情（含审批记录；敏感字段按权限脱敏）
      */
     public Map<String, Object> detail(Long id) {
         Contract contract = mustExist(id);
+        maskSensitive(contract);
         List<ContractApproval> approvals = approvalMapper.selectList(new LambdaQueryWrapper<ContractApproval>()
                 .eq(ContractApproval::getContractId, id)
                 .orderByAsc(ContractApproval::getCreateTime));
@@ -321,6 +347,33 @@ public class ContractService {
 
     private int nvl(Integer v) {
         return v == null ? 0 : v;
+    }
+
+    /**
+     * 敏感字段脱敏（T-407）：金额与联系人信息
+     * 规则：部门领导明文；未启用精细权限（灰度三维度均空）不受影响；
+     * 已启用精细权限且持有 api:contract:sensitive:view → 明文，否则置空 + amountMasked 标记
+     */
+    private void maskSensitive(Contract c) {
+        if (c == null) {
+            return;
+        }
+        LoginUser user = LoginUser.current();
+        if (user == null) {
+            return;
+        }
+        if (user.getRoles() != null && user.getRoles().contains("ROLE_DEPT_LEADER")) {
+            return;
+        }
+        var entry = finePermCacheService.get(user.getUserId());
+        if (!entry.finePermEnabled() || entry.grantedPerms().contains("api:contract:sensitive:view")) {
+            return;
+        }
+        c.setAmount(null);
+        c.setAmountMasked(true);
+        if (StringUtils.hasText(c.getContactInfo())) {
+            c.setContactInfo("已脱敏（无敏感字段明文查看权限）");
+        }
     }
 
     /** 列表页批量填充关联项目数（in 批查，避免 N+1） */

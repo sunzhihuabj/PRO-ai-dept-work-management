@@ -28,8 +28,11 @@ public class Contract extends BaseEntity {
     /** 合同名称 */
     private String name;
 
-    /** 客户名称 */
+    /** 客户名称（甲方/合同对方主体） */
     private String customerName;
+
+    /** 乙方主体（我方签约主体，T-407 建档） */
+    private String partyB;
 
     /** 合同金额（元） */
     private BigDecimal amount;
@@ -70,7 +73,37 @@ public class Contract extends BaseEntity {
     /** 备注 */
     private String remark;
 
+    // ===== 建档扩展字段（T-407：AI 提取预填 + 人工校验编辑）=====
+
+    /** 付款条件 */
+    private String paymentTerms;
+
+    /** 付款方式 */
+    private String paymentMethod;
+
+    /** 交货时间 */
+    private String deliveryTime;
+
+    /** 交货地点 */
+    private String deliveryPlace;
+
+    /** 联系人信息（敏感字段：脱敏权限 api:contract:sensitive:view） */
+    private String contactInfo;
+
+    /** 验收条件 */
+    private String acceptanceCondition;
+
+    /** 合同摘要 */
+    private String summary;
+
+    /** 建档主文件归档ID（文件域 file.id，T-407） */
+    private Long filingMainFileId;
+
     /** 关联项目数（非表字段：列表页按 contract_project 实时统计填充） */
     @TableField(exist = false)
     private Integer projectCount;
+
+    /** 敏感字段已脱敏标记（非表字段：无 api:contract:sensitive:view 权限时置 true） */
+    @TableField(exist = false)
+    private Boolean amountMasked;
 }

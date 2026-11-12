@@ -5,6 +5,7 @@ import com.dept.mgmt.common.result.PageResult;
 import com.dept.mgmt.common.result.R;
 import com.dept.mgmt.contract.entity.Contract;
 import com.dept.mgmt.contract.service.ContractService;
+import com.dept.mgmt.fineperm.annotation.RequirePerm;
 import com.dept.mgmt.security.LoginUser;
 import com.dept.mgmt.common.exception.BusinessException;
 import io.swagger.v3.oas.annotations.Operation;
@@ -31,14 +32,16 @@ public class ContractController {
     private final ContractService contractService;
 
     @PostMapping
-    @Operation(summary = "创建合同草稿")
+    @Operation(summary = "创建合同草稿（建档：AI 预填 + 人工校验后入库）")
+    @RequirePerm("api:contract:filing")
     @OperLog(title = "合同管理", businessType = 1)
     public R<Long> create(@RequestBody Contract dto) {
         return R.ok("草稿已创建", contractService.create(dto));
     }
 
     @GetMapping
-    @Operation(summary = "合同分页")
+    @Operation(summary = "合同分页（敏感字段按权限脱敏）")
+    @RequirePerm("api:contract:list")
     public R<PageResult<Contract>> list(@RequestParam(defaultValue = "1") Integer pageNum,
                                         @RequestParam(defaultValue = "10") Integer pageSize,
                                         @RequestParam(required = false) String name,
@@ -47,7 +50,8 @@ public class ContractController {
     }
 
     @GetMapping("/{id}")
-    @Operation(summary = "合同详情（含审批记录）")
+    @Operation(summary = "合同详情（含审批记录；敏感字段按权限脱敏）")
+    @RequirePerm("api:contract:list")
     public R<Map<String, Object>> detail(@PathVariable Long id) {
         return R.ok(contractService.detail(id));
     }
@@ -102,12 +106,14 @@ public class ContractController {
 
     @GetMapping("/{id}/projects")
     @Operation(summary = "合同关联的项目列表（实时项目状态）")
+    @RequirePerm("api:contract:list")
     public R<List<Map<String, Object>>> listProjects(@PathVariable Long id) {
         return R.ok(contractService.listProjects(id));
     }
 
     @PostMapping("/{id}/projects/{projectId}")
     @Operation(summary = "绑定项目（仅已生效合同；重复绑定拒绝）")
+    @RequirePerm("api:contract:link")
     @OperLog(title = "合同管理", businessType = 1)
     public R<Void> bindProject(@PathVariable Long id, @PathVariable Long projectId) {
         contractService.bind(id, projectId);
@@ -116,6 +122,7 @@ public class ContractController {
 
     @DeleteMapping("/{id}/projects/{projectId}")
     @Operation(summary = "解除项目绑定（任何状态允许；生效中解除需前端二次确认）")
+    @RequirePerm("api:contract:link")
     @OperLog(title = "合同管理", businessType = 3)
     public R<Void> unbindProject(@PathVariable Long id, @PathVariable Long projectId) {
         contractService.unbind(id, projectId);
@@ -124,6 +131,7 @@ public class ContractController {
 
     @GetMapping("/project/{projectId}/contracts")
     @Operation(summary = "项目关联的合同列表（项目侧卡片数据源）")
+    @RequirePerm("api:contract:list")
     public R<List<Map<String, Object>>> listByProject(@PathVariable Long projectId) {
         return R.ok(contractService.listByProject(projectId));
     }

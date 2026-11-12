@@ -139,7 +139,8 @@ public class FileService {
         fileInfo.setFileName(displayBase);
         fileInfo.setFilePath(fileUrl);
         fileInfo.setFileSize(file.getSize());
-        fileInfo.setFileType(ext);
+        // T-407：fileType 参数为归档分类（合同主文件/任务资料/项目资料等），显式传入则采用，否则回落扩展名
+        fileInfo.setFileType(fileType != null && !fileType.isBlank() ? fileType : ext);
         fileInfo.setVersion(version);
         fileInfo.setVersionNumber(versionNumber);
         fileInfo.setIsArchive(0);

@@ -17,7 +17,7 @@
     </el-alert>
 
     <el-tabs v-model="activeTab">
-      <!-- ============ Tab 1: 合同台账 ============ -->
+      <!-- ============ Tab: 合同台账 ============ -->
       <el-tab-pane label="合同台账" name="list">
         <el-card shadow="never">
           <div class="toolbar">
@@ -26,7 +26,7 @@
               <el-option v-for="(label, key) in STATUS_LABEL" :key="key" :label="label" :value="key" />
             </el-select>
             <el-button type="primary" @click="loadList">查询</el-button>
-            <el-button type="success" @click="activeTab = 'create'">AI 建档</el-button>
+            <el-button type="success" @click="router.push('/contract/filing')">建档</el-button>
           </div>
 
           <el-table v-loading="loading" :data="records" border stripe>
@@ -74,58 +74,6 @@
             style="margin-top: 12px; justify-content: flex-end"
             @current-change="loadList"
           />
-        </el-card>
-      </el-tab-pane>
-
-      <!-- ============ Tab 2: AI 建档（上传→提取→确认） ============ -->
-      <el-tab-pane label="AI 智能建档" name="create">
-        <el-card shadow="never">
-          <el-steps :active="step" align-center finish-status="success" style="margin-bottom: 20px">
-            <el-step title="上传合同文档" description="PDF/Word/文本" />
-            <el-step title="AI 要素提取" description="AGT-06 自动提取" />
-            <el-step title="确认建档" description="人工核对后入库" />
-          </el-steps>
-
-          <!-- 步骤1：上传 -->
-          <div v-if="step === 0" class="upload-area">
-            <el-upload drag :auto-upload="false" :limit="1" accept=".txt,.pdf,.docx" :on-change="onFileChange" :file-list="fileList">
-              <el-icon size="40"><UploadFilled /></el-icon>
-              <div class="el-upload__text">拖拽合同文件到此处，或 <em>点击选择</em></div>
-              <template #tip>
-                <div class="el-upload__tip">扫描件 PDF 暂不支持（OCR 后续版本接入）</div>
-              </template>
-            </el-upload>
-            <el-button type="primary" :disabled="!file" :loading="extracting" style="margin-top: 16px" @click="startExtract">
-              上传并开始 AI 提取
-            </el-button>
-          </div>
-
-          <!-- 步骤2/3：提取结果确认 -->
-          <div v-else>
-            <el-alert v-if="riskInfo.summary" :type="RISK_TYPE[riskInfo.level] === 'danger' ? 'error' : RISK_TYPE[riskInfo.level] === 'warning' ? 'warning' : 'success'"
-                      :title="`AI 风险评估：${riskInfo.level}风险 — ${riskInfo.summary}`" show-icon :closable="false" style="margin-bottom: 16px" />
-            <el-form :model="form" label-width="120px" style="max-width: 640px">
-              <el-form-item label="合同名称" required><el-input v-model="form.name" /></el-form-item>
-              <el-form-item label="客户名称" required><el-input v-model="form.customerName" /></el-form-item>
-              <el-form-item label="合同金额" required><el-input-number v-model="form.amount" :min="0" :controls="false" style="width: 200px" /></el-form-item>
-              <el-form-item label="签订日期"><el-date-picker v-model="form.signDate" type="date" value-format="YYYY-MM-DD" /></el-form-item>
-              <el-form-item label="质保期（月）"><el-input-number v-model="form.warrantyMonths" :min="1" /></el-form-item>
-              <el-form-item label="预付款比例%"><el-input-number v-model="form.payRatioPrepay" :min="0" :max="100" /></el-form-item>
-              <el-form-item label="到货款比例%"><el-input-number v-model="form.payRatioDelivery" :min="0" :max="100" /></el-form-item>
-              <el-form-item label="验收款比例%"><el-input-number v-model="form.payRatioAccept" :min="0" :max="100" /></el-form-item>
-              <el-form-item label="质保金比例%">
-                <el-input-number v-model="form.payRatioWarranty" :min="0" :max="100" />
-                <el-tag :type="ratioSum === 100 ? 'success' : 'danger'" style="margin-left: 12px">合计 {{ ratioSum }}%</el-tag>
-              </el-form-item>
-              <el-form-item label="备注"><el-input v-model="form.remark" type="textarea" :rows="2" /></el-form-item>
-            </el-form>
-            <div style="margin-top: 12px">
-              <el-button @click="resetCreate">重新上传</el-button>
-              <el-button type="primary" :loading="creating" :disabled="ratioSum !== 100 || !form.name || !form.customerName || !form.amount" @click="onCreate">
-                确认建档（G1 门校验）
-              </el-button>
-            </div>
-          </div>
         </el-card>
       </el-tab-pane>
     </el-tabs>
@@ -214,17 +162,15 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { UploadFilled } from '@element-plus/icons-vue'
 import {
-  approveContractApi, bindContractProjectApi, closeContractApi, countersignApi, createContractApi,
+  approveContractApi, bindContractProjectApi, closeContractApi, countersignApi,
   getContractDetailApi, listContractProjectsApi, listContractsApi, sealContractApi,
-  submitCountersignApi, unbindContractProjectApi, uploadContractDocApi,
+  submitCountersignApi, unbindContractProjectApi,
   type Contract, type ContractProjectItem
 } from '@/api/contract'
-import { submitInstructionApi, getTaskDetailApi } from '@/api/agent'
 import { getProjectDetailApi } from '@/api/project'
 
 const STATUS_LABEL: Record<string, string> = {
@@ -308,105 +254,6 @@ async function openDetail(id: number) {
   const res = await getContractDetailApi(id)
   detail.value = res.data
   detailVisible.value = true
-}
-
-// ===== AI 建档 =====
-const step = ref(0)
-const file = ref<File | null>(null)
-const fileList = ref<any[]>([])
-const extracting = ref(false)
-const creating = ref(false)
-const riskInfo = ref<{ level: string; summary: string }>({ level: '', summary: '' })
-
-const form = ref<Contract>({
-  name: '', customerName: '', amount: 0, warrantyMonths: 24,
-  payRatioPrepay: 30, payRatioDelivery: 30, payRatioAccept: 30, payRatioWarranty: 10
-})
-const ratioSum = computed(() =>
-  (form.value.payRatioPrepay || 0) + (form.value.payRatioDelivery || 0)
-  + (form.value.payRatioAccept || 0) + (form.value.payRatioWarranty || 0))
-
-function onFileChange(f: any) {
-  file.value = f.raw
-}
-
-/** 轮询 Agent 任务至终态 */
-async function waitTask(id: number, timeoutMs = 120000) {
-  const deadline = Date.now() + timeoutMs
-  while (Date.now() < deadline) {
-    const res = await getTaskDetailApi(id)
-    const task = res.data?.task
-    if (task && ['done', 'failed', 'escalated'].includes(task.status)) return task
-    await new Promise((r) => setTimeout(r, 2000))
-  }
-  throw new Error('任务执行超时')
-}
-
-async function startExtract() {
-  if (!file.value) return
-  extracting.value = true
-  try {
-    // 1. 上传到知识库
-    const up = await uploadContractDocApi(file.value)
-    const documentId = up.data?.id
-    if (!documentId) throw new Error('文档上传失败')
-    // 2. AGT-06 要素提取
-    const t1 = await submitInstructionApi(`documentId=${documentId} 提取合同要素`, 'AGT-06')
-    const done1 = await waitTask(t1.data.id)
-    if (done1.status !== 'done') throw new Error('要素提取失败：' + (done1.errorMsg || done1.status))
-    const extracted = JSON.parse(done1.resultText).extracted || {}
-    // 3. AGT-07 风险分析（失败不阻塞建档，风险信息置空）
-    try {
-      const t2 = await submitInstructionApi(`documentId=${documentId} 分析合同风险`, 'AGT-07')
-      const done2 = await waitTask(t2.data.id)
-      if (done2.status === 'done') {
-        const analysis = JSON.parse(done2.resultText).analysis || {}
-        riskInfo.value = { level: analysis.risk_level || '', summary: analysis.risk_summary || '' }
-      }
-    } catch { /* 风险分析可选 */ }
-    // 4. 预填表单（AI 建议，人工可改）
-    form.value = {
-      name: extracted.contract_name || '',
-      customerName: extracted.customer_name || '',
-      amount: extracted.amount || 0,
-      signDate: extracted.sign_date || undefined,
-      warrantyMonths: extracted.warranty_months || 24,
-      payRatioPrepay: extracted.pay_ratios?.prepay ?? 30,
-      payRatioDelivery: extracted.pay_ratios?.delivery ?? 30,
-      payRatioAccept: extracted.pay_ratios?.accept ?? 30,
-      payRatioWarranty: extracted.pay_ratios?.warranty ?? 10
-    }
-    step.value = 2
-    ElMessage.success('AI 提取完成，请人工核对后建档')
-  } catch (e: any) {
-    ElMessage.error(e?.message || '提取失败，请重试或转人工录入')
-  } finally {
-    extracting.value = false
-  }
-}
-
-async function onCreate() {
-  creating.value = true
-  try {
-    await createContractApi(form.value)
-    ElMessage.success('建档成功（草稿）')
-    resetCreate()
-    activeTab.value = 'list'
-    loadList()
-  } finally {
-    creating.value = false
-  }
-}
-
-function resetCreate() {
-  step.value = 0
-  file.value = null
-  fileList.value = []
-  riskInfo.value = { level: '', summary: '' }
-  form.value = {
-    name: '', customerName: '', amount: 0, warrantyMonths: 24,
-    payRatioPrepay: 30, payRatioDelivery: 30, payRatioAccept: 30, payRatioWarranty: 10
-  }
 }
 
 // ===== 合同-项目关联（T-406）=====
@@ -513,7 +360,6 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.upload-area { display: flex; flex-direction: column; align-items: center; padding: 32px 0; }
 .comment { color: #909399; font-size: 12px; margin-top: 2px; }
 .bind-form { margin-bottom: 14px; padding: 12px; background: #f5f7fa; border-radius: 6px; }
 .bind-form-label { font-size: 13px; color: #606266; margin-bottom: 8px; }

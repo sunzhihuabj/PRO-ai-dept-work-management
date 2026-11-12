@@ -75,6 +75,12 @@
             <version>5.3.0</version>
         </dependency>
         <dependency>
+            <!-- T-407：老版 Word .doc 解析（HWPF） -->
+            <groupId>org.apache.poi</groupId>
+            <artifactId>poi-scratchpad</artifactId>
+            <version>5.3.0</version>
+        </dependency>
+        <dependency>
             <groupId>com.mysql</groupId>
             <artifactId>mysql-connector-j</artifactId>
             <scope>runtime</scope>

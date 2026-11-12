@@ -146,6 +146,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '合同管理', icon: 'Stamp' }
       },
       {
+        path: 'contract/filing',
+        name: 'ContractFiling',
+        component: () => import('@/views/contract/ContractFiling.vue'),
+        meta: { title: '合同建档', hidden: true }
+      },
+      {
         path: 'design',
         name: 'DesignManagement',
         component: () => import('@/views/design/DesignManagement.vue'),

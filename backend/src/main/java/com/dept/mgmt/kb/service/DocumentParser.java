@@ -47,6 +47,14 @@ public class DocumentParser {
                 return new String[]{extractor.getText(), "WORD"};
             }
         }
+        if (name.endsWith(".doc")) {
+            // T-407：老版 Word（.doc）支持，HWPF 提取（poi-scratchpad）
+            try (InputStream in = file.getInputStream();
+                 org.apache.poi.hwpf.HWPFDocument doc = new org.apache.poi.hwpf.HWPFDocument(in);
+                 org.apache.poi.hwpf.extractor.WordExtractor extractor = new org.apache.poi.hwpf.extractor.WordExtractor(doc)) {
+                return new String[]{extractor.getText(), "WORD_DOC"};
+            }
+        }
         if (name.endsWith(".pdf")) {
             try (InputStream in = file.getInputStream();
                  org.apache.pdfbox.pdmodel.PDDocument doc = org.apache.pdfbox.Loader.loadPDF(in.readAllBytes())) {

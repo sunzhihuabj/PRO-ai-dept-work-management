@@ -76,6 +76,12 @@ public class KbService {
             document.setFailReason(e.getMessage());
             documentMapper.updateById(document);
             throw e;
+        } catch (IllegalArgumentException e) {
+            // T-407：格式不支持/文件为空/超限等参数类异常 → 400 中文友好提示（此前被兜底 500 掩盖）
+            document.setStatus("FAILED");
+            document.setFailReason(e.getMessage());
+            documentMapper.updateById(document);
+            throw new BusinessException(400, e.getMessage());
         } catch (Exception e) {
             log.error("文档索引失败: {}", document.getTitle(), e);
             document.setStatus("FAILED");

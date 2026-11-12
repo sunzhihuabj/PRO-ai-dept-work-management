@@ -58,11 +58,20 @@ public class MockProvider implements AiProvider {
     private static Object mockValue(String field) {
         return switch (field) {
             case "contract_name" -> "MOCK提取-塔筒制造合同";
+            case "contract_no" -> "HT-MOCK-0001";
             case "customer_name" -> "MOCK客户-国电联合动力";
+            case "party_b" -> "MOCK乙方-华远装备制造有限公司";
             case "amount", "budget", "deposit" -> 1000000;
             case "sign_date", "deadline" -> "2026-12-20";
             case "warranty_months" -> 24;
             case "pay_ratios" -> java.util.Map.of("prepay", 30, "delivery", 30, "accept", 30, "warranty", 10);
+            case "payment_terms" -> "MOCK付款条件：预付款生效后10个工作日内支付，到货验收合格后支付尾款";
+            case "payment_method" -> "MOCK付款方式：银行转账";
+            case "delivery_time" -> "MOCK交货时间：合同生效后 60 日内";
+            case "delivery_place" -> "MOCK交货地点：买方指定风电场项目现场";
+            case "contact_info" -> "MOCK联系人：张工 13800000000 / zhang@mock.com";
+            case "acceptance_condition" -> "MOCK验收条件：到货后按图纸与技术规范联合检验，30 日内出具验收报告";
+            case "summary" -> "MOCK摘要：买方采购塔筒若干，卖方负责制造运输与安装指导，质保期 24 个月";
             case "risk_level" -> "中";
             case "risk_summary" -> "MOCK风险摘要：付款条件与验收标准建议复核";
             case "risks" -> List.of();

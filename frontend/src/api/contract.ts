@@ -5,6 +5,8 @@ export interface Contract {
   contractNo?: string
   name: string
   customerName: string
+  /** 乙方主体（我方签约主体，T-407） */
+  partyB?: string
   amount: number
   signDate?: string
   effectiveDate?: string
@@ -19,6 +21,18 @@ export interface Contract {
   riskSummary?: string
   remark?: string
   createTime?: string
+  /** 建档扩展字段（T-407：AI 预填 + 人工校验编辑） */
+  paymentTerms?: string
+  paymentMethod?: string
+  deliveryTime?: string
+  deliveryPlace?: string
+  contactInfo?: string
+  acceptanceCondition?: string
+  summary?: string
+  filingMainFileId?: number
+  /** 敏感字段已脱敏标记（后端按权限置位） */
+  amountMasked?: boolean
+  projectCount?: number
 }
 
 export interface ContractApproval {
