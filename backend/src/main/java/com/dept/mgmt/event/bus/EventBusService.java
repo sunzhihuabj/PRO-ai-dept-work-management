@@ -37,14 +37,15 @@ public class EventBusService {
 
     private final SysDomainEventMapper eventMapper;
     private final ObjectMapper objectMapper;
-    private final Map<DomainEventType, DomainEventHandler> handlers;
+    /** 同一事件类型支持多个订阅者（T-406：contract.effective 同时被预付款提醒与合同-项目联动消费） */
+    private final Map<DomainEventType, List<DomainEventHandler>> handlers;
 
     public EventBusService(SysDomainEventMapper eventMapper, ObjectMapper objectMapper,
                            List<DomainEventHandler> handlerBeans) {
         this.eventMapper = eventMapper;
         this.objectMapper = objectMapper;
         this.handlers = handlerBeans.stream()
-                .collect(Collectors.toMap(DomainEventHandler::eventType, h -> h));
+                .collect(Collectors.groupingBy(DomainEventHandler::eventType));
     }
 
     /**
@@ -91,43 +92,63 @@ public class EventBusService {
                 .orderByAsc(SysDomainEvent::getId)
                 .last("LIMIT 20"));
         for (SysDomainEvent event : pending) {
-            DomainEventHandler handler = matchHandler(event.getEventType());
-            if (handler == null) {
+            List<DomainEventHandler> eventHandlers = matchHandlers(event.getEventType());
+            if (eventHandlers.isEmpty()) {
                 // 无消费者：保持 PENDING（下游域上线后自动消费），不重试不计失败
                 continue;
             }
+            Map<String, Object> payload;
             try {
-                Map<String, Object> payload = event.getPayload() == null ? Map.of()
+                payload = event.getPayload() == null ? Map.of()
                         : objectMapper.readValue(event.getPayload(), Map.class);
-                handler.handle(event.getEventId(), payload);
+            } catch (Exception e) {
+                event.setStatus("DEAD");
+                event.setConsumerNote("载荷解析失败转死信: " + e.getMessage());
+                eventMapper.updateById(event);
+                continue;
+            }
+            List<String> okConsumers = new java.util.ArrayList<>();
+            Exception lastError = null;
+            for (DomainEventHandler handler : eventHandlers) {
+                try {
+                    handler.handle(event.getEventId(), payload);
+                    okConsumers.add(handler.getClass().getSimpleName());
+                } catch (Exception e) {
+                    lastError = e;
+                    log.warn("事件处理器执行失败: eventId={}, handler={}", event.getEventId(),
+                            handler.getClass().getSimpleName(), e);
+                }
+            }
+            if (okConsumers.size() == eventHandlers.size()) {
                 event.setStatus("CONSUMED");
                 event.setConsumedAt(LocalDateTime.now());
-                event.setConsumerNote("消费成功: " + handler.getClass().getSimpleName());
-                eventMapper.updateById(event);
-            } catch (Exception e) {
+                event.setConsumerNote("消费成功: " + String.join(",", okConsumers));
+            } else {
                 int retry = event.getRetryCount() + 1;
                 event.setRetryCount(retry);
                 if (retry >= MAX_RETRY) {
                     event.setStatus("DEAD");
-                    event.setConsumerNote("重试" + MAX_RETRY + "次仍失败，转死信人工介入: " + e.getMessage());
-                    log.error("事件转死信: eventId={}, type={}", event.getEventId(), event.getEventType(), e);
+                    event.setConsumerNote("重试" + MAX_RETRY + "次仍失败，转死信人工介入: "
+                            + (lastError == null ? "未知" : lastError.getMessage()));
+                    log.error("事件转死信: eventId={}, type={}", event.getEventId(), event.getEventType(), lastError);
                 } else {
                     event.setStatus("FAILED");
                     // 指数退避：2^retry 分钟
                     event.setNextRetryAt(LocalDateTime.now().plusMinutes((long) Math.pow(2, retry)));
-                    event.setConsumerNote("消费失败（第" + retry + "次重试）: " + e.getMessage());
+                    event.setConsumerNote("部分消费成功(" + String.join(",", okConsumers) + ")，第"
+                            + retry + "次重试: " + (lastError == null ? "未知" : lastError.getMessage()));
                 }
-                eventMapper.updateById(event);
             }
+            eventMapper.updateById(event);
         }
     }
 
-    private DomainEventHandler matchHandler(String eventTypeCode) {
+    private List<DomainEventHandler> matchHandlers(String eventTypeCode) {
         for (DomainEventType type : DomainEventType.values()) {
-            if (type.getCode().equals(eventTypeCode) && handlers.containsKey(type)) {
-                return handlers.get(type);
+            if (type.getCode().equals(eventTypeCode)) {
+                return handlers.getOrDefault(type, List.of());
             }
         }
-        return null;
+        return List.of();
     }
 }

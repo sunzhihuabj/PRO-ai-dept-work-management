@@ -13,6 +13,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -95,6 +96,36 @@ public class ContractController {
         requireLeader();
         contractService.close(id, Boolean.TRUE.equals(terminated));
         return R.ok("已处理", null);
+    }
+
+    // ===== 合同-项目关联（T-406）=====
+
+    @GetMapping("/{id}/projects")
+    @Operation(summary = "合同关联的项目列表（实时项目状态）")
+    public R<List<Map<String, Object>>> listProjects(@PathVariable Long id) {
+        return R.ok(contractService.listProjects(id));
+    }
+
+    @PostMapping("/{id}/projects/{projectId}")
+    @Operation(summary = "绑定项目（仅已生效合同；重复绑定拒绝）")
+    @OperLog(title = "合同管理", businessType = 1)
+    public R<Void> bindProject(@PathVariable Long id, @PathVariable Long projectId) {
+        contractService.bind(id, projectId);
+        return R.ok("项目已关联至本合同", null);
+    }
+
+    @DeleteMapping("/{id}/projects/{projectId}")
+    @Operation(summary = "解除项目绑定（任何状态允许；生效中解除需前端二次确认）")
+    @OperLog(title = "合同管理", businessType = 3)
+    public R<Void> unbindProject(@PathVariable Long id, @PathVariable Long projectId) {
+        contractService.unbind(id, projectId);
+        return R.ok("已解除关联", null);
+    }
+
+    @GetMapping("/project/{projectId}/contracts")
+    @Operation(summary = "项目关联的合同列表（项目侧卡片数据源）")
+    public R<List<Map<String, Object>>> listByProject(@PathVariable Long projectId) {
+        return R.ok(contractService.listByProject(projectId));
     }
 
     private void requireLeader() {

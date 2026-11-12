@@ -1,5 +1,6 @@
 package com.dept.mgmt.contract.entity;
 
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.dept.mgmt.entity.BaseEntity;
 import lombok.Data;
@@ -68,4 +69,8 @@ public class Contract extends BaseEntity {
 
     /** 备注 */
     private String remark;
+
+    /** 关联项目数（非表字段：列表页按 contract_project 实时统计填充） */
+    @TableField(exist = false)
+    private Integer projectCount;
 }

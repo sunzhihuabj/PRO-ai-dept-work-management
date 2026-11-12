@@ -1,5 +1,21 @@
 <template>
   <div class="app-container">
+    <!-- 项目详情跳转来的上下文提示条（T-406 跨模块操作不断层） -->
+    <el-alert
+      v-if="fromProjectId"
+      type="info"
+      :closable="true"
+      style="margin-bottom: 12px"
+      @close="fromProjectId = null"
+    >
+      <template #title>
+        来自项目「{{ fromProjectName || fromProjectId }}」的关联合同视图
+        <el-button link type="primary" size="small" style="margin-left: 8px" @click="goBackToProject">
+          ← 返回项目详情
+        </el-button>
+      </template>
+    </el-alert>
+
     <el-tabs v-model="activeTab">
       <!-- ============ Tab 1: 合同台账 ============ -->
       <el-tab-pane label="合同台账" name="list">
@@ -31,9 +47,18 @@
                 <el-tag :type="STATUS_TYPE[row.status] || 'info'" size="small">{{ STATUS_LABEL[row.status] || row.status }}</el-tag>
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="260" fixed="right">
+            <el-table-column label="关联项目" width="90" align="center">
+              <template #default="{ row }">
+                <el-tag v-if="row.projectCount" size="small" effect="plain" type="primary" style="cursor: pointer" @click="openProjects(row)">
+                  {{ row.projectCount }} 个
+                </el-tag>
+                <span v-else style="color: #c0c4cc">-</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" width="300" fixed="right">
               <template #default="{ row }">
                 <el-button link type="primary" size="small" @click="openDetail(row.id)">详情</el-button>
+                <el-button link type="primary" size="small" @click="openProjects(row)">关联项目</el-button>
                 <el-button v-if="row.status === 'DRAFT'" link type="primary" size="small" @click="onSubmitCountersign(row)">提交会签</el-button>
                 <el-button v-if="row.status === 'COUNTERSIGN'" link type="success" size="small" @click="onApproveNode(row, 'countersign')">会签</el-button>
                 <el-button v-if="row.status === 'APPROVING'" link type="success" size="small" @click="onApproveNode(row, 'approve')">审批</el-button>
@@ -135,18 +160,72 @@
         </el-timeline>
       </template>
     </el-drawer>
+    <!-- 关联项目抽屉（T-406） -->
+    <el-drawer v-model="projDrawerVisible" :title="`关联项目 — ${projDrawerContract?.contractNo || ''} ${projDrawerContract?.name || ''}`" size="640px">
+      <el-alert
+        v-if="projDrawerContract && projDrawerContract.status !== 'EFFECTIVE'"
+        type="warning"
+        :closable="false"
+        show-icon
+        style="margin-bottom: 12px"
+        title="仅已生效合同可建立项目关联；当前合同未生效，可先查看已有关联"
+      />
+      <div class="bind-form">
+        <div class="bind-form-label">绑定新项目：</div>
+        <div class="bind-form-row">
+          <project-select v-model="bindProjectName" style="flex: 1" @change="onBindProjectChange" />
+          <el-button type="primary" :disabled="!bindProjectId || projDrawerContract?.status !== 'EFFECTIVE'" @click="onBind">
+            绑定
+          </el-button>
+        </div>
+        <div class="bind-form-tip">输入项目名称模糊搜索；仅已生效合同允许绑定，重复绑定会被拒绝</div>
+      </div>
+
+      <el-table v-loading="projLoading" :data="projList" border stripe>
+        <el-table-column prop="projectName" label="项目名称" min-width="170" show-overflow-tooltip>
+          <template #default="{ row }">
+            <span v-if="row.projectStatus == null" style="color: #c0c4cc">{{ row.projectName }}</span>
+            <el-link v-else type="primary" :underline="false" @click="goProject(row.projectId)">{{ row.projectName }}</el-link>
+          </template>
+        </el-table-column>
+        <el-table-column label="类型" width="80" align="center">
+          <template #default="{ row }">{{ PROJECT_TYPE_LABEL[row.projectType] || '-' }}</template>
+        </el-table-column>
+        <el-table-column label="项目状态" width="90" align="center">
+          <template #default="{ row }">
+            <el-tag v-if="row.projectStatus != null" :type="PROJECT_STATUS_TYPE[row.projectStatus] || 'info'" size="small">
+              {{ PROJECT_STATUS_LABEL[row.projectStatus] ?? row.projectStatus }}
+            </el-tag>
+            <span v-else>-</span>
+          </template>
+        </el-table-column>
+        <el-table-column prop="projectLeader" label="负责人" width="90" show-overflow-tooltip />
+        <el-table-column prop="bindTime" label="绑定时间" width="160" show-overflow-tooltip />
+        <el-table-column label="操作" width="130" fixed="right">
+          <template #default="{ row }">
+            <el-button v-if="row.projectStatus != null" link type="primary" size="small" @click="goProject(row.projectId)">打开项目</el-button>
+            <el-button link type="danger" size="small" @click="onUnbind(row as any)">解除绑定</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+      <el-empty v-if="!projLoading && projList.length === 0" description="暂无关联项目" :image-size="72" />
+    </el-drawer>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { UploadFilled } from '@element-plus/icons-vue'
 import {
-  approveContractApi, closeContractApi, countersignApi, createContractApi, getContractDetailApi,
-  listContractsApi, sealContractApi, submitCountersignApi, uploadContractDocApi, type Contract
+  approveContractApi, bindContractProjectApi, closeContractApi, countersignApi, createContractApi,
+  getContractDetailApi, listContractProjectsApi, listContractsApi, sealContractApi,
+  submitCountersignApi, unbindContractProjectApi, uploadContractDocApi,
+  type Contract, type ContractProjectItem
 } from '@/api/contract'
 import { submitInstructionApi, getTaskDetailApi } from '@/api/agent'
+import { getProjectDetailApi } from '@/api/project'
 
 const STATUS_LABEL: Record<string, string> = {
   DRAFT: '草稿', COUNTERSIGN: '会签中', APPROVING: '审批中', SEALING: '用印中',
@@ -158,6 +237,12 @@ const STATUS_TYPE: Record<string, any> = {
 }
 const RISK_TYPE: Record<string, any> = { 高: 'danger', 中: 'warning', 低: 'success' }
 const NODE_LABEL: Record<string, string> = { COUNTERSIGN: '会签', APPROVE: '审批', SEAL: '用印' }
+const PROJECT_TYPE_LABEL: Record<number, string> = { 1: '整机厂', 2: '技改', 3: '研发' }
+const PROJECT_STATUS_LABEL: Record<number, string> = { 0: '待启动', 1: '进行中', 2: '已完成', 3: '已关闭', 4: '暂停' }
+const PROJECT_STATUS_TYPE: Record<number, any> = { 0: 'info', 1: 'primary', 2: 'success', 3: 'info', 4: 'warning' }
+
+const route = useRoute()
+const router = useRouter()
 
 // ===== 台账 =====
 const activeTab = ref('list')
@@ -324,10 +409,114 @@ function resetCreate() {
   }
 }
 
-onMounted(loadList)
+// ===== 合同-项目关联（T-406）=====
+const projDrawerVisible = ref(false)
+const projDrawerContract = ref<Contract | null>(null)
+const projList = ref<ContractProjectItem[]>([])
+const projLoading = ref(false)
+const bindProjectName = ref('')
+const bindProjectId = ref<number | null>(null)
+
+/** 项目详情跳转过来的上下文（?fromProject=&contractId=） */
+const fromProjectId = ref<number | null>(null)
+const fromProjectName = ref('')
+
+function openProjects(row: any) {
+  projDrawerContract.value = row
+  bindProjectName.value = ''
+  bindProjectId.value = null
+  projDrawerVisible.value = true
+  loadProjList()
+}
+
+async function loadProjList() {
+  if (!projDrawerContract.value?.id) return
+  projLoading.value = true
+  try {
+    const res = await listContractProjectsApi(projDrawerContract.value.id)
+    projList.value = res.data || []
+  } finally {
+    projLoading.value = false
+  }
+}
+
+function onBindProjectChange(project: any) {
+  bindProjectId.value = project?.id ?? null
+}
+
+async function onBind() {
+  if (!projDrawerContract.value?.id || !bindProjectId.value) return
+  await bindContractProjectApi(projDrawerContract.value.id, bindProjectId.value)
+  ElMessage.success('项目已关联至本合同')
+  bindProjectName.value = ''
+  bindProjectId.value = null
+  loadProjList()
+  loadList()
+}
+
+async function onUnbind(row: ContractProjectItem) {
+  const effective = projDrawerContract.value?.status === 'EFFECTIVE'
+  const tip = effective
+    ? `确认解除合同「${projDrawerContract.value?.contractNo}」与项目「${row.projectName}」的关联？\n该合同履行中，解除后项目侧将不再展示本合同，请确认无结算/对账依赖。`
+    : `确认解除合同「${projDrawerContract.value?.contractNo}」与项目「${row.projectName}」的关联？`
+  await ElMessageBox.confirm(tip, '解除关联确认', {
+    confirmButtonText: '确认解除',
+    cancelButtonText: '取消',
+    type: 'warning'
+  })
+  await unbindContractProjectApi(projDrawerContract.value!.id!, row.projectId)
+  ElMessage.success('已解除关联')
+  loadProjList()
+  loadList()
+}
+
+/** 合同 → 项目：携带上下文跳转项目详情 */
+function goProject(projectId: number) {
+  projDrawerVisible.value = false
+  detailVisible.value = false
+  router.push({
+    path: `/project/detail/${projectId}`,
+    query: { from: 'contract', contractId: String(projDrawerContract.value?.id || '') }
+  })
+}
+
+/** 项目详情 → 合同 的返回路径 */
+function goBackToProject() {
+  router.push(`/project/detail/${fromProjectId.value}`)
+}
+
+onMounted(async () => {
+  loadList()
+  // 跨模块上下文还原：项目详情「查看合同」跳转 ?contractId=xx&fromProject=yy
+  const qContractId = Number(route.query.contractId)
+  if (qContractId > 0) {
+    try {
+      const d = await getContractDetailApi(qContractId)
+      const row = d.data?.contract
+      if (row) {
+        openProjects(row)
+      }
+    } catch {
+      ElMessage.warning('指定的合同不存在或已被删除')
+    }
+    if (route.query.fromProject) {
+      fromProjectId.value = Number(route.query.fromProject)
+      try {
+        const pres = await getProjectDetailApi(fromProjectId.value)
+        fromProjectName.value = pres.data?.projectName || ''
+      } catch {
+        fromProjectName.value = ''
+      }
+    }
+  }
+})
 </script>
 
 <style scoped>
 .upload-area { display: flex; flex-direction: column; align-items: center; padding: 32px 0; }
 .comment { color: #909399; font-size: 12px; margin-top: 2px; }
+.bind-form { margin-bottom: 14px; padding: 12px; background: #f5f7fa; border-radius: 6px; }
+.bind-form-label { font-size: 13px; color: #606266; margin-bottom: 8px; }
+.bind-form-row { display: flex; gap: 8px; align-items: center; }
+.bind-form-tip { font-size: 12px; color: #909399; margin-top: 6px; }
 </style>

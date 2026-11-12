@@ -45,7 +45,13 @@ public enum DomainEventType {
     AGENT_TASK_FINISHED("agent.task.finished"),
 
     /** 钉钉审批回调完成（T-309 → 审批台账/联动确认） */
-    DINGTALK_APPROVAL_COMPLETED("dingtalk.approval.completed");
+    DINGTALK_APPROVAL_COMPLETED("dingtalk.approval.completed"),
+
+    /** 合同关闭/终止（T-406 合同域 → 通知关联项目侧，状态联动） */
+    CONTRACT_CLOSED("contract.closed"),
+
+    /** 项目关键进度（T-406 项目域阶段/里程碑完成 → 反馈关联合同侧） */
+    PROJECT_PROGRESS_UPDATED("project.progress.updated");
 
     private final String code;
 

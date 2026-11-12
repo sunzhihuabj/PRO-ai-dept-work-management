@@ -1,7 +1,12 @@
 <template>
   <div class="page-container">
-    <el-page-header @back="$router.back()" style="margin-bottom: 16px;">
-      <template #content><span class="page-header-title">项目详情</span></template>
+    <el-page-header @back="onBack" style="margin-bottom: 16px;">
+      <template #content>
+        <span class="page-header-title">项目详情</span>
+        <el-tag v-if="fromContractId" size="small" type="info" style="margin-left: 10px">
+          来自合同关联视图
+        </el-tag>
+      </template>
     </el-page-header>
 
     <el-card shadow="hover" v-loading="loading" style="margin-bottom: 16px;">
@@ -19,6 +24,33 @@
         <el-descriptions-item label="创建人">{{ project?.createBy || '-' }}</el-descriptions-item>
         <el-descriptions-item label="项目描述" :span="3">{{ project?.description || '-' }}</el-descriptions-item>
       </el-descriptions>
+    </el-card>
+
+    <!-- 关联合同（T-406：项目 → 合同反向关联，实时合同状态） -->
+    <el-card shadow="hover" style="margin-bottom: 16px;">
+      <template #header><span>关联合同（{{ linkContracts.length }}）</span></template>
+      <el-table v-if="linkContracts.length" :data="linkContracts" size="small">
+        <el-table-column prop="contractNo" label="合同编号" width="150" />
+        <el-table-column prop="contractName" label="合同名称" min-width="170" show-overflow-tooltip />
+        <el-table-column prop="customerName" label="客户" min-width="130" show-overflow-tooltip />
+        <el-table-column label="金额（元）" width="130" align="right">
+          <template #default="{ row }: any">{{ formatAmount(row.amount) }}</template>
+        </el-table-column>
+        <el-table-column label="合同状态" width="90" align="center">
+          <template #default="{ row }: any">
+            <el-tag :type="CONTRACT_STATUS_TYPE[row.contractStatus] || 'info'" size="small">
+              {{ CONTRACT_STATUS_LABEL[row.contractStatus] || row.contractStatus }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="bindTime" label="绑定时间" width="160" show-overflow-tooltip />
+        <el-table-column label="操作" width="90" align="center" fixed="right">
+          <template #default="{ row }: any">
+            <el-button link type="primary" size="small" @click="goContract(row.contractId)">查看合同</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+      <el-empty v-else description="暂无关联合同；可在合同管理中为已生效合同绑定本项目" :image-size="60" />
     </el-card>
 
     <el-card shadow="hover" style="margin-bottom: 16px;">
@@ -356,7 +388,7 @@
 
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
 import {
@@ -369,11 +401,24 @@ import {
   type ProjectItem, type ProjectPhase, type ProjectMember, type Milestone,
   type DeliverableChecklist
 } from '@/api/project'
+import { listProjectContractsApi, type ProjectContractItem } from '@/api/contract'
 import { listFilesApi, uploadFileApi, downloadFileApi } from '@/api/file'
 import { getUserOptionsApi, type SysUser } from '@/api/user'
 
+const CONTRACT_STATUS_LABEL: Record<string, string> = {
+  DRAFT: '草稿', COUNTERSIGN: '会签中', APPROVING: '审批中', SEALING: '用印中',
+  EFFECTIVE: '已生效', CLOSED: '已关闭', TERMINATED: '已终止'
+}
+const CONTRACT_STATUS_TYPE: Record<string, any> = {
+  DRAFT: 'info', COUNTERSIGN: 'warning', APPROVING: 'warning',
+  SEALING: 'warning', EFFECTIVE: 'success', CLOSED: 'info', TERMINATED: 'danger'
+}
+
 const route = useRoute()
+const router = useRouter()
 const projectId = Number(route.params.id)
+/** 跨模块上下文（T-406）：从合同管理「打开项目」跳来时携带来源合同，返回时还原 */
+const fromContractId = ref<number | null>(Number(route.query.contractId) || null)
 const loading = ref(false)
 const saving = ref(false)
 const project = ref<ProjectItem | null>(null)
@@ -381,6 +426,7 @@ const phases = ref<ProjectPhase[]>([])
 const members = ref<ProjectMember[]>([])
 const milestones = ref<Milestone[]>([])
 const userOptions = ref<SysUser[]>([])
+const linkContracts = ref<ProjectContractItem[]>([])
 
 const memberDialog = ref(false)
 const memberForm = reactive({ userId: undefined as number | undefined, roleType: '成员' })
@@ -705,11 +751,46 @@ onMounted(async () => {
   await loadDeliverables()
   await loadGates()
   await loadProjectFiles()
+  loadLinkContracts()
   try {
     const res = await getUserOptionsApi()
     userOptions.value = res.data
   } catch (e) {}
 })
+
+// ===== 关联合同（T-406）=====
+async function loadLinkContracts() {
+  if (!projectId) return
+  try {
+    const res = await listProjectContractsApi(projectId)
+    linkContracts.value = res.data || []
+  } catch {
+    linkContracts.value = []
+  }
+}
+
+function formatAmount(v?: number) {
+  return v == null ? '-' : Number(v).toLocaleString('zh-CN', { minimumFractionDigits: 2 })
+}
+
+/** 项目 → 合同：携带上下文跳转合同管理并自动打开关联抽屉 */
+function goContract(contractId: number) {
+  router.push({
+    path: '/contract',
+    query: fromContractId.value
+      ? { contractId: String(contractId), fromProject: String(projectId) }
+      : { contractId: String(contractId) }
+  })
+}
+
+/** 返回智能导航：来自合同关联视图时回合同管理并还原该合同的抽屉上下文 */
+function onBack() {
+  if (fromContractId.value) {
+    router.push(`/contract?contractId=${fromContractId.value}&fromProject=${projectId}`)
+  } else {
+    router.back()
+  }
+}
 </script>
 
 <style lang="scss" scoped>

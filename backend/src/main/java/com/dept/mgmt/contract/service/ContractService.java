@@ -6,10 +6,14 @@ import com.dept.mgmt.common.exception.BusinessException;
 import com.dept.mgmt.common.result.PageResult;
 import com.dept.mgmt.contract.entity.Contract;
 import com.dept.mgmt.contract.entity.ContractApproval;
+import com.dept.mgmt.contract.entity.ContractProject;
+import com.dept.mgmt.entity.Project;
 import com.dept.mgmt.event.bus.EventBusService;
 import com.dept.mgmt.event.model.DomainEventType;
 import com.dept.mgmt.mapper.ContractApprovalMapper;
 import com.dept.mgmt.mapper.ContractMapper;
+import com.dept.mgmt.mapper.ContractProjectMapper;
+import com.dept.mgmt.mapper.ProjectMapper;
 import com.dept.mgmt.platform.code.service.CodeEngineService;
 import com.dept.mgmt.security.LoginUser;
 import lombok.RequiredArgsConstructor;
@@ -20,8 +24,10 @@ import org.springframework.util.StringUtils;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * W2 合同域服务（T-111）
@@ -39,8 +45,15 @@ public class ContractService {
 
     private final ContractMapper contractMapper;
     private final ContractApprovalMapper approvalMapper;
+    private final ContractProjectMapper contractProjectMapper;
     private final CodeEngineService codeEngineService;
     private final EventBusService eventBusService;
+    /**
+     * 跨域只读例外（T-406 披露）：项目存在性校验与关联展示需实时项目名称/状态，
+     * Phase 1 以只读 selectById/selectBatchIds 实现，未做任何写操作；
+     * Phase 2 关联能力独立建域后改为 RPC/事件投影
+     */
+    private final ProjectMapper projectMapper;
 
     /**
      * 创建合同草稿（编号由 T-101 引擎 HT 规则生成）
@@ -68,14 +81,16 @@ public class ContractService {
     }
 
     /**
-     * 合同分页
+     * 合同分页（列表项附实时关联项目数）
      */
     public PageResult<Contract> list(int pageNum, int pageSize, String name, String status) {
         LambdaQueryWrapper<Contract> wrapper = new LambdaQueryWrapper<>();
         wrapper.like(StringUtils.hasText(name), Contract::getName, name);
         wrapper.eq(StringUtils.hasText(status), Contract::getStatus, status);
         wrapper.orderByDesc(Contract::getCreateTime);
-        return PageResult.of(contractMapper.selectPage(new Page<>(pageNum, pageSize), wrapper));
+        Page<Contract> page = contractMapper.selectPage(new Page<>(pageNum, pageSize), wrapper);
+        fillProjectCount(page.getRecords());
+        return PageResult.of(page);
     }
 
     /**
@@ -151,7 +166,7 @@ public class ContractService {
     }
 
     /**
-     * 关闭/终止合同
+     * 关闭/终止合同（发布 contract.closed 事件 → 关联项目侧状态联动通知）
      */
     @Transactional(rollbackFor = Exception.class)
     public void close(Long id, boolean terminated) {
@@ -162,6 +177,118 @@ public class ContractService {
         }
         contract.setStatus(target);
         contractMapper.updateById(contract);
+        // 跨域联动（T-406）：通知关联项目负责人合同已关闭/终止
+        eventBusService.publish(DomainEventType.CONTRACT_CLOSED, Map.of(
+                "contractId", contract.getId(),
+                "contractNo", contract.getContractNo(),
+                "name", contract.getName(),
+                "terminated", terminated));
+        log.info("合同关闭/终止并发布事件: {} -> {}", contract.getContractNo(), target);
+    }
+
+    // ===== 合同-项目关联（T-406）=====
+
+    /**
+     * 合同关联的项目列表（实时 join 项目表，无快照脏数据）
+     */
+    public List<Map<String, Object>> listProjects(Long contractId) {
+        mustExist(contractId);
+        List<ContractProject> links = contractProjectMapper.selectList(
+                new LambdaQueryWrapper<ContractProject>()
+                        .eq(ContractProject::getContractId, contractId)
+                        .orderByDesc(ContractProject::getCreateTime));
+        if (links.isEmpty()) {
+            return List.of();
+        }
+        List<Long> projectIds = links.stream().map(ContractProject::getProjectId).toList();
+        Map<Long, Project> projectMap = projectMapper.selectBatchIds(projectIds).stream()
+                .collect(Collectors.toMap(Project::getId, p -> p));
+        return links.stream().map(link -> {
+            Project project = projectMap.get(link.getProjectId());
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("projectId", link.getProjectId());
+            item.put("projectName", project == null ? "（项目已删除）" : project.getProjectName());
+            item.put("projectCode", project == null ? null : project.getProjectCode());
+            item.put("projectType", project == null ? null : project.getProjectType());
+            item.put("projectStatus", project == null ? null : project.getStatus());
+            item.put("projectLeader", project == null ? null : project.getProjectLeader());
+            item.put("bindBy", link.getBindBy());
+            item.put("bindTime", link.getCreateTime());
+            return item;
+        }).toList();
+    }
+
+    /**
+     * 绑定项目：仅已生效（EFFECTIVE）合同允许建立关联；重复绑定拒绝（唯一约束兜底）
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public void bind(Long contractId, Long projectId) {
+        Contract contract = mustExist(contractId);
+        if (!"EFFECTIVE".equals(contract.getStatus())) {
+            throw new BusinessException(400, "仅已生效合同可关联项目，当前状态: " + statusLabel(contract.getStatus()));
+        }
+        Project project = projectMapper.selectById(projectId);
+        if (project == null) {
+            throw new BusinessException(404, "关联项目不存在（可能已被删除），请刷新后重选");
+        }
+        Long exists = contractProjectMapper.selectCount(new LambdaQueryWrapper<ContractProject>()
+                .eq(ContractProject::getContractId, contractId)
+                .eq(ContractProject::getProjectId, projectId));
+        if (exists != null && exists > 0) {
+            throw new BusinessException(400, "该合同已关联此项目，请勿重复绑定");
+        }
+        LoginUser user = LoginUser.current();
+        ContractProject link = new ContractProject();
+        link.setContractId(contractId);
+        link.setProjectId(projectId);
+        link.setBindBy(user == null ? "system" : user.getUsername());
+        contractProjectMapper.insert(link);
+        log.info("合同绑定项目: contractId={}, projectId={}, bindBy={}",
+                contractId, projectId, link.getBindBy());
+    }
+
+    /**
+     * 解除绑定：任何状态允许（解绑不产生数据破坏，仅断开关联）
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public void unbind(Long contractId, Long projectId) {
+        ContractProject link = contractProjectMapper.selectOne(new LambdaQueryWrapper<ContractProject>()
+                .eq(ContractProject::getContractId, contractId)
+                .eq(ContractProject::getProjectId, projectId));
+        if (link == null) {
+            throw new BusinessException(404, "关联关系不存在（可能已被解除），请刷新列表");
+        }
+        contractProjectMapper.deleteById(link.getId());
+        log.info("合同解除项目绑定: contractId={}, projectId={}", contractId, projectId);
+    }
+
+    /**
+     * 项目关联的合同列表（项目侧「关联合同」卡片数据源，实时 join 合同表）
+     */
+    public List<Map<String, Object>> listByProject(Long projectId) {
+        List<ContractProject> links = contractProjectMapper.selectList(
+                new LambdaQueryWrapper<ContractProject>()
+                        .eq(ContractProject::getProjectId, projectId)
+                        .orderByDesc(ContractProject::getCreateTime));
+        if (links.isEmpty()) {
+            return List.of();
+        }
+        List<Long> contractIds = links.stream().map(ContractProject::getContractId).toList();
+        Map<Long, Contract> contractMap = contractMapper.selectBatchIds(contractIds).stream()
+                .collect(Collectors.toMap(Contract::getId, c -> c));
+        return links.stream().map(link -> {
+            Contract contract = contractMap.get(link.getContractId());
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("contractId", link.getContractId());
+            item.put("contractNo", contract == null ? null : contract.getContractNo());
+            item.put("contractName", contract == null ? "（合同已删除）" : contract.getName());
+            item.put("customerName", contract == null ? null : contract.getCustomerName());
+            item.put("amount", contract == null ? null : contract.getAmount());
+            item.put("contractStatus", contract == null ? null : contract.getStatus());
+            item.put("bindBy", link.getBindBy());
+            item.put("bindTime", link.getCreateTime());
+            return item;
+        }).toList();
     }
 
     // ===== 私有辅助 =====
@@ -194,6 +321,33 @@ public class ContractService {
 
     private int nvl(Integer v) {
         return v == null ? 0 : v;
+    }
+
+    /** 列表页批量填充关联项目数（in 批查，避免 N+1） */
+    private void fillProjectCount(List<Contract> contracts) {
+        if (contracts == null || contracts.isEmpty()) {
+            return;
+        }
+        List<Long> ids = contracts.stream().map(Contract::getId).toList();
+        Map<Long, Long> counts = contractProjectMapper.selectList(
+                        new LambdaQueryWrapper<ContractProject>().in(ContractProject::getContractId, ids))
+                .stream()
+                .collect(Collectors.groupingBy(ContractProject::getContractId, Collectors.counting()));
+        contracts.forEach(c -> c.setProjectCount(counts.getOrDefault(c.getId(), 0L).intValue()));
+    }
+
+    /** 状态中文标签（异常提示用） */
+    private String statusLabel(String status) {
+        return switch (status) {
+            case "DRAFT" -> "草稿";
+            case "COUNTERSIGN" -> "会签中";
+            case "APPROVING" -> "审批中";
+            case "SEALING" -> "用印中";
+            case "EFFECTIVE" -> "已生效";
+            case "CLOSED" -> "已关闭";
+            case "TERMINATED" -> "已终止";
+            default -> status;
+        };
     }
 
     private void record(Long contractId, String node, boolean approved, String comment) {

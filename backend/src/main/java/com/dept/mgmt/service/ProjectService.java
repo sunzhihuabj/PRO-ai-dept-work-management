@@ -9,6 +9,8 @@ import com.dept.mgmt.entity.Milestone;
 import com.dept.mgmt.entity.Project;
 import com.dept.mgmt.entity.ProjectMember;
 import com.dept.mgmt.entity.ProjectPhase;
+import com.dept.mgmt.event.bus.EventBusService;
+import com.dept.mgmt.event.model.DomainEventType;
 import com.dept.mgmt.mapper.MilestoneMapper;
 import com.dept.mgmt.mapper.ProjectMapper;
 import com.dept.mgmt.mapper.ProjectMemberMapper;
@@ -40,6 +42,11 @@ public class ProjectService {
     private final ProjectMemberMapper projectMemberMapper;
     private final MilestoneMapper milestoneMapper;
     private final CodeEngineService codeEngineService;
+    /**
+     * 事件总线延迟注入（T-406）：部分事件处理器（如 TenderWonHandler）反向依赖本服务，
+     * 直接注入会形成构造环，沿用 ContractEffectivePaymentHandler 的 ObjectProvider 模式
+     */
+    private final org.springframework.beans.factory.ObjectProvider<EventBusService> eventBusProvider;
 
     /** 项目类型缩写 */
     private static final String[] TYPE_CODES = {"", "ZJC", "JG", "YF"};
@@ -217,6 +224,10 @@ public class ProjectService {
             update.setActualEndDate(LocalDate.now());
         }
         projectPhaseMapper.updateById(update);
+        // 跨域联动（T-406）：阶段完成反馈关联合同侧
+        if (status == 2) {
+            publishProgress(phase.getProjectId(), "PHASE", phase.getPhaseName());
+        }
         log.info("更新阶段状态成功: phaseId={}, status={}", phaseId, status);
     }
 
@@ -337,6 +348,8 @@ public class ProjectService {
         m.setStatus(status);
         if (status == 1) {
             m.setActualDate(LocalDate.now());
+            // 跨域联动（T-406）：里程碑完成反馈关联合同侧
+            publishProgress(m.getProjectId(), "MILESTONE", m.getMilestoneName());
         }
         milestoneMapper.updateById(m);
     }
@@ -347,5 +360,30 @@ public class ProjectService {
             throw new BusinessException(404, "里程碑不存在");
         }
         milestoneMapper.deleteById(id);
+    }
+
+    // ==================== 跨域事件（T-406）====================
+
+    /**
+     * 项目关键进度事件：阶段完成 / 里程碑完成 → project.progress.updated
+     * 关联合同侧（ProjectProgressHandler）消费后通知合同负责人关注履约进度
+     */
+    private void publishProgress(Long projectId, String itemType, String itemName) {
+        if (projectId == null) {
+            return;
+        }
+        Project project = projectMapper.selectById(projectId);
+        if (project == null) {
+            return;
+        }
+        Map<String, Object> payload = new java.util.HashMap<>();
+        payload.put("projectId", project.getId());
+        payload.put("projectCode", project.getProjectCode());
+        payload.put("projectName", project.getProjectName());
+        payload.put("projectLeader", project.getProjectLeader() == null ? "" : project.getProjectLeader());
+        payload.put("itemType", itemType);
+        payload.put("itemName", itemName == null ? "" : itemName);
+        eventBusProvider.getObject().publish(DomainEventType.PROJECT_PROGRESS_UPDATED, payload);
+        log.info("发布项目进度事件: projectId={}, type={}, item={}", projectId, itemType, itemName);
     }
 }
