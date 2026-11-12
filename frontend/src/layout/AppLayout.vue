@@ -185,8 +185,7 @@ const menuGroups: MenuGroup[] = [
     items: [
       { index: '/file/list', label: '文件归档', icon: markRaw(Files) },
       { index: '/event', label: '事件审批', icon: markRaw(Bell) },
-      { index: '/agent', label: 'Agent 工作台', icon: markRaw(ChatDotRound) },
-      { index: '/ai', label: 'AI助手', icon: markRaw(MagicStick) },
+      { index: '/ai', label: 'AI 助手', icon: markRaw(ChatDotRound) },
       { index: '/kpi', label: '绩效管理', icon: markRaw(DataAnalysis) },
       { index: '/lean', label: '精益改进', icon: markRaw(Aim) },
       { index: '/lean/stream', label: '价值流分析', icon: markRaw(DataLine) }

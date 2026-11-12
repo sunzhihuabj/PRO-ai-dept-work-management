@@ -57,12 +57,21 @@ public class MasterAgentService {
      * @param params 任务扩展参数对象（Map 或任意 JSON 对象，落库序列化为 JSON 字符串）
      */
     public AgentTask submit(String instruction, String capabilityCode, Object params) {
-        if (!StringUtils.hasText(instruction) || instruction.length() > 2000) {
-            throw new BusinessException(400, "指令为空或超过 2000 字符");
-        }
         LoginUser user = LoginUser.current();
         if (user == null) {
             throw new BusinessException(401, "未登录");
+        }
+        return submitAs(instruction, capabilityCode, params, user.getUserId());
+    }
+
+    /**
+     * 以指定用户身份提交任务（T-408：流程引擎调度线程等无登录态场景复用）
+     *
+     * @param userId 任务归属用户（流程发起人）
+     */
+    public AgentTask submitAs(String instruction, String capabilityCode, Object params, Long userId) {
+        if (!StringUtils.hasText(instruction) || instruction.length() > 2000) {
+            throw new BusinessException(400, "指令为空或超过 2000 字符");
         }
         // 意图识别（显式指定能力点时置信度 1.0）
         String routed = capabilityCode;
@@ -92,12 +101,12 @@ public class MasterAgentService {
             }
         }
         task.setStatus(TaskStatus.QUEUED.getCode());
-        task.setCallerUserId(user.getUserId());
-        task.setAgentInstanceKey("user:" + user.getUserId());
+        task.setCallerUserId(userId);
+        task.setAgentInstanceKey("user:" + userId);
         task.setIntentConfidence(confidence);
-        task.setExecutedBy("user:" + user.getUserId());
+        task.setExecutedBy("user:" + userId);
         taskMapper.insert(task);
-        transition(task.getId(), null, TaskStatus.QUEUED.getCode(), "user:" + user.getUserId(), "指令提交，意图=" + routed);
+        transition(task.getId(), null, TaskStatus.QUEUED.getCode(), "user:" + userId, "指令提交，意图=" + routed);
         log.info("Agent 任务已创建: taskNo={}, capability={}, confidence={}", task.getTaskNo(), routed, confidence);
         return task;
     }

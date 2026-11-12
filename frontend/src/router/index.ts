@@ -93,9 +93,9 @@ const routes: RouteRecordRaw[] = [
       },
       {
         path: 'ai',
-        name: 'AiAssistant',
-        component: () => import('@/views/ai/AiAssistant.vue'),
-        meta: { title: 'AI助手', icon: 'MagicStick' }
+        name: 'AiWorkspace',
+        component: () => import('@/views/ai/AiWorkspace.vue'),
+        meta: { title: 'AI 助手', icon: 'MagicStick' }
       },
       {
         path: 'message',
@@ -136,8 +136,9 @@ const routes: RouteRecordRaw[] = [
       {
         path: 'agent',
         name: 'AgentWorkbench',
-        component: () => import('@/views/agent/AgentWorkbench.vue'),
-        meta: { title: 'Agent 工作台', icon: 'ChatDotRound' }
+        // T-408：Agent 能力已并入统一 AI 助手工作台，旧入口重定向
+        redirect: { path: '/ai' },
+        meta: { title: 'Agent 工作台', hidden: true }
       },
       {
         path: 'contract',
