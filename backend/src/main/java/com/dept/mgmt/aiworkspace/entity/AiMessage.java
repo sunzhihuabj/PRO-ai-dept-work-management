@@ -40,6 +40,9 @@ public class AiMessage {
     /** 关联流程草稿ID（msg_type=workflow） */
     private Long refWorkflowId;
 
+    /** 用户评分（1赞/-1踩/NULL未评，仅 assistant 消息，T-409） */
+    private Integer rating;
+
     /** 创建时间 */
     private LocalDateTime createTime;
 }

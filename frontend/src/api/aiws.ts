@@ -20,6 +20,8 @@ export interface AiMessage {
   msgType: 'text' | 'task' | 'workflow'
   refTaskId?: number
   refWorkflowId?: number
+  /** 用户评分（1赞/-1踩/NULL未评，T-409） */
+  rating?: number | null
   createTime: string
 }
 
@@ -115,6 +117,22 @@ export function listMessagesApi(conversationId: number) {
 export function chatApi(conversationId: number, content: string) {
   return post<{ userMessage: AiMessage; assistantMessage: AiMessage }>(
     `/v1/ai/ws/conversations/${conversationId}/chat`, { content })
+}
+
+/** 重新生成最后一条回复（T-409 对齐豆包重试） */
+export function regenerateApi(conversationId: number) {
+  return post<{ userMessage: AiMessage; assistantMessage: AiMessage }>(
+    `/v1/ai/ws/conversations/${conversationId}/regenerate`, {})
+}
+
+/** 置顶/取消置顶会话（T-409） */
+export function pinConversationApi(id: number, pinned: boolean) {
+  return put<void>(`/v1/ai/ws/conversations/${id}/pin`, { pinned })
+}
+
+/** 消息评分（1赞/-1踩/0清除，T-409） */
+export function rateMessageApi(id: number, rating: 1 | -1 | 0) {
+  return post<void>(`/v1/ai/ws/messages/${id}/rating`, { rating })
 }
 
 // ==================== 流程定义 ====================

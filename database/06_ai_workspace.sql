@@ -7,6 +7,10 @@
 USE `dept_mgmt`;
 SET NAMES utf8mb4;
 
+-- ---------- 0. T-409 消息评分列（对齐豆包回复点赞/点踩） ----------
+ALTER TABLE `ai_message`
+    ADD COLUMN `rating` TINYINT DEFAULT NULL COMMENT '用户评分（1赞/-1踩/NULL未评，仅 assistant 消息，T-409）' AFTER `ref_workflow_id`;
+
 -- ---------- 1. AI 对话会话表 ----------
 DROP TABLE IF EXISTS `ai_conversation`;
 CREATE TABLE `ai_conversation` (

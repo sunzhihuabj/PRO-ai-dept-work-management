@@ -85,6 +85,29 @@ public class AiWorkspaceController {
         return R.ok(chatService.chat(id, dto.getContent()));
     }
 
+    @PostMapping("/conversations/{id}/regenerate")
+    @Operation(summary = "重新生成最后一条回复（T-409 对齐豆包重试）")
+    public R<Map<String, Object>> regenerate(@PathVariable Long id) {
+        return R.ok(chatService.regenerate(id));
+    }
+
+    @PutMapping("/conversations/{id}/pin")
+    @Operation(summary = "置顶/取消置顶会话（T-409）")
+    public R<Void> pinConversation(@PathVariable Long id, @RequestBody PinDTO dto) {
+        chatService.pinConversation(id, Boolean.TRUE.equals(dto.getPinned()));
+        return R.ok("已更新", null);
+    }
+
+    @PostMapping("/messages/{id}/rating")
+    @Operation(summary = "消息评分（1赞/-1踩/0清除，T-409）")
+    public R<Void> rateMessage(@PathVariable Long id, @RequestBody RatingDTO dto) {
+        if (dto.getRating() == null) {
+            throw new BusinessException(400, "rating 不能为空");
+        }
+        chatService.rateMessage(id, dto.getRating());
+        return R.ok("已评分", null);
+    }
+
     // ==================== 流程定义 ====================
 
     @PostMapping("/workflows")
@@ -221,5 +244,15 @@ public class AiWorkspaceController {
     public static class ApproveDTO {
         private Boolean pass;
         private String comment;
+    }
+
+    @Data
+    public static class PinDTO {
+        private Boolean pinned;
+    }
+
+    @Data
+    public static class RatingDTO {
+        private Integer rating;
     }
 }

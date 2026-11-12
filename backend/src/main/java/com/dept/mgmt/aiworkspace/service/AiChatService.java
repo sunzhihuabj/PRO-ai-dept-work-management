@@ -133,20 +133,87 @@ public class AiChatService {
         AiMessage userMsg = saveMessage(conversationId, "user", content, "text", null, null);
 
         // 2. 路由：流程创建意图 → 任务意图 → 通用对话
-        AiMessage assistantMsg;
-        if (WF_CREATE_PATTERN.matcher(content).find()) {
-            assistantMsg = handleWorkflowIntent(conv, content);
-        } else {
-            assistantMsg = tryAgentTask(conv, content, user.getUserId());
-            if (assistantMsg == null) {
-                assistantMsg = generalChat(conv, content);
-            }
-        }
+        AiMessage assistantMsg = routeAndReply(conv, content, user.getUserId());
 
         // 3. 刷新会话活跃时间
         conv.setLastMsgTime(LocalDateTime.now());
         conversationMapper.updateById(conv);
         return Map.of("userMessage", userMsg, "assistantMessage", assistantMsg);
+    }
+
+    /**
+     * 意图路由并生成助手回复（chat 与 regenerate 共用）：
+     * 流程创建意图 → 任务意图 → 通用对话
+     */
+    private AiMessage routeAndReply(AiConversation conv, String content, Long userId) {
+        if (WF_CREATE_PATTERN.matcher(content).find()) {
+            return handleWorkflowIntent(conv, content);
+        }
+        AiMessage assistantMsg = tryAgentTask(conv, content, userId);
+        if (assistantMsg == null) {
+            assistantMsg = generalChat(conv, content);
+        }
+        return assistantMsg;
+    }
+
+    /**
+     * 重新生成（T-409 对齐豆包重试）：删除最后一条用户消息之后的助手回复，重新路由生成。
+     * 任务类消息删除仅移除卡片，Agent 任务本身保留留痕。
+     */
+    public Map<String, Object> regenerate(Long conversationId) {
+        LoginUser user = current();
+        AiConversation conv = mustOwn(conversationId);
+        AiMessage lastUser = messageMapper.selectOne(new LambdaQueryWrapper<AiMessage>()
+                .eq(AiMessage::getConversationId, conversationId)
+                .eq(AiMessage::getRole, "user")
+                .orderByDesc(AiMessage::getId)
+                .last("LIMIT 1"));
+        if (lastUser == null) {
+            throw new BusinessException(400, "会话中没有可重新生成的用户消息");
+        }
+        messageMapper.delete(new LambdaQueryWrapper<AiMessage>()
+                .eq(AiMessage::getConversationId, conversationId)
+                .eq(AiMessage::getRole, "assistant")
+                .gt(AiMessage::getId, lastUser.getId()));
+        AiMessage assistantMsg = routeAndReply(conv, lastUser.getContent(), user.getUserId());
+        conv.setLastMsgTime(LocalDateTime.now());
+        conversationMapper.updateById(conv);
+        return Map.of("userMessage", lastUser, "assistantMessage", assistantMsg);
+    }
+
+    /** 置顶/取消置顶会话（T-409 对齐豆包） */
+    public void pinConversation(Long id, boolean pinned) {
+        AiConversation conv = mustOwn(id);
+        conv.setPinned(pinned ? 1 : 0);
+        conversationMapper.updateById(conv);
+    }
+
+    /** 消息评分（1 赞 / -1 踩 / 0 清除，仅 assistant 消息；评分沉淀用于后续回复质量分析） */
+    public void rateMessage(Long messageId, int rating) {
+        LoginUser user = current();
+        AiMessage msg = messageMapper.selectById(messageId);
+        if (msg == null) {
+            throw new BusinessException(404, "消息不存在");
+        }
+        AiConversation conv = conversationMapper.selectById(msg.getConversationId());
+        if (conv == null || !conv.getUserId().equals(user.getUserId())) {
+            throw new BusinessException(404, "消息不存在");
+        }
+        if (!"assistant".equals(msg.getRole())) {
+            throw new BusinessException(400, "仅可对 AI 回复评分");
+        }
+        if (rating != 1 && rating != -1 && rating != 0) {
+            throw new BusinessException(400, "评分仅允许 1/-1/0");
+        }
+        if (rating == 0) {
+            // 清除评分：MP updateById 忽略 null 字段，需用 UpdateWrapper 显式 set null
+            messageMapper.update(null, new com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper<AiMessage>()
+                    .eq(AiMessage::getId, messageId)
+                    .set(AiMessage::getRating, null));
+            return;
+        }
+        msg.setRating(rating);
+        messageMapper.updateById(msg);
     }
 
     /**

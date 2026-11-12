@@ -2382,6 +2382,7 @@ CREATE TABLE `ai_message` (
     `msg_type`        VARCHAR(12) DEFAULT 'text'          COMMENT '消息类型（text/task/workflow）',
     `ref_task_id`     BIGINT      DEFAULT NULL            COMMENT '关联 Agent 任务ID（msg_type=task）',
     `ref_workflow_id` BIGINT      DEFAULT NULL            COMMENT '关联流程草稿ID（msg_type=workflow）',
+    `rating`          TINYINT     DEFAULT NULL            COMMENT '用户评分（1赞/-1踩/NULL未评，仅 assistant 消息，T-409）',
     `create_time`     DATETIME    DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     PRIMARY KEY (`id`),
     KEY `idx_conv` (`conversation_id`),
