@@ -1,13 +1,13 @@
 import { get, post } from '@/utils/request'
 import type { PageResult } from '@/utils/request'
 
-// ===== W4 样机域（T-201~T-203）=====
+// ===== W4 生产域（T-201~T-203；原样机域，T-412 改造为生产管理口径）=====
 
 export interface WorkOrder {
   id: number
   woNo: string
   projectId: number
-  orderType: 'PROTOTYPE' | 'BATCH'
+  orderType: 'TRIAL' | 'BATCH'
   qty: number
   status: 'DRAFT' | 'STARTED' | 'CLOSED'
   startedAt?: string

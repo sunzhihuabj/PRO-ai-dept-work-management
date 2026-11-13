@@ -162,7 +162,7 @@ const routes: RouteRecordRaw[] = [
         path: 'workshop',
         name: 'WorkshopManagement',
         component: () => import('@/views/workshop/WorkshopManagement.vue'),
-        meta: { title: '样机管理', icon: 'Box' }
+        meta: { title: '生产管理', icon: 'Box' }
       },
       {
         path: 'delivery',

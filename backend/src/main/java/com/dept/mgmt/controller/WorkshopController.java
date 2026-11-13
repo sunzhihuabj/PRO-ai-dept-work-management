@@ -24,7 +24,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * W4 样机域接口（T-201）
+ * W4 生产域接口（T-201；原样机域，T-412 改造为生产管理口径）
  * 硬卡点 BR-01/08/09 在服务层动作入口内嵌拦截（详见 WorkshopService）
  *
  * @author dept-mgmt
@@ -32,7 +32,7 @@ import java.util.Map;
 @RestController
 @RequestMapping("/v1/workshop")
 @RequiredArgsConstructor
-@Tag(name = "样机管理", description = "工单/齐套/PO/到货/交底/FAI/质检/整改/验收（W4）")
+@Tag(name = "生产管理", description = "生产工单/齐套/PO/到货/交底/FAI/质检/整改/完工验收（W4）")
 public class WorkshopController {
 
     private final WorkshopService workshopService;
@@ -40,19 +40,19 @@ public class WorkshopController {
     // ===== 工单 =====
 
     @PostMapping("/work-orders")
-    @Operation(summary = "创建工单（BR-01：技改项目样机验收未通过禁止批量工单）")
-    @OperLog(title = "样机管理", businessType = 1)
+    @Operation(summary = "创建生产工单（BR-01：技改项目试制验收未通过禁止批量工单）")
+    @OperLog(title = "生产管理", businessType = 1)
     public R<Long> createWorkOrder(@RequestBody Map<String, Object> body) {
         return R.ok("工单已创建", workshopService.createWorkOrder(
                 Long.valueOf(String.valueOf(body.get("projectId"))),
-                (String) body.getOrDefault("orderType", "PROTOTYPE"),
+                (String) body.getOrDefault("orderType", "TRIAL"),
                 body.get("qty") == null ? null : Integer.valueOf(String.valueOf(body.get("qty"))),
                 (String) body.get("remark")));
     }
 
     @PostMapping("/work-orders/{id}/start")
     @Operation(summary = "工单开工（BR-08 齐套≥95% + BR-09 交底已签字）")
-    @OperLog(title = "样机管理", businessType = 2)
+    @OperLog(title = "生产管理", businessType = 2)
     public R<Void> startWorkOrder(@PathVariable Long id) {
         workshopService.startWorkOrder(id);
         return R.ok("工单已开工", null);
@@ -96,7 +96,7 @@ public class WorkshopController {
 
     @PostMapping("/pos")
     @Operation(summary = "创建采购订单（PO 编号引擎，含期望到货日期）")
-    @OperLog(title = "样机管理", businessType = 1)
+    @OperLog(title = "生产管理", businessType = 1)
     public R<Long> createPo(@RequestBody Map<String, Object> body) {
         return R.ok("PO 已创建", workshopService.createPo(
                 Long.valueOf(String.valueOf(body.get("projectId"))),
@@ -118,7 +118,7 @@ public class WorkshopController {
 
     @PostMapping("/pos/{id}/arrivals")
     @Operation(summary = "到货登记（发布 material.arrived 事件，齐量自动完结 PO）")
-    @OperLog(title = "样机管理", businessType = 1)
+    @OperLog(title = "生产管理", businessType = 1)
     public R<Long> registerArrival(@PathVariable Long id, @RequestBody Map<String, Object> body) {
         return R.ok("到货已登记", workshopService.registerArrival(
                 id, new BigDecimal(String.valueOf(body.get("qty"))), (String) body.get("remark")));
@@ -147,7 +147,7 @@ public class WorkshopController {
         return R.ok("已签字确认", null);
     }
 
-    // ===== FAI / 质检 / 整改 / 验收 =====
+    // ===== FAI / 质检 / 整改 / 完工验收 =====
 
     @PostMapping("/fai")
     @Operation(summary = "登记 FAI 首件检验（FAIL 自动派生整改单）")
@@ -211,8 +211,8 @@ public class WorkshopController {
     }
 
     @PostMapping("/acceptances")
-    @Operation(summary = "样机验收登记（BR-01 数据源；FAIL 派生整改单）")
-    @OperLog(title = "样机管理", businessType = 2)
+    @Operation(summary = "生产完工验收登记（BR-01 数据源；FAIL 派生整改单）")
+    @OperLog(title = "生产管理", businessType = 2)
     public R<Long> completeAcceptance(@RequestBody Map<String, Object> body) {
         return R.ok("验收已登记", workshopService.completeAcceptance(
                 Long.valueOf(String.valueOf(body.get("workorderId"))),
@@ -222,7 +222,7 @@ public class WorkshopController {
     }
 
     @GetMapping("/acceptances")
-    @Operation(summary = "样机验收列表（按项目）")
+    @Operation(summary = "生产完工验收列表（按项目）")
     public R<List<PrototypeAcceptance>> acceptances(@RequestParam Long projectId) {
         return R.ok(workshopService.listAcceptances(projectId));
     }

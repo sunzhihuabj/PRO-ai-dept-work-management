@@ -5,7 +5,7 @@ import com.dept.mgmt.workshop.entity.WorkOrder;
 import org.apache.ibatis.annotations.Mapper;
 
 /**
- * WorkOrder Mapper（W4 样机域）
+ * WorkOrder Mapper（W4 生产域）
  *
  * @author dept-mgmt
  */

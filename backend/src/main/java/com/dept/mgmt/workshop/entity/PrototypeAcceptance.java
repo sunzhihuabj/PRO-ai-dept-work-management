@@ -8,13 +8,13 @@ import lombok.EqualsAndHashCode;
 import java.time.LocalDateTime;
 
 /**
- * 样机验收实体（T-201 W4，BR-01 数据源）
+ * 生产完工验收实体（T-201 W4，BR-01 数据源；原样机验收，T-412 改造为生产管理口径）
  *
  * @author dept-mgmt
  */
 @Data
 @EqualsAndHashCode(callSuper = true)
-@TableName("prototype_acceptance")
+@TableName("production_acceptance")
 public class PrototypeAcceptance extends BaseEntity {
 
     private static final long serialVersionUID = 1L;
@@ -22,7 +22,7 @@ public class PrototypeAcceptance extends BaseEntity {
     /** 项目ID */
     private Long projectId;
 
-    /** 样机工单ID */
+    /** 生产工单ID */
     private Long workorderId;
 
     /** 结论（PENDING/PASS/FAIL） */

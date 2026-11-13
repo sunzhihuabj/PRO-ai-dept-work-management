@@ -5,7 +5,7 @@ import com.dept.mgmt.workshop.entity.DisclosureRecord;
 import org.apache.ibatis.annotations.Mapper;
 
 /**
- * DisclosureRecord Mapper（W4 样机域）
+ * DisclosureRecord Mapper（W4 生产域）
  *
  * @author dept-mgmt
  */

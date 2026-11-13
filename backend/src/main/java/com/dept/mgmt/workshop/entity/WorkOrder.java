@@ -25,7 +25,7 @@ public class WorkOrder extends BaseEntity {
     /** 项目ID */
     private Long projectId;
 
-    /** 类型（PROTOTYPE样机/BATCH批量） */
+    /** 类型（TRIAL试制/BATCH批量） */
     private String orderType;
 
     /** 台数 */

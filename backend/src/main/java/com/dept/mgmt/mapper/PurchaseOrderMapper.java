@@ -5,7 +5,7 @@ import com.dept.mgmt.workshop.entity.PurchaseOrder;
 import org.apache.ibatis.annotations.Mapper;
 
 /**
- * PurchaseOrder Mapper（W4 样机域）
+ * PurchaseOrder Mapper（W4 生产域）
  *
  * @author dept-mgmt
  */

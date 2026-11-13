@@ -5,7 +5,7 @@ import com.dept.mgmt.workshop.entity.FaiReport;
 import org.apache.ibatis.annotations.Mapper;
 
 /**
- * FaiReport Mapper（W4 样机域）
+ * FaiReport Mapper（W4 生产域）
  *
  * @author dept-mgmt
  */

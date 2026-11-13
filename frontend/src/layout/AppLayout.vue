@@ -172,7 +172,7 @@ const menuGroups: MenuGroup[] = [
       { index: '/tender', label: '投标管理', icon: markRaw(Promotion) },
       { index: '/contract', label: '合同管理', icon: markRaw(Stamp) },
       { index: '/design', label: '设计管理', icon: markRaw(SetUp) },
-      { index: '/workshop', label: '样机管理', icon: markRaw(Box) },
+      { index: '/workshop', label: '生产管理', icon: markRaw(Box) },
       { index: '/delivery', label: '交付管理', icon: markRaw(Van) },
       { index: '/ecn', label: '变更管理', icon: markRaw(RefreshRight) },
       { index: '/cost', label: '成本管理', icon: markRaw(Coin) },

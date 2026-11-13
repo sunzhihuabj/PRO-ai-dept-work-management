@@ -5,7 +5,7 @@ import com.dept.mgmt.workshop.entity.Rectification;
 import org.apache.ibatis.annotations.Mapper;
 
 /**
- * Rectification Mapper（W4 样机域）
+ * Rectification Mapper（W4 生产域）
  *
  * @author dept-mgmt
  */

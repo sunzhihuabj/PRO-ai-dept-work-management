@@ -5,7 +5,7 @@ import com.dept.mgmt.workshop.entity.PrototypeAcceptance;
 import org.apache.ibatis.annotations.Mapper;
 
 /**
- * PrototypeAcceptance Mapper（W4 样机域）
+ * PrototypeAcceptance Mapper（W4 生产域）
  *
  * @author dept-mgmt
  */

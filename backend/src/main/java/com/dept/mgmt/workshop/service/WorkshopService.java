@@ -38,9 +38,9 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 /**
- * W4 样机域服务（T-201）
+ * W4 生产域服务（T-201；原样机域，T-412 改造为生产管理口径）
  * 硬卡点内嵌（合规底线：卡点前置在动作入口，不是事后检查）：
- * BR-01 技改项目样机验收未通过 → 批量工单不允许创建
+ * BR-01 技改项目试制验收未通过 → 批量工单不允许创建
  * BR-08 最新齐套审查 <95% → 生产工单不允许开工
  * BR-09 工单技术交底未签字 → 生产工单不允许开工
  * （BR-02 首次发货 FAI 拦截在 W6 发货单提交入口落地，T-206）
@@ -74,7 +74,7 @@ public class WorkshopService {
     // ===== 工单（BR-01/08/09 载体）=====
 
     /**
-     * 创建工单。BR-01：技改项目在样机验收通过前不允许创建批量工单
+     * 创建生产工单。BR-01：技改项目在试制验收通过前不允许创建批量工单
      */
     @Transactional(rollbackFor = Exception.class)
     public Long createWorkOrder(Long projectId, String orderType, Integer qty, String remark) {
@@ -84,18 +84,18 @@ public class WorkshopService {
         }
         boolean batch = "BATCH".equals(orderType);
         if (batch && project.getProjectType() != null && project.getProjectType() == 2) {
-            // BR-01：技改项目须先有 PASS 的样机验收
+            // BR-01：技改项目须先有 PASS 的试制验收
             Long passCount = acceptanceMapper.selectCount(new LambdaQueryWrapper<PrototypeAcceptance>()
                     .eq(PrototypeAcceptance::getProjectId, projectId)
                     .eq(PrototypeAcceptance::getResult, "PASS"));
             if (passCount == null || passCount == 0) {
-                throw new BusinessException(400, "硬卡点 BR-01 拦截：技改项目样机验收未通过，不允许创建批量工单");
+                throw new BusinessException(400, "硬卡点 BR-01 拦截：技改项目试制验收未通过，不允许创建批量工单");
             }
         }
         WorkOrder wo = new WorkOrder();
         wo.setWoNo(codeEngineService.nextCode("WO", null));
         wo.setProjectId(projectId);
-        wo.setOrderType(orderType == null ? "PROTOTYPE" : orderType);
+        wo.setOrderType(orderType == null ? "TRIAL" : orderType);
         wo.setQty(qty == null || qty < 1 ? 1 : qty);
         wo.setStatus("DRAFT");
         wo.setRemark(remark);
@@ -447,7 +447,7 @@ public class WorkshopService {
     }
 
     /**
-     * 样机验收登记（BR-01 数据源）：FAIL 派生整改单
+     * 生产完工验收登记（BR-01 数据源）：FAIL 派生整改单
      */
     @Transactional(rollbackFor = Exception.class)
     public Long completeAcceptance(Long workorderId, String result, String acceptor, String comment) {
@@ -465,9 +465,9 @@ public class WorkshopService {
         acceptanceMapper.insert(acceptance);
         if ("FAIL".equals(result)) {
             createRectification(wo.getProjectId(), "ACCEPT", acceptance.getId(),
-                    "样机验收不合格: " + (comment == null ? "" : comment), null, null);
+                    "生产完工验收不合格: " + (comment == null ? "" : comment), null, null);
         }
-        log.info("样机验收: woNo={} → {}", wo.getWoNo(), result);
+        log.info("生产完工验收: woNo={} → {}", wo.getWoNo(), result);
         return acceptance.getId();
     }
 

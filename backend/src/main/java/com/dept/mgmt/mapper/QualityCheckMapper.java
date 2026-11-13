@@ -5,7 +5,7 @@ import com.dept.mgmt.workshop.entity.QualityCheck;
 import org.apache.ibatis.annotations.Mapper;
 
 /**
- * QualityCheck Mapper（W4 样机域）
+ * QualityCheck Mapper（W4 生产域）
  *
  * @author dept-mgmt
  */

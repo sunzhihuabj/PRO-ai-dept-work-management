@@ -96,7 +96,7 @@ public class OpsToolRegistry {
             ■ 合同：状态 DRAFT草稿→COUNTERSIGN会签→APPROVING审批→SEALING用印→EFFECTIVE生效→CLOSED关闭/TERMINATED终止；会签门 G1=四项收款比例合计必须100%；审批/会签/用印仅部门领导；联系方式为敏感字段按权限脱敏；编号 HT 自动生成。
             ■ 投标：标讯状态 NEW新标讯/FOLLOWED跟踪中/APPLIED已投标/PREPARED备标中/DECIDED已定标/WON已中标/LOST未中标；编号 TN 自动生成；AI 可做资格比对/报价建议/竞品分析（经 Agent 任务）。
             ■ 设计：方案状态 DRAFT草稿/RELEASED已发布/ARCHIVED已归档；发布后不可修改；BOM 仅草稿可录入，13 条校验规则。
-            ■ 样机：工单类型 PROTOTYPE样机/BATCH批量；状态 DRAFT/STARTED/CLOSED；开工卡点=齐套率≥95%且交底签字完成；FAI 首件检验 FAIL 会派生整改单。
+            ■ 生产：工单类型 TRIAL试制/BATCH批量；状态 DRAFT/STARTED/CLOSED；开工卡点=齐套率≥95%且交底签字完成；FAI 首件检验 FAIL 会派生整改单；生产完工验收（BR-01 数据源）FAIL 派生整改单。
             ■ 交付：发货单 DRAFT草稿/SUBMITTED已发运，整机厂首发须 FAI 通过；验收分 FIRST初/MID中/LATE晚/FINAL终验，进度 30%/85% 触发阶段验收，三方（业主/监理/客户）签字齐备生效。
             ■ 变更 ECN：DRAFT→PENDING_APPROVAL→APPROVED/REJECTED→IMPLEMENTED→CLOSED；实施时旧方案自动归档并回收任务；审批仅部门领导。
             ■ 成本：类型 MATERIAL物料/LABOR人工/EXPENSE费用；完工核算输出毛利三口径；物料成本由扫码过账自动归集。
@@ -421,11 +421,11 @@ public class OpsToolRegistry {
                 .build());
     }
 
-    // ---------- 样机 ----------
+    // ---------- 生产 ----------
 
     private void registerWorkshopTools() {
-        tool(OpsTool.builder().name("workshop.woList").module("样机制造").title("查询样机工单")
-                .desc("按项目/状态查询样机工单列表").readOnly(true)
+        tool(OpsTool.builder().name("production.woList").module("生产管理").title("查询生产工单")
+                .desc("按项目/状态查询生产工单列表").readOnly(true)
                 .params(List.of(
                         OpsParam.builder().name("projectName").type("string").desc("项目名称").build(),
                         OpsParam.builder().name("status").type("string").desc("工单状态").enums(List.of("草稿", "已开工", "已完工")).build()))
@@ -434,13 +434,13 @@ public class OpsToolRegistry {
                     PageResult<?> page = workshopService.listWorkOrders(1, 10,
                             project == null ? null : project.getId(),
                             p.containsKey("status") ? woStatus(str(p, "status")) : null);
-                    return renderPage(page, "workorder", cols("orderNo=工单号", "orderType=类型", "qty=台数",
+                    return renderPage(page, "workorder", cols("woNo=工单号", "orderType=类型", "qty=台数",
                             "status=状态", "startedAt=开工时间", "closedAt=完工时间"));
                 })
                 .build());
 
-        tool(OpsTool.builder().name("workshop.kitting").module("样机制造").title("齐套率计算")
-                .desc("计算项目样机物料齐套率（开工卡点≥95%）").readOnly(true)
+        tool(OpsTool.builder().name("production.kitting").module("生产管理").title("齐套率计算")
+                .desc("计算项目生产物料齐套率（开工卡点≥95%）").readOnly(true)
                 .params(List.of(OpsParam.builder().name("projectName").type("string").required(true).desc("项目名称").build()))
                 .executor((p, u) -> {
                     Project project = resolveProject(str(p, "projectName"));

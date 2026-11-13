@@ -5,7 +5,7 @@ import com.dept.mgmt.workshop.entity.KittingCheck;
 import org.apache.ibatis.annotations.Mapper;
 
 /**
- * KittingCheck Mapper（W4 样机域）
+ * KittingCheck Mapper（W4 生产域）
  *
  * @author dept-mgmt
  */

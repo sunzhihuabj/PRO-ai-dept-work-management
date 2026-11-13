@@ -98,14 +98,14 @@
             <el-button type="success" @click="woDialogVisible = true">新建工单</el-button>
           </div>
           <el-alert type="info" :closable="false" show-icon style="margin-bottom: 12px"
-                    title="硬卡点：BR-01 技改项目样机验收未通过禁建批量工单；BR-08 齐套率<95% 禁开工；BR-09 交底未签字禁开工" />
+                    title="硬卡点：BR-01 技改项目试制验收未通过禁建批量工单；BR-08 齐套率<95% 禁开工；BR-09 交底未签字禁开工" />
           <el-table v-loading="woLoading" :data="workOrders" border stripe>
             <el-table-column prop="woNo" label="工单编号" width="160" />
             <el-table-column label="项目" width="150" show-overflow-tooltip>
               <template #default="{ row }">{{ projectNameOf(row.projectId) }}</template>
             </el-table-column>
             <el-table-column label="类型" width="100" align="center">
-              <template #default="{ row }">{{ row.orderType === 'BATCH' ? '批量' : '样机' }}</template>
+              <template #default="{ row }">{{ row.orderType === 'BATCH' ? '批量' : '试制' }}</template>
             </el-table-column>
             <el-table-column prop="qty" label="台数" width="80" align="right" />
             <el-table-column label="状态" width="100" align="center">
@@ -119,7 +119,7 @@
               <template #default="{ row }">
                 <el-button v-if="row.status === 'DRAFT'" link type="success" size="small" @click="onStartWo(row)">开工</el-button>
                 <el-button v-if="row.status === 'STARTED'" link type="warning" size="small" @click="onCloseWo(row)">完工</el-button>
-                <el-button v-if="row.status === 'STARTED'" link type="primary" size="small" @click="openAcceptance(row)">样机验收</el-button>
+                <el-button v-if="row.status === 'STARTED'" link type="primary" size="small" @click="openAcceptance(row)">生产验收</el-button>
               </template>
             </el-table-column>
           </el-table>
@@ -278,7 +278,7 @@
         </el-form-item>
         <el-form-item label="工单类型" required>
           <el-radio-group v-model="woForm.orderType">
-            <el-radio value="PROTOTYPE">样机</el-radio>
+            <el-radio value="TRIAL">试制</el-radio>
             <el-radio value="BATCH">批量（BR-01）</el-radio>
           </el-radio-group>
         </el-form-item>
@@ -311,8 +311,8 @@
       </template>
     </el-dialog>
 
-    <!-- 样机验收对话框 -->
-    <el-dialog :close-on-click-modal="false" v-model="acceptDialogVisible" title="样机验收登记" width="460px">
+    <!-- 生产完工验收对话框 -->
+    <el-dialog :close-on-click-modal="false" v-model="acceptDialogVisible" title="生产完工验收登记" width="460px">
       <el-form label-width="100px">
         <el-form-item label="工单编号">
           <span>{{ acceptWo?.woNo }}</span>
@@ -533,7 +533,7 @@ const woQueryProjectId = ref<number>()
 const woQueryStatus = ref('')
 const woDialogVisible = ref(false)
 const woSubmitting = ref(false)
-const woForm = ref({ projectId: undefined as number | undefined, projectName: undefined as string | undefined, orderType: 'PROTOTYPE', qty: 1 })
+const woForm = ref({ projectId: undefined as number | undefined, projectName: undefined as string | undefined, orderType: 'TRIAL', qty: 1 })
 
 /** 项目选择联动：名称口径交互，内部反查 id 供 API 调用 */
 function onWoQueryProjectChange(project?: ProjectItem) {
@@ -583,7 +583,7 @@ async function onCloseWo(row: any) {
   loadWorkOrders()
 }
 
-// ===== 样机验收 =====
+// ===== 生产完工验收 =====
 const acceptDialogVisible = ref(false)
 const acceptSubmitting = ref(false)
 const acceptWo = ref<WorkOrder | null>(null)

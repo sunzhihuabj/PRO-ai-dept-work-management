@@ -1383,7 +1383,7 @@ INSERT INTO `design_template` (`template_name`, `scene`, `template_text`, `spec_
 SET FOREIGN_KEY_CHECKS = 1;
 
 -- ============================================================================
--- 9.18 W4 样机域（T-201：齐套/PO/到货/交底/工单/FAI/质检/整改，BR-01/02/08/09 硬卡点）
+-- 9.18 W4 生产域（T-201：齐套/PO/到货/交底/工单/FAI/质检/整改，BR-01/02/08/09 硬卡点；原样机域，T-412 改造）
 -- ============================================================================
 
 -- 齐套审查表（BR-08：齐套率<95% 工单禁止开工）
@@ -1467,7 +1467,7 @@ CREATE TABLE `work_order` (
     `id`           BIGINT        NOT NULL AUTO_INCREMENT COMMENT '工单ID',
     `wo_no`        VARCHAR(30)   NOT NULL                COMMENT '工单编号',
     `project_id`   BIGINT        NOT NULL                COMMENT '项目ID',
-    `order_type`   VARCHAR(20)   NOT NULL DEFAULT 'PROTOTYPE' COMMENT '类型（PROTOTYPE样机/BATCH批量）',
+    `order_type`   VARCHAR(20)   NOT NULL DEFAULT 'TRIAL' COMMENT '类型（TRIAL试制/BATCH批量）',
     `qty`          INT           NOT NULL DEFAULT 1      COMMENT '台数',
     `status`       VARCHAR(20)   NOT NULL DEFAULT 'DRAFT' COMMENT '状态（DRAFT/STARTED已开工/CLOSED已完工）',
     `started_at`   DATETIME      DEFAULT NULL            COMMENT '开工时间',
@@ -1532,12 +1532,12 @@ CREATE TABLE `rectification` (
     KEY `idx_source` (`source`, `source_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='整改单';
 
--- 样机验收（BR-01：技改项目样机验收 PASS 后才允许创建批量工单）
-DROP TABLE IF EXISTS `prototype_acceptance`;
-CREATE TABLE `prototype_acceptance` (
+-- 生产完工验收（BR-01：技改项目试制验收 PASS 后才允许创建批量工单；原样机验收表，T-412 改造）
+DROP TABLE IF EXISTS `production_acceptance`;
+CREATE TABLE `production_acceptance` (
     `id`           BIGINT        NOT NULL AUTO_INCREMENT COMMENT '验收ID',
     `project_id`   BIGINT        NOT NULL                COMMENT '项目ID',
-    `workorder_id` BIGINT        NOT NULL                COMMENT '样机工单ID',
+    `workorder_id` BIGINT        NOT NULL                COMMENT '生产工单ID',
     `result`       VARCHAR(10)   NOT NULL                COMMENT '结论（PENDING/PASS/FAIL）',
     `acceptor`     VARCHAR(50)   DEFAULT NULL            COMMENT '验收人',
     `accepted_at`  DATETIME      DEFAULT NULL            COMMENT '验收时间',
@@ -1548,12 +1548,12 @@ CREATE TABLE `prototype_acceptance` (
     PRIMARY KEY (`id`),
     KEY `idx_project` (`project_id`),
     KEY `idx_workorder` (`workorder_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='样机验收表';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='生产完工验收表';
 
 -- 编码规则：PO / WO
 INSERT INTO `sys_code_rule` (`rule_code`, `rule_name`, `pattern`, `date_pattern`, `status`, `remark`) VALUES
-('PO', '采购订单编号', 'PO-{yyyyMM}-{seq:4}', 'yyyyMM', 1, 'W4 样机域采购订单'),
-('WO', '生产工单编号', 'WO-{yyyyMM}-{seq:4}', 'yyyyMM', 1, 'W4 样机域生产工单')
+('PO', '采购订单编号', 'PO-{yyyyMM}-{seq:4}', 'yyyyMM', 1, 'W4 生产域采购订单'),
+('WO', '生产工单编号', 'WO-{yyyyMM}-{seq:4}', 'yyyyMM', 1, 'W4 生产域生产工单')
 ON DUPLICATE KEY UPDATE `pattern` = VALUES(`pattern`);
 
 -- ============================================================================

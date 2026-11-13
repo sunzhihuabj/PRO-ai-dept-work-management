@@ -159,7 +159,7 @@ INSERT INTO `sys_perm_point` (`perm_code`, `perm_name`, `perm_type`, `parent_cod
 ('/tender',           '投标管理',     'MENU', NULL, 5),
 ('/contract',         '合同管理',     'MENU', NULL, 6),
 ('/design',           '设计管理',     'MENU', NULL, 7),
-('/workshop',         '样机管理',     'MENU', NULL, 8),
+('/workshop',         '生产管理',     'MENU', NULL, 8),
 ('/delivery',         '交付管理',     'MENU', NULL, 9),
 ('/ecn',              '变更管理',     'MENU', NULL, 10),
 ('/cost',             '成本管理',     'MENU', NULL, 11),

@@ -5,7 +5,7 @@ import com.dept.mgmt.workshop.entity.ArrivalRecord;
 import org.apache.ibatis.annotations.Mapper;
 
 /**
- * ArrivalRecord Mapper（W4 样机域）
+ * ArrivalRecord Mapper（W4 生产域）
  *
  * @author dept-mgmt
  */
