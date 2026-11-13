@@ -35,7 +35,7 @@ public class ContractValidator {
         }
         try {
             // 契约最小校验：必须是合法 JSON 对象且包含 schema 声明的必填字段
-            Map<?, ?> parsed = objectMapper.readValue(content, Map.class);
+            Map<?, ?> parsed = objectMapper.readValue(stripJsonBlock(content), Map.class);
             Object required = jsonSchema.get("required");
             if (required instanceof List<?> requiredFields) {
                 for (Object field : requiredFields) {
@@ -57,6 +57,25 @@ public class ContractValidator {
         return originalPrompt + "\n\n【输出要求】你的上一次输出未通过校验（" + lastError
                 + "）。请严格按以下 JSON 结构重新输出，只输出 JSON 本身，不要任何解释文字："
                 + safeSchemaText(jsonSchema);
+    }
+
+    /**
+     * 剥离模型输出中的 markdown 代码块包裹（```json ... ```）与前后杂文字：
+     * 本地小模型常无视「只输出 JSON」指令，直接按裸 JSON 校验会误判失败。
+     */
+    private String stripJsonBlock(String content) {
+        String s = content.trim();
+        java.util.regex.Matcher m = java.util.regex.Pattern
+                .compile("```(?:json)?\\s*([\\s\\S]*?)```").matcher(s);
+        if (m.find()) {
+            s = m.group(1).trim();
+        }
+        int start = s.indexOf('{');
+        int end = s.lastIndexOf('}');
+        if (start >= 0 && end > start) {
+            return s.substring(start, end + 1);
+        }
+        return s;
     }
 
     private String safeSchemaText(Map<String, Object> jsonSchema) {

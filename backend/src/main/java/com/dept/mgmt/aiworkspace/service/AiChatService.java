@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.dept.mgmt.aiworkspace.entity.AiConversation;
 import com.dept.mgmt.aiworkspace.entity.AiMessage;
 import com.dept.mgmt.aiworkspace.entity.WfWorkflow;
+import com.dept.mgmt.aiworkspace.ops.SystemOpsService;
 import com.dept.mgmt.agent.entity.AgentTask;
 import com.dept.mgmt.agent.service.MasterAgentService;
 import com.dept.mgmt.common.client.AiGatewayClient;
@@ -55,6 +56,7 @@ public class AiChatService {
     private final AiGatewayClient aiGatewayClient;
     private final CodeEngineService codeEngineService;
     private final WorkflowService workflowService;
+    private final SystemOpsService systemOpsService;
 
     // ==================== 会话管理 ====================
 
@@ -143,13 +145,17 @@ public class AiChatService {
 
     /**
      * 意图路由并生成助手回复（chat 与 regenerate 共用）：
-     * 流程创建意图 → 任务意图 → 通用对话
+     * 流程创建意图 → 系统操作意图（T-411 对话驱动全系统操作，含工具执行/参数追问/闲聊回复，
+     * 判定为 AI 分析类能力时返回 null 转交 Agent）→ 任务意图 → 通用对话
      */
     private AiMessage routeAndReply(AiConversation conv, String content, Long userId) {
         if (WF_CREATE_PATTERN.matcher(content).find()) {
             return handleWorkflowIntent(conv, content);
         }
-        AiMessage assistantMsg = tryAgentTask(conv, content, userId);
+        AiMessage assistantMsg = systemOpsService.tryOps(conv, content, current());
+        if (assistantMsg == null) {
+            assistantMsg = tryAgentTask(conv, content, userId);
+        }
         if (assistantMsg == null) {
             assistantMsg = generalChat(conv, content);
         }
