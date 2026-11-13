@@ -9,6 +9,7 @@ import com.dept.gateway.entity.AiCallLog;
 import com.dept.gateway.entity.AiProviderConfig;
 import com.dept.gateway.entity.SysCapability;
 import com.dept.gateway.exception.GatewayException;
+import com.dept.gateway.exception.NonRetryableProviderException;
 import com.dept.gateway.mapper.AiCallLogMapper;
 import com.dept.gateway.mapper.AiProviderConfigMapper;
 import com.dept.gateway.mapper.SysCapabilityMapper;
@@ -61,17 +62,20 @@ public class GatewayService {
                 .eq(SysCapability::getCapabilityCode, request.getCapabilityCode())
                 .eq(SysCapability::getStatus, 1));
         if (capability == null) {
-            audit(requestId, request, null, null, 0, "PROVIDER_ERROR", "能力点未登记或已停用: " + request.getCapabilityCode());
+            audit(requestId, request, null, null, 0, "PROVIDER_ERROR",
+                    "能力点未登记或已停用: " + request.getCapabilityCode(), System.currentTimeMillis() - start);
             throw new GatewayException(403, "能力点未登记或已停用: " + request.getCapabilityCode());
         }
         if (capability.getIsNever() != null && capability.getIsNever() == 1) {
-            audit(requestId, request, null, null, 0, "PROVIDER_ERROR", "永久禁止类操作（is_never=1）");
+            audit(requestId, request, null, null, 0, "PROVIDER_ERROR",
+                    "永久禁止类操作（is_never=1）", System.currentTimeMillis() - start);
             throw new GatewayException(403, "永久禁止类操作，不可经 AI 执行");
         }
 
         // 2. 输入限长
         if (request.getPrompt().length() > properties.getMaxPromptChars()) {
-            audit(requestId, request, null, null, 0, "PROVIDER_ERROR", "提示词超长");
+            audit(requestId, request, null, null, 0, "PROVIDER_ERROR",
+                    "提示词超长", System.currentTimeMillis() - start);
             throw new GatewayException(400, "提示词超过 " + properties.getMaxPromptChars() + " 字符上限");
         }
 
@@ -80,7 +84,7 @@ public class GatewayService {
                 .eq(AiProviderConfig::getEnabled, 1)
                 .orderByAsc(AiProviderConfig::getPriority));
         if (chain.isEmpty()) {
-            audit(requestId, request, null, null, 0, "DEGRADED", "无启用的 AI 通道");
+            audit(requestId, request, null, null, 0, "DEGRADED", "无启用的 AI 通道", System.currentTimeMillis() - start);
             return degraded(requestId, request, "未配置启用的 AI 通道");
         }
 
@@ -92,13 +96,13 @@ public class GatewayService {
             if (waitMs != null) {
                 lastError = "通道 " + config.getProviderCode() + " 触发分钟限流(熔断10分钟)";
                 log.warn("限流熔断: {}", lastError);
-                audit(requestId, request, config, null, 0, "QUOTA_EXCEEDED", lastError);
+                audit(requestId, request, config, null, 0, "QUOTA_EXCEEDED", lastError, System.currentTimeMillis() - start);
                 continue;
             }
             // 日配额
             if (config.getDailyLimit() != null && callLogMapper.countToday(config.getProviderType()) >= config.getDailyLimit()) {
                 lastError = "通道 " + config.getProviderCode() + " 日配额已用尽";
-                audit(requestId, request, config, null, 0, "QUOTA_EXCEEDED", lastError);
+                audit(requestId, request, config, null, 0, "QUOTA_EXCEEDED", lastError, System.currentTimeMillis() - start);
                 continue;
             }
             // 脱敏（仅商用通道强制；本地/mock 不脱敏）
@@ -118,27 +122,33 @@ public class GatewayService {
                     config.setApiKeyPlain(cipher.decrypt(config.getApiKeyCipher()));
                 } catch (Exception e) {
                     lastError = "通道 " + config.getProviderCode() + " API Key 解密失败";
-                    audit(requestId, request, config, null, 0, "PROVIDER_ERROR", lastError);
+                    audit(requestId, request, config, null, 0, "PROVIDER_ERROR", lastError, System.currentTimeMillis() - start);
                     continue;
                 }
             }
-            // 调用（失败自动重试 1 次）
+            // 调用（失败自动重试 1 次；认证/参数/连接类不可恢复错误立即切下一通道）
             AiProvider provider = providerRegistry.get(config.getProviderType());
             AiProvider.ProviderResult result = null;
             String providerError = null;
+            long callStart = System.currentTimeMillis();
             for (int attempt = 1; attempt <= 2; attempt++) {
                 try {
                     result = provider.chat(config, prompt, request.getMaxTokens() == null ? 0 : request.getMaxTokens());
                     providerError = null;
                     break;
+                } catch (NonRetryableProviderException e) {
+                    providerError = (attempt == 1 ? "调用失败（不可重试）: " : "调用失败: ") + e.getMessage();
+                    log.warn("Provider 不可恢复错误: config={}, {}", config.getProviderCode(), e.getMessage());
+                    break;
                 } catch (Exception e) {
-                    providerError = "调用失败" + (attempt == 1 ? "（已自动重试）" : "");
+                    providerError = (attempt == 1 ? "调用失败（已自动重试）: " : "调用失败（重试后仍失败）: ") + e.getMessage();
                     log.warn("Provider 调用异常: config={}, attempt={}", config.getProviderCode(), attempt, e);
                 }
             }
             if (result == null) {
                 lastError = "通道 " + config.getProviderCode() + " " + providerError;
-                audit(requestId, request, config, prompt, 0, "PROVIDER_ERROR", lastError);
+                audit(requestId, request, config, prompt, 0, "PROVIDER_ERROR", lastError,
+                        System.currentTimeMillis() - callStart);
                 continue;
             }
             // JSON 契约校验（失败带错误重生成一次，再失败转人工）
@@ -157,13 +167,15 @@ public class GatewayService {
                     contractError = "重生成调用失败";
                 }
                 if (contractError != null) {
-                    audit(requestId, request, config, prompt, tokens, "CONTRACT_FAILED", "输出两次未通过契约校验: " + contractError);
+                    audit(requestId, request, config, prompt, tokens, "CONTRACT_FAILED",
+                            "输出两次未通过契约校验: " + contractError, System.currentTimeMillis() - start);
                     throw new GatewayException(502, "AI 输出未通过契约校验，请转人工处理");
                 }
             }
             // 成功审计
             audit(requestId, request, config, prompt, tokens,
-                    "MOCK".equals(config.getProviderType()) ? "MOCK" : "SUCCESS", null);
+                    "MOCK".equals(config.getProviderType()) ? "MOCK" : "SUCCESS", null,
+                    System.currentTimeMillis() - start);
             return new ChatResponse(requestId, request.getCapabilityCode(), true,
                     Map.of("type", config.getProviderType(),
                             "model", StringUtils.hasText(config.getModel()) ? config.getModel() : ""),
@@ -173,7 +185,7 @@ public class GatewayService {
         }
 
         // 5. 全链失败 → 人工模式（不阻塞业务）
-        audit(requestId, request, null, null, 0, "DEGRADED", lastError);
+        audit(requestId, request, null, null, 0, "DEGRADED", lastError, System.currentTimeMillis() - start);
         return degraded(requestId, request, lastError);
     }
 
@@ -187,7 +199,7 @@ public class GatewayService {
     }
 
     private void audit(String requestId, ChatRequest request, AiProviderConfig config,
-                       String prompt, int tokens, String status, String error) {
+                       String prompt, int tokens, String status, String error, long durationMs) {
         try {
             AiCallLog entry = new AiCallLog();
             // 同一请求会逐通道尝试，每条审计记录用 请求ID+通道 定位，避免唯一键冲突
@@ -202,6 +214,7 @@ public class GatewayService {
                 entry.setPromptPreview(truncate(prompt, 500));
             }
             entry.setTotalTokens(tokens);
+            entry.setDurationMs(durationMs);
             entry.setStatus(status);
             entry.setErrorMsg(truncate(error, 500));
             callLogMapper.insert(entry);
