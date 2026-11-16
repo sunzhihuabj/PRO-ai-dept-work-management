@@ -32,6 +32,8 @@ import com.dept.mgmt.security.LoginUser;
 import com.dept.mgmt.service.EventService;
 import com.dept.mgmt.service.ProjectService;
 import com.dept.mgmt.service.TaskService;
+import com.dept.mgmt.tender.collect.entity.TenderCollectRun;
+import com.dept.mgmt.tender.collect.entity.TenderPlatform;
 import com.dept.mgmt.tender.service.TenderService;
 import com.dept.mgmt.workshop.service.WorkshopService;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -72,6 +74,8 @@ public class OpsToolRegistry {
     private final ProjectService projectService;
     private final ContractService contractService;
     private final TenderService tenderService;
+    private final com.dept.mgmt.tender.collect.service.TenderCollectService tenderCollectService;
+    private final com.dept.mgmt.tender.collect.service.TenderPlatformService tenderPlatformService;
     private final DesignService designService;
     private final WorkshopService workshopService;
     private final DeliveryService deliveryService;
@@ -447,6 +451,49 @@ public class OpsToolRegistry {
                 .executor((p, u) -> {
                     tenderService.updateStatus(num(p, "tenderId").longValue(), tenderStatus(str(p, "status")), str(p, "remark"));
                     return "标讯 " + num(p, "tenderId") + " 状态已更新为「" + str(p, "status") + "」";
+                })
+                .build());
+
+        // AGT-27（T-415）：AI 对话触发联网采集——按平台配置登录+采集+提取+登记
+        tool(OpsTool.builder().name("tender.collect").module("投标管理").title("联网采集标讯")
+                .desc("按采集平台配置联网抓取最新标讯，AI 提取关键信息后自动登记到标讯台账（同步执行，耗时与平台页数相关）")
+                .readOnly(false)
+                // 触发外呼采集并写入台账 → 项目负责人级
+                .minRole("ROLE_PROJECT_LEADER")
+                .params(List.of(
+                        OpsParam.builder().name("platformId").type("number").required(true).desc("采集平台ID（tender.collectPlatforms 查询）").build(),
+                        OpsParam.builder().name("resume").type("boolean").desc("是否从上次断点续采").build()))
+                .executor((p, u) -> {
+                    TenderPlatform platform = tenderPlatformService.mustExist(num(p, "platformId").longValue());
+                    if (platform.getEnabled() == null || platform.getEnabled() != 1) {
+                        throw new BusinessException(400, "平台「" + platform.getPlatformName() + "」已停用");
+                    }
+                    TenderCollectRun run = tenderCollectService.runCollect(platform.getId(),
+                            u == null ? null : u.getUserId(), "AGENT_DIALOG",
+                            Boolean.parseBoolean(String.valueOf(p.getOrDefault("resume", "false"))));
+                    return "平台「" + platform.getPlatformName() + "」采集完成（运行 #" + run.getId() + "，状态 "
+                            + run.getStatus() + "）：发现 " + run.getItemsFound() + " 条，登记 "
+                            + run.getRegisterOk() + " 条，去重 " + run.getRegisterDup() + " 条，待人工核验 "
+                            + run.getExtractFailed() + " 条。可在投标管理中查询。";
+                })
+                .build());
+
+        // AGT-27（T-415）：查询可用的采集平台清单（配套 tender.collect 使用）
+        tool(OpsTool.builder().name("tender.collectPlatforms").module("投标管理").title("查询采集平台")
+                .desc("查询已启用的标讯采集平台清单（含ID/名称/认证方式）").readOnly(true)
+                .params(List.of())
+                .executor((p, u) -> {
+                    var platforms = tenderPlatformService.listEnabled();
+                    if (platforms.isEmpty()) {
+                        return "暂无启用的采集平台，请联系管理员在「采集平台管理」页添加";
+                    }
+                    var sb = new StringBuilder("启用中的采集平台：\n");
+                    for (var pl : platforms) {
+                        sb.append("- ID=").append(pl.getId()).append("  ").append(pl.getPlatformName())
+                                .append("（认证方式 ").append(pl.getAuthType()).append("，单次最多 ")
+                                .append(pl.getMaxPages()).append(" 页）\n");
+                    }
+                    return sb.toString();
                 })
                 .build());
     }

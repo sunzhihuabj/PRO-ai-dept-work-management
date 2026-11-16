@@ -122,7 +122,7 @@ import { ElMessageBox } from 'element-plus'
 import {
   UserFilled, HomeFilled, Document, Folder, Message, Promotion, Stamp, SetUp,
   Box, Van, RefreshRight, Coin, Service, Collection, Files, Bell, ChatDotRound,
-  MagicStick, DataAnalysis, Aim, DataLine, User, OfficeBuilding, BellFilled, Tickets, Money, Key
+  MagicStick, DataAnalysis, Aim, DataLine, User, OfficeBuilding, BellFilled, Tickets, Money, Key, Connection
 } from '@element-plus/icons-vue'
 import { ref, watch, computed, markRaw, onMounted, onUnmounted } from 'vue'
 import { unreadCountApi } from '@/api/message'
@@ -170,6 +170,7 @@ const menuGroups: MenuGroup[] = [
     title: '业务域',
     items: [
       { index: '/tender', label: '投标管理', icon: markRaw(Promotion) },
+      { index: '/tender/collect', label: '采集平台管理', icon: markRaw(Connection) },
       { index: '/contract', label: '合同管理', icon: markRaw(Stamp) },
       { index: '/design', label: '设计管理', icon: markRaw(SetUp) },
       { index: '/workshop', label: '生产管理', icon: markRaw(Box) },

@@ -80,6 +80,12 @@
             <artifactId>poi-scratchpad</artifactId>
             <version>5.4.1</version>
         </dependency>
+        <!-- AGT-27 标讯联网采集：HTML 解析（CSS 选择器遍历标讯列表/详情页） -->
+        <dependency>
+            <groupId>org.jsoup</groupId>
+            <artifactId>jsoup</artifactId>
+            <version>1.18.3</version>
+        </dependency>
         <dependency>
             <groupId>com.mysql</groupId>
             <artifactId>mysql-connector-j</artifactId>

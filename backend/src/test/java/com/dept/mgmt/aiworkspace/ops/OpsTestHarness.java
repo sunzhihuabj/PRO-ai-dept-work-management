@@ -89,6 +89,8 @@ public class OpsTestHarness {
 
     public OpsTestHarness(String role, long userId) {
         registry = new OpsToolRegistry(taskService, projectService, contractService, tenderService,
+                mock(com.dept.mgmt.tender.collect.service.TenderCollectService.class),
+                mock(com.dept.mgmt.tender.collect.service.TenderPlatformService.class),
                 designService, workshopService, deliveryService, ecnService, costService, aftermarketService,
                 archiveService, eventService, kbService, projectMapper, userMapper, contractMapper, objectMapper);
         registry.init();

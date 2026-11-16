@@ -177,6 +177,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '投标管理', icon: 'Promotion' }
       },
       {
+        path: 'tender/collect',
+        name: 'TenderCollectPlatform',
+        component: () => import('@/views/tender/CollectPlatform.vue'),
+        meta: { title: '采集平台管理', icon: 'Aim' }
+      },
+      {
         path: 'ecn',
         name: 'EcnManagement',
         component: () => import('@/views/phase3/EcnManagement.vue'),
