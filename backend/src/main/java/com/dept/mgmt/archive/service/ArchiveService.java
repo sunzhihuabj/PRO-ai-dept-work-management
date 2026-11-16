@@ -65,9 +65,8 @@ public class ArchiveService {
         return archive.getId();
     }
 
-    /** 借阅（同档不可重复借出；纸质/双轨才允许实物借出） */
-    @Transactional(rollbackFor = Exception.class)
-    public Long borrowArchive(Long archiveId, String borrower, String purpose, int dueDays, String approveBy) {
+    /** 借阅前置校验（H2 整改：AI 对话确认前拦截，避免确认后才报错；返回档案实体供后续复用） */
+    public ArchiveInfo preAssertBorrowable(Long archiveId) {
         ArchiveInfo archive = mustExistArchive(archiveId);
         if (!"NORMAL".equals(archive.getStatus())) {
             throw new BusinessException(400, "档案当前不可借阅，状态: " + archive.getStatus());
@@ -75,6 +74,13 @@ public class ArchiveService {
         if ("ELECTRONIC".equals(archive.getMedium())) {
             throw new BusinessException(400, "电子载体档案无需实物借阅，请直接查阅电子版本");
         }
+        return archive;
+    }
+
+    /** 借阅（同档不可重复借出；纸质/双轨才允许实物借出） */
+    @Transactional(rollbackFor = Exception.class)
+    public Long borrowArchive(Long archiveId, String borrower, String purpose, int dueDays, String approveBy) {
+        ArchiveInfo archive = preAssertBorrowable(archiveId);
         if (borrower == null || borrower.isBlank()) {
             throw new BusinessException(400, "借阅人必填");
         }

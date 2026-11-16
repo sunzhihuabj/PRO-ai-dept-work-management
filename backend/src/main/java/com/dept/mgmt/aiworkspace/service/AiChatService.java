@@ -57,6 +57,7 @@ public class AiChatService {
     private final CodeEngineService codeEngineService;
     private final WorkflowService workflowService;
     private final SystemOpsService systemOpsService;
+    private final AiMemoryService aiMemoryService;
 
     // ==================== 会话管理 ====================
 
@@ -140,6 +141,10 @@ public class AiChatService {
         // 3. 刷新会话活跃时间
         conv.setLastMsgTime(LocalDateTime.now());
         conversationMapper.updateById(conv);
+
+        // 4. 滚动摘要后台触发（P0-3）：未压缩消息超阈值时把较早消息压缩为会话摘要，
+        //    并抽取用户稳定事实沉淀长期记忆；失败只记日志不影响对话
+        aiMemoryService.maybeSummarize(conv);
         return Map.of("userMessage", userMsg, "assistantMessage", assistantMsg);
     }
 
@@ -271,7 +276,20 @@ public class AiChatService {
     private AiMessage generalChat(AiConversation conv, String content) {
         StringBuilder prompt = new StringBuilder();
         prompt.append("你是部门工作管理平台的 AI 助手，请用简洁专业的中文回答用户问题，")
-                .append("与部门工作管理（项目/任务/合同/流程等）相关的建议要贴合业务实际。\n\n【对话历史】\n");
+                .append("与部门工作管理（项目/任务/合同/流程等）相关的建议要贴合业务实际。\n\n");
+        // 记忆注入（P0-3）：会话滚动摘要 + 用户长期记忆，长会话不丢上下文且记得住用户
+        if (StringUtils.hasText(conv.getSummary())) {
+            prompt.append("【会话此前摘要】\n").append(conv.getSummary()).append("\n\n");
+        }
+        List<String> memories = aiMemoryService.recall(conv.getUserId());
+        if (!memories.isEmpty()) {
+            prompt.append("【用户长期记忆】\n");
+            for (String m : memories) {
+                prompt.append("- ").append(m).append('\n');
+            }
+            prompt.append('\n');
+        }
+        prompt.append("【对话历史】\n");
         List<AiMessage> history = messageMapper.selectList(new LambdaQueryWrapper<AiMessage>()
                 .eq(AiMessage::getConversationId, conv.getId())
                 .orderByDesc(AiMessage::getId)

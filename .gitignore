@@ -9,6 +9,10 @@ ai-gateway/target/
 frontend/dist/
 miniapp/dist/
 miniapp/unpackage/
+frontend/tsconfig.tsbuildinfo
+
+# 本地工具（不入库：独立验证脚本，见 reports/模型列表主动探测技术方案与实现-V1.0.md）
+tools/
 
 # Logs
 *.log

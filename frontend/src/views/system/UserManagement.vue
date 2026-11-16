@@ -97,7 +97,7 @@ import { ref, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
 import { Search, Refresh, Plus } from '@element-plus/icons-vue'
-import { getUserListApi, createUserApi, updateUserApi, deleteUserApi, resetPasswordApi, toggleUserStatusApi, type SysUser } from '@/api/user'
+import { getUserListApi, createUserApi, updateUserApi, assignUserRolesApi, deleteUserApi, resetPasswordApi, toggleUserStatusApi, type SysUser } from '@/api/user'
 
 const loading = ref(false)
 const tableData = ref<SysUser[]>([])
@@ -178,10 +178,22 @@ async function handleSubmit() {
       const data = { ...form }
       if (editing.value && form.id) {
         await updateUserApi(form.id, data)
+        // 角色走独立接口（服务端已不允许通过更新接口改角色，防提权）
+        await assignUserRolesApi(form.id, form.roleCodes)
         ElMessage.success('用户更新成功')
       } else {
-        await createUserApi(data)
-        ElMessage.success('用户创建成功')
+        const res = await createUserApi(data)
+        // M5 弱密码治理：未显式提供密码时系统生成随机初始密码，仅本次回显，提示操作人线下告知
+        const initialPwd = (res.data as any)?.initialPassword
+        if (initialPwd) {
+          await ElMessageBox.alert(
+            `用户「${data.username}」的初始密码为：${initialPwd}\n请立即线下告知用户，并提醒首次登录后修改密码（该密码仅此一次显示）。`.replace('\n', '<br>'),
+            '创建成功（初始密码仅显示一次）',
+            { confirmButtonText: '我已记录', dangerouslyUseHTMLString: true }
+          ).catch(() => {})
+        } else {
+          ElMessage.success('用户创建成功')
+        }
       }
       dialogVisible.value = false
       loadData()

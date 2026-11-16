@@ -88,23 +88,8 @@ public class OpsToolRegistry {
 
     private final Map<String, OpsTool> tools = new LinkedHashMap<>();
 
-    // ==================== 版块知识卡（注入 LLM，对齐系统业务口径） ====================
-
-    public static final String SYSTEM_KNOWLEDGE = """
-            【系统版块知识】（回答与操作必须符合以下业务口径）
-            ■ 日常工作：任务（状态 0待办/1进行中/2待审核/3已完成/4已关闭；优先级 1高/2中/3低；进度0-100；工时0.5-24小时）；项目（类型 1整机厂/2技改/3研发；状态 0待启动/1进行中/2已完成/3已关闭/4暂停；创建必填 名称/类型/客户/计划起止日期，编号 PRJ 自动生成）。
-            ■ 合同：状态 DRAFT草稿→COUNTERSIGN会签→APPROVING审批→SEALING用印→EFFECTIVE生效→CLOSED关闭/TERMINATED终止；会签门 G1=四项收款比例合计必须100%；审批/会签/用印仅部门领导；联系方式为敏感字段按权限脱敏；编号 HT 自动生成。
-            ■ 投标：标讯状态 NEW新标讯/FOLLOWED跟踪中/APPLIED已投标/PREPARED备标中/DECIDED已定标/WON已中标/LOST未中标；编号 TN 自动生成；AI 可做资格比对/报价建议/竞品分析（经 Agent 任务）。
-            ■ 设计：方案状态 DRAFT草稿/RELEASED已发布/ARCHIVED已归档；发布后不可修改；BOM 仅草稿可录入，13 条校验规则。
-            ■ 生产：工单类型 TRIAL试制/BATCH批量；状态 DRAFT/STARTED/CLOSED；开工卡点=齐套率≥95%且交底签字完成；FAI 首件检验 FAIL 会派生整改单；生产完工验收（BR-01 数据源）FAIL 派生整改单。
-            ■ 交付：发货单 DRAFT草稿/SUBMITTED已发运，整机厂首发须 FAI 通过；验收分 FIRST初/MID中/LATE晚/FINAL终验，进度 30%/85% 触发阶段验收，三方（业主/监理/客户）签字齐备生效。
-            ■ 变更 ECN：DRAFT→PENDING_APPROVAL→APPROVED/REJECTED→IMPLEMENTED→CLOSED；实施时旧方案自动归档并回收任务；审批仅部门领导。
-            ■ 成本：类型 MATERIAL物料/LABOR人工/EXPENSE费用；完工核算输出毛利三口径；物料成本由扫码过账自动归集。
-            ■ 售后：报修级别 EMERGENCY紧急/GENERAL一般/INQUIRY咨询（AI 自动分级）；闭环必须填根因与解决方案；编号 RP 自动生成。
-            ■ 档案：类型 CONTRACT合同/SCHEME方案/DRAWING图纸/RECORD记录/ACCEPTANCE验收；介质 ELECTRONIC电子/PAPER纸质/DUAL双轨（纸质/双轨必填存放位置）；状态 NORMAL/BORROWED借出/DESTROYED已销毁；电子档案不可实物借出；编号 DA 自动生成。
-            ■ 协同：事件审批（处理类型 受理/驳回/转派/处理/完成/关闭）；知识库支持混合检索与溯源；绩效 KPI/精益改进/奖金由对应版块管理。
-            ■ 全局：业务单号自动生成不可手填；删除类与资金审批类操作不开放对话执行；所有查询默认返回最近记录。
-            """;
+    // 说明：原 93 行整块「系统版块知识」已按 P0-1 渐进披露改造拆分至 OpsSkillCards（13 张版块技能卡），
+    // 常驻注入 LLM 的仅剩 briefCatalog() 摘要目录，命中版块后才注入完整业务口径。
 
     // ==================== 工具注册 ====================
 
@@ -135,8 +120,16 @@ public class OpsToolRegistry {
 
     /** 紧凑工具目录（注入 LLM）：名称|版块|说明|参数 */
     public String catalog() {
+        return catalog(null);
+    }
+
+    /** 按版块过滤的紧凑工具目录（P0-1 渐进披露：命中版块后仅注入该版块工具的完整参数详情） */
+    public String catalog(String module) {
         StringBuilder sb = new StringBuilder();
         for (OpsTool t : tools.values()) {
+            if (module != null && !module.equals(t.getModule())) {
+                continue;
+            }
             sb.append(t.getName()).append('|').append(t.getModule()).append('|').append(t.getDesc()).append('|');
             if (t.getParams().isEmpty()) {
                 sb.append("无参数");
@@ -172,7 +165,7 @@ public class OpsToolRegistry {
                         OpsParam.builder().name("projectName").type("string").desc("项目名称").build(),
                         OpsParam.builder().name("status").type("string").desc("任务状态").enums(List.of("待办", "进行中", "待审核", "已完成", "已关闭")).build(),
                         OpsParam.builder().name("priority").type("string").desc("优先级").enums(List.of("高", "中", "低")).build(),
-                        OpsParam.builder().name("assignee").type("string").desc("负责人姓名或账号").build(),
+                        OpsParam.builder().name("assignee").type("string").desc("负责人姓名或账号").resolve("user").build(),
                         OpsParam.builder().name("keyword").type("string").desc("任务名称关键词").build()))
                 .executor((p, u) -> {
                     SysUser assignee = p.containsKey("assignee") ? resolveAssignee((String) p.get("assignee")) : null;
@@ -196,9 +189,9 @@ public class OpsToolRegistry {
         tool(OpsTool.builder().name("task.create").module("任务管理").title("创建任务")
                 .desc("创建新任务（需用户确认后执行）").readOnly(false)
                 .params(List.of(
-                        OpsParam.builder().name("projectName").type("string").required(true).desc("所属项目名称").build(),
+                        OpsParam.builder().name("projectName").type("string").required(true).desc("所属项目名称").resolve("project").build(),
                         OpsParam.builder().name("taskName").type("string").required(true).desc("任务名称").build(),
-                        OpsParam.builder().name("assignee").type("string").desc("负责人姓名或账号").build(),
+                        OpsParam.builder().name("assignee").type("string").desc("负责人姓名或账号").resolve("user").build(),
                         OpsParam.builder().name("priority").type("string").desc("优先级").enums(List.of("高", "中", "低")).build(),
                         OpsParam.builder().name("deadline").type("date").desc("截止日期 yyyy-MM-dd").build(),
                         OpsParam.builder().name("description").type("string").desc("任务描述").build()))
@@ -220,6 +213,15 @@ public class OpsToolRegistry {
                     Long id = taskService.create(dto);
                     return "任务创建成功：" + str(p, "taskName") + "（ID=" + id + "，项目：" + project.getProjectName() + "）";
                 })
+                // H2 整改：写入前置校验——确认前先核对项目存在（建任务为全员场景，权限由项目归属校验承接）
+                .precheck((p, u) -> {
+                    try {
+                        resolveProject(str(p, "projectName"));
+                        return null;
+                    } catch (BusinessException e) {
+                        return e.getMessage();
+                    }
+                })
                 .build());
 
         tool(OpsTool.builder().name("task.changeStatus").module("任务管理").title("任务状态流转")
@@ -232,6 +234,16 @@ public class OpsToolRegistry {
                 .executor((p, u) -> {
                     taskService.changeStatus(num(p, "taskId").longValue(), taskStatus(str(p, "targetStatus")), str(p, "comment"));
                     return "任务 " + num(p, "taskId") + " 状态已流转为「" + str(p, "targetStatus") + "」";
+                })
+                // 写入前置校验（P0-4 + H2）：确认前核对任务存在，并校验操作归属——
+                // 仅任务负责人本人、项目负责人或部门领导可变更他人任务状态
+                .precheck((p, u) -> {
+                    try {
+                        Task t = taskService.detail(num(p, "taskId").longValue());
+                        return checkTaskOwnership(t, p.get("taskId"), u);
+                    } catch (BusinessException e) {
+                        return "任务 " + p.get("taskId") + " 不存在，请先查询任务列表核对任务ID";
+                    }
                 })
                 .build());
 
@@ -250,7 +262,33 @@ public class OpsToolRegistry {
                     taskService.addWorkHour(num(p, "taskId").longValue(), dto);
                     return "任务 " + num(p, "taskId") + " 已录入工时 " + p.get("hours") + " 小时（" + str(p, "workDate") + "）";
                 })
+                // 写入前置校验（P0-4 + H2）：确认前核对任务存在，并校验操作归属
+                .precheck((p, u) -> {
+                    try {
+                        Task t = taskService.detail(num(p, "taskId").longValue());
+                        return checkTaskOwnership(t, p.get("taskId"), u);
+                    } catch (BusinessException e) {
+                        return "任务 " + p.get("taskId") + " 不存在，请先查询任务列表核对任务ID";
+                    }
+                })
                 .build());
+    }
+
+    /**
+     * H2 归属校验：仅任务负责人本人、项目负责人或部门领导可操作该任务（录入工时/变更状态）。
+     * 目标存在时返回 null 放行；越权返回拒绝文案。
+     */
+    private String checkTaskOwnership(Task t, Object taskId, LoginUser u) {
+        if (t == null) {
+            return "任务 " + taskId + " 不存在，请先查询任务列表核对任务ID";
+        }
+        boolean isOwner = t.getAssigneeId() != null && t.getAssigneeId().equals(u.getUserId());
+        boolean isLeader = u.getRoles() != null && (u.getRoles().contains("ROLE_DEPT_LEADER")
+                || u.getRoles().contains("ROLE_PROJECT_LEADER"));
+        if (!isOwner && !isLeader) {
+            return "任务 " + taskId + " 的负责人不是您，仅任务负责人本人、项目负责人或部门领导可执行该操作";
+        }
+        return null;
     }
 
     // ---------- 项目 ----------
@@ -271,7 +309,7 @@ public class OpsToolRegistry {
 
         tool(OpsTool.builder().name("project.detail").module("项目管理").title("项目详情")
                 .desc("查项目详情（含阶段/里程碑概要）").readOnly(true)
-                .params(List.of(OpsParam.builder().name("projectName").type("string").required(true).desc("项目名称").build()))
+                .params(List.of(OpsParam.builder().name("projectName").type("string").required(true).desc("项目名称").resolve("project").build()))
                 .executor((p, u) -> {
                     Project project = resolveProject(str(p, "projectName"));
                     StringBuilder sb = new StringBuilder("**项目详情**\n\n");
@@ -364,11 +402,20 @@ public class OpsToolRegistry {
                 .permCode("api:contract:link")
                 .params(List.of(
                         OpsParam.builder().name("contractId").type("number").required(true).desc("合同ID").build(),
-                        OpsParam.builder().name("projectName").type("string").required(true).desc("项目名称").build()))
+                        OpsParam.builder().name("projectName").type("string").required(true).desc("项目名称").resolve("project").build()))
                 .executor((p, u) -> {
                     Project project = resolveProject(str(p, "projectName"));
                     contractService.bind(num(p, "contractId").longValue(), project.getId());
                     return "合同 " + num(p, "contractId") + " 已与项目「" + project.getProjectName() + "」建立关联";
+                })
+                // 写入前置校验（P0-4）：确认前先核对合同存在且可访问
+                .precheck((p, u) -> {
+                    try {
+                        contractService.detail(num(p, "contractId").longValue());
+                        return null;
+                    } catch (BusinessException e) {
+                        return "合同 " + p.get("contractId") + " 不存在或不可访问，请先查询合同核对ID";
+                    }
                 })
                 .build());
     }
@@ -390,6 +437,8 @@ public class OpsToolRegistry {
 
         tool(OpsTool.builder().name("tender.updateStatus").module("投标管理").title("推进标讯状态")
                 .desc("更新标讯跟进状态（需用户确认后执行）").readOnly(false)
+                // H2 整改：写入工具强制权限声明——标讯推进为项目负责人级操作
+                .minRole("ROLE_PROJECT_LEADER")
                 .params(List.of(
                         OpsParam.builder().name("tenderId").type("number").required(true).desc("标讯ID").build(),
                         OpsParam.builder().name("status").type("string").required(true).desc("目标状态")
@@ -408,7 +457,7 @@ public class OpsToolRegistry {
         tool(OpsTool.builder().name("design.schemeList").module("设计管理").title("查询设计方案")
                 .desc("按项目/状态查询设计方案列表").readOnly(true)
                 .params(List.of(
-                        OpsParam.builder().name("projectName").type("string").desc("项目名称").build(),
+                        OpsParam.builder().name("projectName").type("string").desc("项目名称").resolve("project").build(),
                         OpsParam.builder().name("status").type("string").desc("方案状态").enums(List.of("草稿", "已发布", "已归档")).build()))
                 .executor((p, u) -> {
                     Project project = p.containsKey("projectName") ? resolveProject(str(p, "projectName")) : null;
@@ -427,7 +476,7 @@ public class OpsToolRegistry {
         tool(OpsTool.builder().name("production.woList").module("生产管理").title("查询生产工单")
                 .desc("按项目/状态查询生产工单列表").readOnly(true)
                 .params(List.of(
-                        OpsParam.builder().name("projectName").type("string").desc("项目名称").build(),
+                        OpsParam.builder().name("projectName").type("string").desc("项目名称").resolve("project").build(),
                         OpsParam.builder().name("status").type("string").desc("工单状态").enums(List.of("草稿", "已开工", "已完工")).build()))
                 .executor((p, u) -> {
                     Project project = p.containsKey("projectName") ? resolveProject(str(p, "projectName")) : null;
@@ -441,7 +490,7 @@ public class OpsToolRegistry {
 
         tool(OpsTool.builder().name("production.kitting").module("生产管理").title("齐套率计算")
                 .desc("计算项目生产物料齐套率（开工卡点≥95%）").readOnly(true)
-                .params(List.of(OpsParam.builder().name("projectName").type("string").required(true).desc("项目名称").build()))
+                .params(List.of(OpsParam.builder().name("projectName").type("string").required(true).desc("项目名称").resolve("project").build()))
                 .executor((p, u) -> {
                     Project project = resolveProject(str(p, "projectName"));
                     Object calc = workshopService.calculateKitting(project.getId());
@@ -458,7 +507,7 @@ public class OpsToolRegistry {
         tool(OpsTool.builder().name("delivery.shipmentList").module("交付管理").title("查询发货单")
                 .desc("按项目/状态查询发货单列表").readOnly(true)
                 .params(List.of(
-                        OpsParam.builder().name("projectName").type("string").desc("项目名称").build(),
+                        OpsParam.builder().name("projectName").type("string").desc("项目名称").resolve("project").build(),
                         OpsParam.builder().name("status").type("string").desc("发货状态").enums(List.of("草稿", "已发运")).build()))
                 .executor((p, u) -> {
                     Project project = p.containsKey("projectName") ? resolveProject(str(p, "projectName")) : null;
@@ -472,7 +521,7 @@ public class OpsToolRegistry {
 
         tool(OpsTool.builder().name("delivery.progress").module("交付管理").title("交付进度")
                 .desc("查询项目累计交付工程量进度（百分比）").readOnly(true)
-                .params(List.of(OpsParam.builder().name("projectName").type("string").required(true).desc("项目名称").build()))
+                .params(List.of(OpsParam.builder().name("projectName").type("string").required(true).desc("项目名称").resolve("project").build()))
                 .executor((p, u) -> {
                     Project project = resolveProject(str(p, "projectName"));
                     BigDecimal progress = deliveryService.currentProgress(project.getId());
@@ -482,7 +531,7 @@ public class OpsToolRegistry {
 
         tool(OpsTool.builder().name("delivery.acceptanceList").module("交付管理").title("查询验收单")
                 .desc("按项目查询阶段验收单列表").readOnly(true)
-                .params(List.of(OpsParam.builder().name("projectName").type("string").required(true).desc("项目名称").build()))
+                .params(List.of(OpsParam.builder().name("projectName").type("string").required(true).desc("项目名称").resolve("project").build()))
                 .executor((p, u) -> {
                     Project project = resolveProject(str(p, "projectName"));
                     return renderList(deliveryService.listAcceptances(project.getId(), null, null),
@@ -498,7 +547,7 @@ public class OpsToolRegistry {
         tool(OpsTool.builder().name("ecn.list").module("变更管理").title("查询变更单")
                 .desc("按项目/状态查询 ECN 变更单列表").readOnly(true)
                 .params(List.of(
-                        OpsParam.builder().name("projectName").type("string").desc("项目名称").build(),
+                        OpsParam.builder().name("projectName").type("string").desc("项目名称").resolve("project").build(),
                         OpsParam.builder().name("status").type("string").desc("变更状态")
                                 .enums(List.of("草稿", "待审批", "已批准", "已驳回", "已实施", "已关闭")).build()))
                 .executor((p, u) -> {
@@ -532,7 +581,7 @@ public class OpsToolRegistry {
     private void registerCostTools() {
         tool(OpsTool.builder().name("cost.ledger").module("成本管理").title("查询成本台账")
                 .desc("查询项目成本台账明细与合计").readOnly(true)
-                .params(List.of(OpsParam.builder().name("projectName").type("string").required(true).desc("项目名称").build()))
+                .params(List.of(OpsParam.builder().name("projectName").type("string").required(true).desc("项目名称").resolve("project").build()))
                 .executor((p, u) -> {
                     Project project = resolveProject(str(p, "projectName"));
                     List<?> ledger = costService.listLedger(project.getId());
@@ -553,7 +602,7 @@ public class OpsToolRegistry {
         tool(OpsTool.builder().name("cost.settle").module("成本管理").title("完工成本核算")
                 .desc("执行项目完工核算并生成核算单（毛利三口径，需用户确认后执行）").readOnly(false)
                 .minRole("ROLE_DEPT_LEADER")
-                .params(List.of(OpsParam.builder().name("projectName").type("string").required(true).desc("项目名称").build()))
+                .params(List.of(OpsParam.builder().name("projectName").type("string").required(true).desc("项目名称").resolve("project").build()))
                 .executor((p, u) -> {
                     Project project = resolveProject(str(p, "projectName"));
                     Map<String, Object> result = costService.settleProject(project.getId());
@@ -572,7 +621,7 @@ public class OpsToolRegistry {
                 .params(List.of(
                         OpsParam.builder().name("level").type("string").desc("报修级别").enums(List.of("紧急", "一般", "咨询")).build(),
                         OpsParam.builder().name("status").type("string").desc("处理状态").enums(List.of("待处理", "处理中", "已闭环")).build(),
-                        OpsParam.builder().name("projectName").type("string").desc("项目名称").build()))
+                        OpsParam.builder().name("projectName").type("string").desc("项目名称").resolve("project").build()))
                 .executor((p, u) -> {
                     Project project = p.containsKey("projectName") ? resolveProject(str(p, "projectName")) : null;
                     PageResult<RepairTicket> page = aftermarketService.listRepairs(1, 10,
@@ -587,12 +636,21 @@ public class OpsToolRegistry {
         tool(OpsTool.builder().name("aftermarket.repairCreate").module("售后服务").title("报修受理")
                 .desc("登记故障报修（AI 自动分级，需用户确认后执行）").readOnly(false)
                 .params(List.of(
-                        OpsParam.builder().name("projectName").type("string").required(true).desc("项目名称").build(),
+                        OpsParam.builder().name("projectName").type("string").required(true).desc("项目名称").resolve("project").build(),
                         OpsParam.builder().name("faultDesc").type("string").required(true).desc("故障描述").build()))
                 .executor((p, u) -> {
                     Project project = resolveProject(str(p, "projectName"));
                     Long id = aftermarketService.createRepair(project.getId(), str(p, "faultDesc"), u.getUsername());
                     return "报修单已受理（ID=" + id + "，项目：" + project.getProjectName() + "），系统已自动分级并生成处理建议";
+                })
+                // H2 整改：写入前置校验——确认前先核对项目存在
+                .precheck((p, u) -> {
+                    try {
+                        resolveProject(str(p, "projectName"));
+                        return null;
+                    } catch (BusinessException e) {
+                        return e.getMessage();
+                    }
                 })
                 .build());
     }
@@ -629,6 +687,15 @@ public class OpsToolRegistry {
                     Long borrowId = archiveService.borrowArchive(num(p, "archiveId").longValue(),
                             u.getUsername(), str(p, "purpose"), dueDays, u.getUsername());
                     return "借阅登记成功（借阅单 ID=" + borrowId + "，借期 " + dueDays + " 天，逾期将标记超期）";
+                })
+                // H2 整改：写入前置校验——确认前核对档案可借状态（存在/未借出/非电子载体）
+                .precheck((p, u) -> {
+                    try {
+                        archiveService.preAssertBorrowable(num(p, "archiveId").longValue());
+                        return null;
+                    } catch (BusinessException e) {
+                        return e.getMessage();
+                    }
                 })
                 .build());
 
@@ -671,6 +738,15 @@ public class OpsToolRegistry {
                     eventService.handle(num(p, "eventId").longValue(), dto);
                     return "事件 " + num(p, "eventId") + " 已执行「" + str(p, "handleType") + "」";
                 })
+                // H2 整改：写入前置校验——确认前核对事件存在
+                .precheck((p, u) -> {
+                    try {
+                        eventService.detail(num(p, "eventId").longValue());
+                        return null;
+                    } catch (BusinessException e) {
+                        return "事件 " + p.get("eventId") + " 不存在，请先查询待审批事件核对事件ID";
+                    }
+                })
                 .build());
 
         tool(OpsTool.builder().name("kb.search").module("知识库").title("知识库检索")
@@ -696,16 +772,37 @@ public class OpsToolRegistry {
 
     // ==================== 参数解析辅助 ====================
 
-    /** 项目名/ID → Project（唯一匹配；支持「XX项目」口语化名称与双向包含模糊匹配） */
-    private Project resolveProject(String nameOrId) {
+    // ==================== 实体模糊匹配（P0-4 参数语义校验） ====================
+
+    /** 实体匹配结果：entity 唯一命中；candidates 非空且 entity 为 null 表示歧义（需用户澄清） */
+    public record EntityMatch<T>(T entity, List<String> candidates) {
+
+        /** 未匹配到任何实体 */
+        public static <T> EntityMatch<T> none() {
+            return new EntityMatch<>(null, List.of());
+        }
+
+        /** 匹配到多个实体（候选清单最多 5 条） */
+        public static <T> EntityMatch<T> ambiguous(List<String> candidates) {
+            return new EntityMatch<>(null, candidates);
+        }
+
+        /** 唯一命中 */
+        public static <T> EntityMatch<T> unique(T entity) {
+            return new EntityMatch<>(entity, List.of());
+        }
+    }
+
+    /** 项目名/ID → 实体匹配（ID精确 → like → 去「项目」后缀 → 双向包含；不抛异常，由调用方决定追问策略） */
+    public EntityMatch<Project> matchProject(String nameOrId) {
         if (!StringUtils.hasText(nameOrId)) {
-            throw new BusinessException(400, "请提供项目名称");
+            return EntityMatch.none();
         }
         String input = nameOrId.trim();
         List<Project> matched = new ArrayList<>();
         if (input.matches("\\d+")) {
             Project project = projectMapper.selectById(Long.valueOf(input));
-            matched = project == null ? List.of() : List.of(project);
+            matched = project == null ? List.of() : new ArrayList<>(List.of(project));
         }
         if (matched.isEmpty()) {
             matched = projectMapper.selectList(new LambdaQueryWrapper<Project>()
@@ -726,22 +823,13 @@ public class OpsToolRegistry {
                     .limit(11)
                     .collect(Collectors.toList());
         }
-        if (matched.isEmpty()) {
-            throw new BusinessException(400, "未找到项目「" + nameOrId + "」，请确认项目名称（可先说「查一下项目」核对）");
-        }
-        if (matched.size() > 1) {
-            String candidates = matched.stream()
-                    .map(pr -> pr.getProjectCode() + " " + pr.getProjectName())
-                    .collect(Collectors.joining("；"));
-            throw new BusinessException(400, "匹配到多个项目，请指明是哪一个：" + candidates);
-        }
-        return matched.get(0);
+        return toEntityMatch(matched, pr -> pr.getProjectCode() + " " + pr.getProjectName());
     }
 
-    /** 姓名/账号/ID → SysUser（唯一匹配；支持双向包含模糊匹配） */
-    private SysUser resolveAssignee(String nameOrId) {
+    /** 姓名/账号/ID → 成员实体匹配（精确账号/姓名 like → 双向包含；不抛异常） */
+    public EntityMatch<SysUser> matchAssignee(String nameOrId) {
         if (!StringUtils.hasText(nameOrId)) {
-            throw new BusinessException(400, "请提供负责人姓名");
+            return EntityMatch.none();
         }
         String input = nameOrId.trim();
         List<SysUser> matched = userMapper.selectList(new LambdaQueryWrapper<SysUser>()
@@ -756,16 +844,48 @@ public class OpsToolRegistry {
                     .limit(11)
                     .collect(Collectors.toList());
         }
-        if (matched.isEmpty()) {
-            throw new BusinessException(400, "未找到成员「" + nameOrId + "」，请确认姓名或账号");
+        return toEntityMatch(matched, usr -> usr.getUsername() + "(" + nvl(usr.getRealName()) + ")");
+    }
+
+    /** 匹配结果收敛：0条=none；多条=ambiguous（候选限5条）；1条=unique */
+    private <T> EntityMatch<T> toEntityMatch(List<T> matched, java.util.function.Function<T, String> formatter) {
+        if (matched == null || matched.isEmpty()) {
+            return EntityMatch.none();
         }
         if (matched.size() > 1) {
-            String candidates = matched.stream()
-                    .map(usr -> usr.getUsername() + "(" + nvl(usr.getRealName()) + ")")
-                    .collect(Collectors.joining("；"));
-            throw new BusinessException(400, "匹配到多位成员，请指明账号：" + candidates);
+            return EntityMatch.ambiguous(matched.stream().limit(5).map(formatter).collect(Collectors.toList()));
         }
-        return matched.get(0);
+        return EntityMatch.unique(matched.get(0));
+    }
+
+    /** 项目名/ID → Project（唯一匹配；未找到/歧义抛业务异常，供 executor 内直接使用） */
+    private Project resolveProject(String nameOrId) {
+        if (!StringUtils.hasText(nameOrId)) {
+            throw new BusinessException(400, "请提供项目名称");
+        }
+        EntityMatch<Project> match = matchProject(nameOrId);
+        if (match.entity() == null) {
+            if (!match.candidates().isEmpty()) {
+                throw new BusinessException(400, "匹配到多个项目，请指明是哪一个：" + String.join("；", match.candidates()));
+            }
+            throw new BusinessException(400, "未找到项目「" + nameOrId + "」，请确认项目名称（可先说「查一下项目」核对）");
+        }
+        return match.entity();
+    }
+
+    /** 姓名/账号/ID → SysUser（唯一匹配；未找到/歧义抛业务异常） */
+    private SysUser resolveAssignee(String nameOrId) {
+        if (!StringUtils.hasText(nameOrId)) {
+            throw new BusinessException(400, "请提供负责人姓名");
+        }
+        EntityMatch<SysUser> match = matchAssignee(nameOrId);
+        if (match.entity() == null) {
+            if (!match.candidates().isEmpty()) {
+                throw new BusinessException(400, "匹配到多位成员，请指明账号：" + String.join("；", match.candidates()));
+            }
+            throw new BusinessException(400, "未找到成员「" + nameOrId + "」，请确认姓名或账号");
+        }
+        return match.entity();
     }
 
     private Long resolveContractId(String contractNo) {

@@ -24,9 +24,10 @@
             <el-tag :type="row.enabled === 1 ? 'success' : 'info'">{{ row.enabled === 1 ? '启用' : '停用' }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="230" fixed="right">
+        <el-table-column label="操作" width="310" fixed="right">
           <template #default="{ row }">
             <el-button size="small" :loading="testingId === row.id" @click="handleTest(row)">测试连接</el-button>
+            <el-button size="small" :loading="probingId === row.id" @click="handleProbeChannel(row)">探测模型</el-button>
             <el-button size="small" type="primary" @click="openEdit(row)">编辑</el-button>
             <el-button size="small" type="danger" @click="handleDelete(row)">删除</el-button>
           </template>
@@ -54,10 +55,21 @@
           </el-select>
         </el-form-item>
         <el-form-item v-if="form.providerType !== 'MOCK'" label="API 地址" required>
-          <el-input v-model="form.endpoint" placeholder="如 https://api.deepseek.com/v1" />
+          <el-input v-model="form.endpoint" placeholder="如 https://api.deepseek.com/v1（Ollama 填根地址如 http://localhost:11434）" />
         </el-form-item>
         <el-form-item label="模型名">
-          <el-input v-model="form.model" placeholder="如 deepseek-chat / glm-4-flash" />
+          <div class="model-row">
+            <el-select v-model="form.model" filterable allow-create default-first-option clearable
+                       placeholder="如 deepseek-chat / glm-4-flash（可探测后选择）" style="flex: 1">
+              <el-option v-for="m in probeOptions" :key="m.id" :label="m.id" :value="m.id">
+                <span>{{ m.id }}</span>
+                <span class="opt-sub">{{ m.ownedBy || '' }}</span>
+              </el-option>
+            </el-select>
+            <el-button :disabled="form.providerType === 'MOCK' || !form.endpoint" :loading="probing"
+                       @click="handleProbe">探测模型</el-button>
+          </div>
+          <span v-if="probeNote" class="field-hint">{{ probeNote }}</span>
         </el-form-item>
         <el-form-item v-if="form.providerType === 'OPENAI_COMPAT'" label="API Key" :required="!editingId">
           <el-input v-model="form.apiKey" type="password" show-password
@@ -95,7 +107,8 @@ import { ref, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   getAiConfigsApi, createAiConfigApi, updateAiConfigApi, deleteAiConfigApi, testAiConfigApi,
-  type AiProviderConfig, type TestResult
+  probeModelsApi, listChannelModelsApi,
+  type AiProviderConfig, type TestResult, type ProbeResult
 } from '@/api/aiConfig'
 
 const loading = ref(false)
@@ -105,6 +118,10 @@ const dialogVisible = ref(false)
 const editingId = ref<number | null>(null)
 const testingId = ref<number | null>(null)
 const savedKeyHint = ref('')
+const probing = ref(false)
+const probingId = ref<number | null>(null)
+const probeOptions = ref<ProbeResult['models']>([])
+const probeNote = ref('')
 
 const form = reactive({
   providerCode: '', providerName: '', providerType: 'OPENAI_COMPAT' as AiProviderConfig['providerType'],
@@ -125,6 +142,7 @@ async function load() {
 function openCreate() {
   editingId.value = null
   savedKeyHint.value = ''
+  resetProbe()
   Object.assign(form, {
     providerCode: '', providerName: '', providerType: 'OPENAI_COMPAT',
     endpoint: '', model: '', apiKey: '', priority: 100, rpmLimit: 35, dailyLimit: 500,
@@ -136,6 +154,7 @@ function openCreate() {
 function openEdit(row: Record<string, any>) {
   editingId.value = row.id || null
   savedKeyHint.value = row.apiKeyHint || ''
+  resetProbe()
   Object.assign(form, {
     providerCode: row.providerCode, providerName: row.providerName, providerType: row.providerType,
     endpoint: row.endpoint || '', model: row.model || '', apiKey: '',
@@ -143,6 +162,63 @@ function openEdit(row: Record<string, any>) {
     enabledBool: row.enabled === 1, remark: row.remark || ''
   })
   dialogVisible.value = true
+}
+
+function resetProbe() {
+  probeOptions.value = []
+  probeNote.value = ''
+}
+
+/** 表单内探测：按当前填写的 API 地址（+ API Key）主动拉取模型列表，成功后下拉可选 */
+async function handleProbe() {
+  if (!form.endpoint) {
+    ElMessage.warning('请先填写 API 地址')
+    return
+  }
+  probing.value = true
+  resetProbe()
+  try {
+    const res = await probeModelsApi({
+      providerType: form.providerType,
+      endpoint: form.endpoint,
+      apiKey: form.apiKey || undefined
+    })
+    const result: ProbeResult = (res.data as any) || { success: false, count: 0 }
+    if (result.success) {
+      probeOptions.value = result.models || []
+      probeNote.value = `探测到 ${result.count} 个模型（${result.protocol || '-'}，${result.durationMs ?? 0}ms${result.cached ? '，缓存' : ''}），下拉可直接选择`
+      if (result.note) {
+        ElMessage.warning(result.note)
+      }
+    } else {
+      probeNote.value = ''
+      ElMessage.error(`${result.errorMessage || '探测失败'}（${result.errorType || '-'}）`)
+    }
+  } finally {
+    probing.value = false
+  }
+}
+
+/** 行级探测：已保存通道服务端解密 Key 探测，弹窗展示模型清单 */
+async function handleProbeChannel(row: Record<string, any>) {
+  probingId.value = row.id || null
+  try {
+    const res = await listChannelModelsApi(row.id!)
+    const result: ProbeResult = (res.data as any) || { success: false, count: 0 }
+    if (result.success) {
+      const list = (result.models || []).map((m) => m.id).join('\n')
+      const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      ElMessageBox.alert(
+        `<div style="font-size:12px;color:#909399;margin-bottom:8px">协议：${esc(result.protocol || '-')} ｜ 端点：${esc(result.endpointUsed || '-')} ｜ 耗时：${result.durationMs ?? 0}ms${result.cached ? ' ｜ 缓存' : ''}</div><pre style="max-height:420px;overflow:auto;margin:0;font-size:13px;line-height:1.7">${esc(list || '（空）')}</pre>`,
+        `「${row.providerName}」探测到 ${result.count} 个模型`,
+        { confirmButtonText: '知道了', dangerouslyUseHTMLString: true }
+      ).catch(() => {})
+    } else {
+      ElMessage.error(`${result.errorMessage || '探测失败'}（${result.errorType || '-'}）`)
+    }
+  } finally {
+    probingId.value = null
+  }
 }
 
 async function handleSave() {
@@ -213,6 +289,16 @@ onMounted(load)
 }
 .field-hint {
   margin-left: 8px;
+  font-size: 12px;
+  color: #909399;
+}
+.model-row {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+}
+.opt-sub {
+  float: right;
   font-size: 12px;
   color: #909399;
 }

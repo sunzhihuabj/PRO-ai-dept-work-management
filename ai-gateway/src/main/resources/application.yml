@@ -15,9 +15,12 @@ spring:
 
 # 网关治理配置
 gateway:
-  # 服务间认证密钥（backend 与网关共享；生产必须通过环境变量注入，不足16字符启动失败）
-  api-key: ${GATEWAY_API_KEY:dept-gateway-internal-key-2026}
-  # 通道配置加密密钥（AES-GCM 派生源；生产必须通过环境变量注入，不足32字符启动失败）
+  # 服务间认证密钥（backend 与网关共享；生产必须通过环境变量注入，不足16字符启动失败；
+  # 旧默认值已轮换作废，双端须同步更新）
+  api-key: ${GATEWAY_API_KEY:dept-gw-internal-2026r2-fA9kQ2xV}
+  # 通道配置加密密钥（AES-GCM 派生源；不足32字符启动失败。
+  # 注意：该密钥用于解密 sys_ai_provider_config 中的存量密文，本地不可随意变更；
+  # 生产环境必须通过环境变量注入专属密钥（注入前须完成存量密文重加密迁移），否则启动失败）
   config-secret: ${AI_CONFIG_SECRET:dept-ai-config-secret-key-2026-change-me-please}
   # 出网脱敏开关（仅商用 OPENAI_COMPAT 通道强制生效，本地/mock 不脱敏）
   desensitize-enabled: true

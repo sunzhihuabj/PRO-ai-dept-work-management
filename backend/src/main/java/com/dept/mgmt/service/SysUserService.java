@@ -59,19 +59,28 @@ public class SysUserService {
     }
 
     /**
-     * 创建用户
+     * 创建用户（M5 弱密码治理：未显式提供密码时生成随机初始密码，显式提供时强制强度校验）
+     *
+     * @return id + initialPassword（未显式提供密码时返回生成的随机密码，仅本次响应一次性回显）
      */
     @Transactional(rollbackFor = Exception.class)
-    public Long create(SysUserDTO dto) {
+    public java.util.Map<String, Object> create(SysUserDTO dto) {
         SysUser existing = sysUserMapper.selectByUsername(dto.getUsername());
         if (existing != null) {
             throw new BusinessException(409, "用户名已存在");
         }
 
+        String initialPassword;
+        if (StringUtils.hasText(dto.getPassword())) {
+            com.dept.mgmt.common.util.PasswordPolicy.validate(dto.getPassword());
+            initialPassword = dto.getPassword();
+        } else {
+            initialPassword = com.dept.mgmt.common.util.PasswordPolicy.generate();
+        }
+
         SysUser user = new SysUser();
         user.setUsername(dto.getUsername());
-        String pwd = StringUtils.hasText(dto.getPassword()) ? dto.getPassword() : "123456";
-        user.setPassword(passwordEncoder.encode(pwd));
+        user.setPassword(passwordEncoder.encode(initialPassword));
         user.setRealName(dto.getRealName());
         user.setPhone(dto.getPhone());
         user.setEmail(dto.getEmail());
@@ -80,12 +89,17 @@ public class SysUserService {
         user.setRoleCodes(toJsonArray(dto.getRoleCodes()));
 
         sysUserMapper.insert(user);
-        log.info("创建用户成功: {} ({})", user.getUsername(), user.getRealName());
-        return user.getId();
+        log.info("创建用户成功: {} ({}), 初始密码由{}生成", user.getUsername(), user.getRealName(),
+                StringUtils.hasText(dto.getPassword()) ? "操作人指定" : "系统随机");
+        return java.util.Map.of("id", user.getId(), "initialPassword",
+                StringUtils.hasText(dto.getPassword()) ? "" : initialPassword);
     }
 
     /**
-     * 更新用户
+     * 更新用户（基础资料）
+     * 安全约束（H1 整改）：本方法仅允许修改基础资料（姓名/联系方式/头像/状态）；
+     * 密码修改必须走 resetPassword（部门领导专用），角色变更必须走 assignRoles，
+     * 防止普通用户借通用更新接口改密或自授角色
      */
     @Transactional(rollbackFor = Exception.class)
     public void update(Long id, SysUserDTO dto) {
@@ -101,16 +115,29 @@ public class SysUserService {
         user.setEmail(dto.getEmail());
         user.setAvatar(dto.getAvatar());
         user.setStatus(dto.getStatus());
-        if (StringUtils.hasText(dto.getRoleCodes())) {
-            user.setRoleCodes(toJsonArray(dto.getRoleCodes()));
-        }
-        if (StringUtils.hasText(dto.getPassword())) {
-            user.setPassword(passwordEncoder.encode(dto.getPassword()));
-            user.setPwdUpdateTime(java.time.LocalDateTime.now());
-        }
+        // 安全红线：忽略 DTO 中的 password / roleCodes（密码走 resetPassword，角色走 assignRoles）
 
         sysUserMapper.updateById(user);
         log.info("更新用户成功: id={}", id);
+    }
+
+    /**
+     * 角色分配（独立接口，仅部门领导可调）
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public void assignRoles(Long id, String roleCodes) {
+        if (!StringUtils.hasText(roleCodes)) {
+            throw new BusinessException(400, "角色编码不能为空");
+        }
+        SysUser existing = sysUserMapper.selectByIdWithRoles(id);
+        if (existing == null) {
+            throw new BusinessException(404, "用户不存在");
+        }
+        SysUser user = new SysUser();
+        user.setId(id);
+        user.setRoleCodes(toJsonArray(roleCodes));
+        sysUserMapper.updateById(user);
+        log.info("分配用户角色成功: id={}, roles={}", id, roleCodes);
     }
 
     /**
@@ -127,16 +154,11 @@ public class SysUserService {
     }
 
     /**
-     * 重置密码（新密码由部门领导提供，禁止固定值；响应不回显）
+     * 重置密码（新密码由部门领导提供，禁止固定值；响应不回显；M5：统一密码策略校验）
      */
     @Transactional(rollbackFor = Exception.class)
     public void resetPassword(Long id, String newPassword) {
-        if (newPassword == null || newPassword.length() < 8) {
-            throw new BusinessException(400, "新密码长度不能少于8位");
-        }
-        if (!newPassword.matches(".*[A-Za-z].*") || !newPassword.matches(".*\\d.*")) {
-            throw new BusinessException(400, "新密码必须同时包含字母和数字");
-        }
+        com.dept.mgmt.common.util.PasswordPolicy.validate(newPassword);
         SysUser existing = sysUserMapper.selectByIdWithRoles(id);
         if (existing == null) {
             throw new BusinessException(404, "用户不存在");

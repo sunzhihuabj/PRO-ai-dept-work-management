@@ -46,12 +46,22 @@ public class KbService {
     private final ChunkSplitter splitter;
     private final AiGatewayClient aiGatewayClient;
     private final ObjectMapper objectMapper;
+    private final org.springframework.transaction.PlatformTransactionManager transactionManager;
+
+    /** M3：编程式短事务模板（TransactionTemplate 非自动配置 Bean，由 PlatformTransactionManager 构建） */
+    private org.springframework.transaction.support.TransactionTemplate txTemplate;
+
+    @jakarta.annotation.PostConstruct
+    void initTxTemplate() {
+        this.txTemplate = new org.springframework.transaction.support.TransactionTemplate(transactionManager);
+    }
 
     /**
-     * 上传并索引知识文档（同步流程：解析→切块→向量化→落库）
+     * 上传并索引知识文档（解析→切块→向量化→落库）
+     * M3 整改：向量化为外部 HTTP 调用，已拆出事务——仅 DB 段经 TransactionTemplate 短事务执行，
+     * 防止外部调用期间长时间占用数据库连接池
      */
-    @Transactional(rollbackFor = Exception.class)
-    public KbDocument index(MultipartFile file, String title) {
+    public KbDocument index(org.springframework.web.multipart.MultipartFile file, String title) {
         LoginUser user = LoginUser.current();
         KbDocument document = new KbDocument();
         document.setTitle(StringUtils.hasText(title) ? title : file.getOriginalFilename());
@@ -61,9 +71,9 @@ public class KbService {
         document.setSensitive(0);
         document.setAuditStatus("APPROVED");
         document.setHitCount(0);
-        documentMapper.insert(document);
+        txTemplate.executeWithoutResult(s -> documentMapper.insert(document));
         try {
-            // 1. 解析
+            // 1. 解析（外部文件解析，事务外）
             String[] parsed = parser.parse(file);
             String content = parsed[0];
             document.setSourceType(parsed[1]);
@@ -72,29 +82,23 @@ public class KbService {
             }
             return indexContent(document, content);
         } catch (BusinessException e) {
-            document.setStatus("FAILED");
-            document.setFailReason(e.getMessage());
-            documentMapper.updateById(document);
+            markFailed(document, e.getMessage());
             throw e;
         } catch (IllegalArgumentException e) {
             // T-407：格式不支持/文件为空/超限等参数类异常 → 400 中文友好提示（此前被兜底 500 掩盖）
-            document.setStatus("FAILED");
-            document.setFailReason(e.getMessage());
-            documentMapper.updateById(document);
+            markFailed(document, e.getMessage());
             throw new BusinessException(400, e.getMessage());
         } catch (Exception e) {
             log.error("文档索引失败: {}", document.getTitle(), e);
-            document.setStatus("FAILED");
-            document.setFailReason("索引失败：" + e.getClass().getSimpleName());
-            documentMapper.updateById(document);
+            markFailed(document, "索引失败：" + e.getClass().getSimpleName());
             throw new BusinessException(500, "文档索引失败，请检查 AI 通道配置");
         }
     }
 
     /**
      * 文本语料直接入库（T-306：SOP/制度/规范/案例批量投产入口，无需上传文件）
+     * M3 整改：向量化拆出事务（同 index），仅 DB 段走短事务
      */
-    @Transactional(rollbackFor = Exception.class)
     public KbDocument indexText(String title, String content, String category, boolean sensitive) {
         if (!StringUtils.hasText(title)) {
             throw new BusinessException(400, "知识标题不能为空");
@@ -116,24 +120,31 @@ public class KbService {
         // 敏感知识必须人工审核后才可检索（T-306 规则）
         document.setAuditStatus(sensitive ? "PENDING" : "APPROVED");
         document.setHitCount(0);
-        documentMapper.insert(document);
+        txTemplate.executeWithoutResult(s -> documentMapper.insert(document));
         try {
             return indexContent(document, content);
         } catch (BusinessException e) {
-            document.setStatus("FAILED");
-            document.setFailReason(e.getMessage());
-            documentMapper.updateById(document);
+            markFailed(document, e.getMessage());
             throw e;
         } catch (Exception e) {
             log.error("文本语料索引失败: {}", title, e);
-            document.setStatus("FAILED");
-            document.setFailReason("索引失败：" + e.getClass().getSimpleName());
-            documentMapper.updateById(document);
+            markFailed(document, "索引失败：" + e.getClass().getSimpleName());
             throw new BusinessException(500, "文本语料索引失败，请检查 AI 通道配置");
         }
     }
 
-    /** 公共索引流程：切块 → 向量化 → 落库（文件与文本入库共用） */
+    /** 失败收尾：标记 FAILED 并落失败原因（独立短事务执行，不依赖外层事务） */
+    private void markFailed(KbDocument document, String reason) {
+        try {
+            document.setStatus("FAILED");
+            document.setFailReason(reason);
+            txTemplate.executeWithoutResult(s -> documentMapper.updateById(document));
+        } catch (Exception ex) {
+            log.warn("标记索引失败状态时出错: id={}, {}", document.getId(), ex.getMessage());
+        }
+    }
+
+    /** 公共索引流程：切块 → 向量化（事务外）→ 落库（短事务）。文件与文本入库共用 */
     private KbDocument indexContent(KbDocument document, String content) throws Exception {
         document.setContent(content);
         document.setCharCount(content.length());
@@ -142,6 +153,7 @@ public class KbService {
             throw new BusinessException(400, "切块结果为空");
         }
         LoginUser user = LoginUser.current();
+        // M3 整改：外部向量化调用在事务外执行（此处方法无 @Transactional 包裹）
         Map<String, Object> embed = aiGatewayClient.embed(chunks, user == null ? null : user.getUserId());
         @SuppressWarnings("unchecked")
         List<List<Double>> vectors = (List<List<Double>>) embed.get("embeddings");
@@ -158,10 +170,13 @@ public class KbService {
             chunk.setScore(0);
             chunkRows.add(chunk);
         }
-        vectorStore.upsert(chunkRows);
-        document.setChunkCount(chunkRows.size());
-        document.setStatus("INDEXED");
-        documentMapper.updateById(document);
+        // 纯 DB 段：短事务落库
+        txTemplate.executeWithoutResult(s -> {
+            vectorStore.upsert(chunkRows);
+            document.setChunkCount(chunkRows.size());
+            document.setStatus("INDEXED");
+            documentMapper.updateById(document);
+        });
         log.info("知识文档索引完成: id={}, title={}, chunks={}, model={}",
                 document.getId(), document.getTitle(), chunkRows.size(), model);
         return document;

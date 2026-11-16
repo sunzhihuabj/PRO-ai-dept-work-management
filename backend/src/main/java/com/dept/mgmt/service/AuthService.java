@@ -159,7 +159,12 @@ public class AuthService {
             throw new BusinessException(503, "微信登录未配置：请配置 wechat.miniapp.appid/secret");
         }
         try {
-            RestTemplate restTemplate = new RestTemplate();
+            // M3 超时治理：微信 code2session 为轻量端点，连接 3s / 读取 5s，防止线程挂起
+            org.springframework.http.client.SimpleClientHttpRequestFactory factory =
+                    new org.springframework.http.client.SimpleClientHttpRequestFactory();
+            factory.setConnectTimeout(java.time.Duration.ofMillis(3_000));
+            factory.setReadTimeout(java.time.Duration.ofMillis(5_000));
+            RestTemplate restTemplate = new RestTemplate(factory);
             String url = "https://api.weixin.qq.com/sns/jscode2session?appid=" + wxAppId
                     + "&secret=" + wxAppSecret + "&js_code=" + code + "&grant_type=authorization_code";
             ResponseEntity<com.fasterxml.jackson.databind.JsonNode> resp =
@@ -179,6 +184,7 @@ public class AuthService {
 
     /**
      * 签发 Token 并构建统一响应（登录/微信登录/绑定共用）
+     * M5 弱密码治理：账号仍使用已知初始弱密码（123456）时返回 mustChangePassword 标志，前端强制引导改密
      */
     private LoginVO issueToken(SysUser user) {
         List<String> roleList = parseRoleCodes(user.getRoleCodes());
@@ -189,6 +195,9 @@ public class AuthService {
         vo.setToken(token);
         vo.setTokenType("Bearer");
         vo.setExpiresIn(jwtUtils.getExpiration());
+        // 存量弱口令检测：命中 seed 初始密码提示强制修改（不改密则每次登录均提示）
+        // 注意：user.getPassword() 是 BCrypt 哈希，需用 matches 对照已知初始弱口令明文
+        vo.setMustChangePassword(passwordEncoder.matches("123456", user.getPassword()));
 
         LoginVO.UserInfoVO userInfo = new LoginVO.UserInfoVO();
         userInfo.setId(user.getId());
@@ -251,7 +260,7 @@ public class AuthService {
     }
 
     /**
-     * 修改密码
+     * 修改密码（M5 弱密码治理：统一密码策略，与重置密码同强度）
      */
     @Transactional(rollbackFor = Exception.class)
     public void changePassword(Long userId, String oldPassword, String newPassword) {
@@ -264,9 +273,7 @@ public class AuthService {
             throw new BusinessException(400, "旧密码错误");
         }
 
-        if (newPassword.length() < 6) {
-            throw new BusinessException(400, "新密码长度不能少于6位");
-        }
+        com.dept.mgmt.common.util.PasswordPolicy.validate(newPassword);
 
         SysUser update = new SysUser();
         update.setId(userId);

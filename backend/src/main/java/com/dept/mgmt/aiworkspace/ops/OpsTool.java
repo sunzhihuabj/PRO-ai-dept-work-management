@@ -54,4 +54,10 @@ public class OpsTool {
 
     /** 结果渲染器：执行结果 + 参数 → Markdown 文本；null 用通用渲染 */
     private BiFunction<Object, Map<String, Object>, String> renderer;
+
+    /**
+     * 写入前置校验（P0-4）：执行前先查目标实体是否存在（如任务ID/合同ID），
+     * 返回 null=通过；返回文案=拦截提示。挂载在确认执行与参数校验之后。
+     */
+    private BiFunction<Map<String, Object>, LoginUser, String> precheck;
 }

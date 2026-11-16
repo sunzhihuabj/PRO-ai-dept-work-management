@@ -36,13 +36,18 @@ public class ApiKeyFilter extends OncePerRequestFilter {
                                     HttpServletResponse response,
                                     FilterChain filterChain) throws ServletException, IOException {
         String path = request.getRequestURI();
-        // 健康检查放行
-        if (path.endsWith("/health")) {
+        // 健康检查放行（L2 整改：精确路径匹配，替代 endsWith 宽松后缀——防 "/x/health" 等路径误放行）
+        if ("/v1/gateway/health".equals(path) || "/health".equals(path)) {
             filterChain.doFilter(request, response);
             return;
         }
         String apiKey = request.getHeader(API_KEY_HEADER);
-        if (!StringUtils.hasText(apiKey) || !apiKey.equals(properties.getApiKey())) {
+        // L2 整改：恒时比较（MessageDigest.isEqual），防计时侧信道逐字节探测密钥
+        boolean valid = apiKey != null && !apiKey.isBlank()
+                && java.security.MessageDigest.isEqual(
+                        apiKey.getBytes(java.nio.charset.StandardCharsets.UTF_8),
+                        properties.getApiKey().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        if (!valid) {
             response.setStatus(HttpStatus.UNAUTHORIZED.value());
             response.setContentType(MediaType.APPLICATION_JSON_VALUE);
             response.setCharacterEncoding("UTF-8");

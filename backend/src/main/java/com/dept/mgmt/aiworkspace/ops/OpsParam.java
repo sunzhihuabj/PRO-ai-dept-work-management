@@ -31,4 +31,11 @@ public class OpsParam {
 
     /** 枚举可选值（中文），非空时强校验 */
     private List<String> enums;
+
+    /**
+     * 实体解析标注（P0-4 参数语义校验）：
+     * null=不过实体校验；"project"=项目名称实体；"user"=人员实体。
+     * 执行前由 SystemOpsService.semanticValidate 做存在性/歧义校验并规范化参数值。
+     */
+    private String resolve;
 }

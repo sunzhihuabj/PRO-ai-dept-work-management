@@ -54,7 +54,7 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { Cpu, Loading } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { getTaskDetailApi, confirmTaskApi, cancelTaskApi, feedbackTaskApi, type AgentTask } from '@/api/agent'
-import { marked } from 'marked'
+import { renderMarkdown } from '@/utils/sanitize'
 
 const props = defineProps<{ taskId: number }>()
 
@@ -98,10 +98,6 @@ function extractDisplay(raw: string): string {
     } catch { /* 非 JSON 按原文 */ }
   }
   return raw
-}
-
-function renderMarkdown(src: string): string {
-  return marked.parse(src, { async: false, breaks: true }) as string
 }
 
 async function load() {

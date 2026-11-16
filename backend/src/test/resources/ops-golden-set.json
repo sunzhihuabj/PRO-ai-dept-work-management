@@ -1,0 +1,311 @@
+{
+  "说明": "AI 系统操作 golden set 回归基线（P0-2）。每个用例：utterance + 网关判定输出（decision/decisionRaw/decisionRetry/gatewayThrows），在纯 Mockito 环境下走 tryOps 全链路（声明式校验→语义校验→权限→执行/待确认），断言回复文案/待确认状态/是否转通用对话（isNull）/prompt 注入内容（渐进披露与记忆）。",
+  "字段约定": {
+    "decision": "网关首轮返回的判定 JSON（对象，序列化后作为 chat 应答）",
+    "decisionRaw": "网关返回的原始杂文（含围栏/噪音，验证 parseDecision 鲁棒性）",
+    "decisionRetry": "写入意图被误判强制重判定时的第二轮返回",
+    "stubs": "执行器桩：kb.search.empty / cost.ledger.empty / perm.grant / contract.detail.missing / task.detail.missing",
+    "fixtures": "projects[{id,code,name}] / users[{id,username,realName}] 实体匹配桩数据",
+    "expect": "isNull=转通用对话；pending=应进入待确认的工具名；pendingNone=待确认应已清空；contains/notContains=回复文案断言；promptContains/promptNotContains=decide prompt 注入断言",
+    "followup": "第二轮对话（确认/取消/澄清），可带 decision 与独立 expect"
+  },
+  "cases": [
+    {"id": "task-myTodo-empty", "module": "任务管理", "utterance": "查一下我的待办任务",
+     "decision": {"action": "tool", "tool": "task.myTodo", "params": {}},
+     "expect": {"pendingNone": true, "contains": ["当前没有符合条件的记录。"]}},
+
+    {"id": "task-list-empty", "module": "任务管理", "utterance": "查一下进行中的任务",
+     "decision": {"action": "tool", "tool": "task.list", "params": {"status": "进行中"}},
+     "expect": {"pendingNone": true, "contains": ["未查询到符合条件的记录。"]}},
+
+    {"id": "task-list-bad-enum", "module": "任务管理", "utterance": "查一下进行状态的任务",
+     "decision": {"action": "tool", "tool": "task.list", "params": {"status": "进行"}},
+     "expect": {"contains": ["参数有误", "任务状态」仅支持"]}},
+
+    {"id": "task-create-missing", "module": "任务管理", "utterance": "帮我创建一个任务",
+     "decision": {"action": "tool", "tool": "task.create", "params": {}},
+     "expect": {"contains": ["还需要补充", "所属项目名称"]}},
+
+    {"id": "task-create-pending-norm", "module": "任务管理", "utterance": "帮我创建任务：项目三一重能，任务名冒烟测试，优先级高",
+     "fixtures": {"projects": [{"id": 1, "code": "PRJ001", "name": "三一重能一期"}]},
+     "decision": {"action": "tool", "tool": "task.create", "params": {"projectName": "三一重能", "taskName": "冒烟测试", "priority": "高"}},
+     "expect": {"pending": "task.create", "contains": ["所属项目名称：三一重能一期", "- 任务名称：冒烟测试", "确认"]}},
+
+    {"id": "task-create-assignee-ambiguous", "module": "任务管理", "utterance": "帮我创建任务：项目三一重能一期，任务名联调，负责人张三",
+     "fixtures": {"projects": [{"id": 1, "code": "PRJ001", "name": "三一重能一期"}],
+       "users": [{"id": 11, "username": "zhangsan", "realName": "张三"}, {"id": 12, "username": "zhangsanf", "realName": "张三丰"}]},
+     "decision": {"action": "tool", "tool": "task.create", "params": {"projectName": "三一重能一期", "taskName": "联调", "assignee": "张三"}},
+     "expect": {"contains": ["匹配到多位", "zhangsan(张三)", "zhangsanf(张三丰)"]}},
+
+    {"id": "task-changeStatus-precheck-block", "module": "任务管理", "utterance": "把任务5流转为进行中",
+     "stubs": ["task.detail.missing"],
+     "decision": {"action": "tool", "tool": "task.changeStatus", "params": {"taskId": 5, "targetStatus": "进行中"}},
+     "expect": {"pendingNone": true, "contains": ["任务 5 不存在"]}},
+
+    {"id": "task-changeStatus-confirm", "module": "任务管理", "utterance": "把任务5流转为进行中",
+     "decision": {"action": "tool", "tool": "task.changeStatus", "params": {"taskId": 5, "targetStatus": "进行中"}},
+     "expect": {"pending": "task.changeStatus", "contains": ["确认"]},
+     "followup": {"utterance": "确认", "expect": {"pendingNone": true, "contains": ["状态已流转为「进行中」"]}}},
+
+    {"id": "task-addWorkHour-missing", "module": "任务管理", "utterance": "给任务5录点工时",
+     "decision": {"action": "tool", "tool": "task.addWorkHour", "params": {"taskId": 5}},
+     "expect": {"contains": ["还需要补充", "工时数", "工作日期", "工作内容"]}},
+
+    {"id": "project-list-empty", "module": "项目管理", "utterance": "查一下进行中的项目",
+     "decision": {"action": "tool", "tool": "project.list", "params": {"status": "进行中"}},
+     "expect": {"pendingNone": true, "contains": ["未查询到符合条件的记录。"]}},
+
+    {"id": "project-detail-notfound", "module": "项目管理", "utterance": "神秘项目的详情",
+     "decision": {"action": "tool", "tool": "project.detail", "params": {"projectName": "神秘项目"}},
+     "expect": {"contains": ["未找到项目「神秘项目」", "查一下项目"]}},
+
+    {"id": "project-detail-ambiguous", "module": "项目管理", "utterance": "三一重能项目详情",
+     "fixtures": {"projects": [{"id": 1, "code": "PRJ001", "name": "三一重能一期"}, {"id": 2, "code": "PRJ002", "name": "三一重能二期"}]},
+     "decision": {"action": "tool", "tool": "project.detail", "params": {"projectName": "三一重能"}},
+     "expect": {"pendingNone": true, "contains": ["匹配到多个", "1. PRJ001 三一重能一期", "2. PRJ002 三一重能二期"]},
+     "followup": {"utterance": "我说的是PRJ002那个三一重能二期",
+       "decision": {"action": "tool", "tool": "project.detail", "params": {"projectName": "2"}},
+       "expect": {"pendingNone": true, "contains": ["**项目详情**", "- 名称：三一重能二期"]}}},
+
+    {"id": "project-detail-ok", "module": "项目管理", "utterance": "三一重能一期项目详情",
+     "fixtures": {"projects": [{"id": 1, "code": "PRJ001", "name": "三一重能一期"}]},
+     "decision": {"action": "tool", "tool": "project.detail", "params": {"projectName": "三一重能一期"}},
+     "expect": {"contains": ["**项目详情**", "- 编号：PRJ001", "- 名称：三一重能一期"]}},
+
+    {"id": "project-create-leader-pending", "module": "项目管理", "role": "ROLE_DEPT_LEADER", "utterance": "创建研发项目：新试点项目，客户测试客户，11月20号到12月20号",
+     "decision": {"action": "tool", "tool": "project.create",
+       "params": {"projectName": "新试点项目", "projectType": "研发", "customerName": "测试客户", "planStartDate": "2026-11-20", "planEndDate": "2026-12-20"}},
+     "expect": {"pending": "project.create", "contains": ["创建项目", "确认"]}},
+
+    {"id": "contract-list-empty", "module": "合同管理", "utterance": "查一下生效的合同",
+     "decision": {"action": "tool", "tool": "contract.list", "params": {"status": "生效"}},
+     "expect": {"pendingNone": true, "contains": ["未查询到符合条件的记录。"]}},
+
+    {"id": "contract-detail-byno-notfound", "module": "合同管理", "utterance": "HT20240001 这个合同什么情况",
+     "decision": {"action": "tool", "tool": "contract.detail", "params": {"contractNo": "HT20240001"}},
+     "expect": {"contains": ["未能执行", "未找到合同「HT20240001」"]}},
+
+    {"id": "contract-bindProject-noperm", "module": "合同管理", "utterance": "把合同9绑定到三一重能一期项目",
+     "fixtures": {"projects": [{"id": 1, "code": "PRJ001", "name": "三一重能一期"}]},
+     "decision": {"action": "tool", "tool": "contract.bindProject", "params": {"contractId": 9, "projectName": "三一重能一期"}},
+     "expect": {"pendingNone": true, "contains": ["未获授权"]}},
+
+    {"id": "contract-bindProject-precheck", "module": "合同管理", "utterance": "把合同9绑定到三一重能一期项目",
+     "stubs": ["perm.grant", "contract.detail.missing"],
+     "fixtures": {"projects": [{"id": 1, "code": "PRJ001", "name": "三一重能一期"}]},
+     "decision": {"action": "tool", "tool": "contract.bindProject", "params": {"contractId": 9, "projectName": "三一重能一期"}},
+     "expect": {"pendingNone": true, "contains": ["合同 9 不存在或不可访问"]}},
+
+    {"id": "contract-bindProject-confirm", "module": "合同管理", "utterance": "把合同9绑定到三一重能项目",
+     "stubs": ["perm.grant"],
+     "fixtures": {"projects": [{"id": 1, "code": "PRJ001", "name": "三一重能一期"}]},
+     "decision": {"action": "tool", "tool": "contract.bindProject", "params": {"contractId": 9, "projectName": "三一重能"}},
+     "expect": {"pending": "contract.bindProject", "contains": ["合同绑定项目", "确认"]},
+     "followup": {"utterance": "确认", "expect": {"pendingNone": true, "contains": ["已与项目「三一重能一期」建立关联"]}}},
+
+    {"id": "tender-list-empty", "module": "投标管理", "utterance": "现在有哪些新标讯",
+     "decision": {"action": "tool", "tool": "tender.list", "params": {"status": "新标讯"}},
+     "expect": {"pendingNone": true, "contains": ["未查询到符合条件的记录。"]}},
+
+    {"id": "tender-updateStatus-missing", "module": "投标管理", "utterance": "标讯7推进一下状态",
+     "decision": {"action": "tool", "tool": "tender.updateStatus", "params": {"tenderId": 7}},
+     "expect": {"contains": ["还需要补充", "目标状态"]}},
+
+    {"id": "tender-updateStatus-confirm", "module": "投标管理", "role": "ROLE_PROJECT_LEADER", "utterance": "标讯7改成跟踪中",
+     "decision": {"action": "tool", "tool": "tender.updateStatus", "params": {"tenderId": 7, "status": "跟踪中"}},
+     "expect": {"pending": "tender.updateStatus", "contains": ["确认"]},
+     "followup": {"utterance": "确认", "expect": {"pendingNone": true, "contains": ["标讯 7 状态已更新为「跟踪中」"]}}},
+
+    {"id": "tender-bad-enum", "module": "投标管理", "utterance": "标讯7中标了",
+     "decision": {"action": "tool", "tool": "tender.updateStatus", "params": {"tenderId": 7, "status": "中标了"}},
+     "expect": {"contains": ["仅支持"]}},
+
+    {"id": "design-schemeList-empty", "module": "设计管理", "utterance": "看一下设计方案",
+     "decision": {"action": "tool", "tool": "design.schemeList", "params": {}},
+     "expect": {"pendingNone": true, "contains": ["未查询到符合条件的记录。"]}},
+
+    {"id": "design-schemeList-notfound", "module": "设计管理", "utterance": "荒漠项目的设计方案",
+     "decision": {"action": "tool", "tool": "design.schemeList", "params": {"projectName": "荒漠项目"}},
+     "expect": {"contains": ["未找到项目「荒漠项目」"]}},
+
+    {"id": "production-woList-empty", "module": "生产管理", "utterance": "生产工单列表",
+     "decision": {"action": "tool", "tool": "production.woList", "params": {}},
+     "expect": {"pendingNone": true, "contains": ["未查询到符合条件的记录。"]}},
+
+    {"id": "production-kitting-ok", "module": "生产管理", "utterance": "算一下三一重能的齐套率",
+     "fixtures": {"projects": [{"id": 1, "code": "PRJ001", "name": "三一重能一期"}]},
+     "decision": {"action": "tool", "tool": "production.kitting", "params": {"projectName": "三一重能"}},
+     "expect": {"pendingNone": true, "contains": ["**齐套率计算**（项目：三一重能一期）", "执行完成，未返回明细。"]}},
+
+    {"id": "production-progressive-prompt", "module": "生产管理", "utterance": "查一下三一重能的生产工单和齐套情况",
+     "fixtures": {"projects": [{"id": 1, "code": "PRJ001", "name": "三一重能一期"}]},
+     "decision": {"action": "tool", "tool": "production.woList", "params": {"projectName": "三一重能"}},
+     "expect": {"pendingNone": true, "contains": ["未查询到符合条件的记录。"],
+       "promptContains": ["【命中版块：生产管理】", "开工卡点"],
+       "promptNotContains": ["联系方式为敏感字段", "【命中版块：合同管理】"]}},
+
+    {"id": "delivery-shipmentList-empty", "module": "交付管理", "utterance": "发货单列表",
+     "decision": {"action": "tool", "tool": "delivery.shipmentList", "params": {}},
+     "expect": {"pendingNone": true, "contains": ["未查询到符合条件的记录。"]}},
+
+    {"id": "delivery-progress-notfound", "module": "交付管理", "utterance": "荒漠项目交付进度",
+     "decision": {"action": "tool", "tool": "delivery.progress", "params": {"projectName": "荒漠项目"}},
+     "expect": {"contains": ["未找到项目「荒漠项目」"]}},
+
+    {"id": "delivery-acceptanceList-empty", "module": "交付管理", "utterance": "三一重能的验收单",
+     "fixtures": {"projects": [{"id": 1, "code": "PRJ001", "name": "三一重能一期"}]},
+     "decision": {"action": "tool", "tool": "delivery.acceptanceList", "params": {"projectName": "三一重能"}},
+     "expect": {"pendingNone": true, "contains": ["当前没有符合条件的记录。"]}},
+
+    {"id": "ecn-list-empty", "module": "变更管理", "utterance": "查一下变更单",
+     "decision": {"action": "tool", "tool": "ecn.list", "params": {}},
+     "expect": {"pendingNone": true, "contains": ["未查询到符合条件的记录。"]}},
+
+    {"id": "ecn-approve-noperm", "module": "变更管理", "utterance": "变更单3批准掉",
+     "decision": {"action": "tool", "tool": "ecn.approve", "params": {"ecnId": 3, "approved": true}},
+     "expect": {"pendingNone": true, "contains": ["需要 部门领导 权限"]}},
+
+    {"id": "ecn-approve-confirm", "module": "变更管理", "role": "ROLE_DEPT_LEADER", "utterance": "变更单3批准掉",
+     "decision": {"action": "tool", "tool": "ecn.approve", "params": {"ecnId": 3, "approved": true}},
+     "expect": {"pending": "ecn.approve", "contains": ["确认"]},
+     "followup": {"utterance": "确认", "expect": {"pendingNone": true, "contains": ["变更单 3 已批准"]}}},
+
+    {"id": "cost-ledger-ok", "module": "成本管理", "utterance": "三一重能的成本台账",
+     "stubs": ["cost.ledger.empty"],
+     "fixtures": {"projects": [{"id": 1, "code": "PRJ001", "name": "三一重能一期"}]},
+     "decision": {"action": "tool", "tool": "cost.ledger", "params": {"projectName": "三一重能"}},
+     "expect": {"pendingNone": true, "contains": ["当前没有符合条件的记录。", "合计成本：0 元", "三一重能一期"]}}
+
+    ,
+    {"id": "cost-settle-missing", "module": "成本管理", "utterance": "做一下完工核算",
+     "decision": {"action": "tool", "tool": "cost.settle", "params": {}},
+     "expect": {"contains": ["还需要补充", "项目名称"]}},
+
+    {"id": "cost-settle-confirm", "module": "成本管理", "role": "ROLE_DEPT_LEADER", "utterance": "对三一重能做完工核算",
+     "fixtures": {"projects": [{"id": 1, "code": "PRJ001", "name": "三一重能一期"}]},
+     "decision": {"action": "tool", "tool": "cost.settle", "params": {"projectName": "三一重能"}},
+     "expect": {"pending": "cost.settle", "contains": ["完工成本核算", "确认"]},
+     "followup": {"utterance": "确认", "expect": {"pendingNone": true, "contains": ["完工核算完成", "三一重能一期"]}}},
+
+    {"id": "aftermarket-repairList-empty", "module": "售后服务", "utterance": "查一下报修单",
+     "decision": {"action": "tool", "tool": "aftermarket.repairList", "params": {}},
+     "expect": {"pendingNone": true, "contains": ["未查询到符合条件的记录。"]}},
+
+    {"id": "aftermarket-repairCreate-confirm", "module": "售后服务", "utterance": "三一重能设备液压系统异响，帮我登记报修",
+     "fixtures": {"projects": [{"id": 1, "code": "PRJ001", "name": "三一重能一期"}]},
+     "decision": {"action": "tool", "tool": "aftermarket.repairCreate", "params": {"projectName": "三一重能", "faultDesc": "液压系统异响"}},
+     "expect": {"pending": "aftermarket.repairCreate", "contains": ["报修受理", "确认"]},
+     "followup": {"utterance": "确认", "expect": {"pendingNone": true, "contains": ["报修单已受理"]}}},
+
+    {"id": "archive-list-empty", "module": "档案管理", "utterance": "查一下档案",
+     "decision": {"action": "tool", "tool": "archive.list", "params": {}},
+     "expect": {"pendingNone": true, "contains": ["未查询到符合条件的记录。"]}},
+
+    {"id": "archive-borrow-missing", "module": "档案管理", "utterance": "我要借档案",
+     "decision": {"action": "tool", "tool": "archive.borrow", "params": {}},
+     "expect": {"contains": ["还需要补充", "档案ID", "借阅用途"]}},
+
+    {"id": "archive-borrow-confirm", "module": "档案管理", "utterance": "借阅档案12，用途核对图纸",
+     "decision": {"action": "tool", "tool": "archive.borrow", "params": {"archiveId": 12, "purpose": "核对图纸"}},
+     "expect": {"pending": "archive.borrow", "contains": ["档案借阅", "确认"]},
+     "followup": {"utterance": "确认", "expect": {"pendingNone": true, "contains": ["借阅登记成功"]}}},
+
+    {"id": "archive-overdue-empty", "module": "档案管理", "utterance": "有没有逾期的档案借阅",
+     "decision": {"action": "tool", "tool": "archive.overdue", "params": {}},
+     "expect": {"pendingNone": true, "contains": ["当前没有符合条件的记录。"]}},
+
+    {"id": "event-myPending-empty", "module": "事件审批", "utterance": "我有哪些待审批的事件",
+     "decision": {"action": "tool", "tool": "event.myPending", "params": {}},
+     "expect": {"pendingNone": true, "contains": ["当前没有符合条件的记录。"]}},
+
+    {"id": "event-handle-bad-enum", "module": "事件审批", "utterance": "事件4转办给别人",
+     "decision": {"action": "tool", "tool": "event.handle", "params": {"eventId": 4, "handleType": "转办"}},
+     "expect": {"contains": ["仅支持：受理/驳回/处理/完成/关闭"]}},
+
+    {"id": "event-handle-confirm", "module": "事件审批", "utterance": "受理事件4",
+     "decision": {"action": "tool", "tool": "event.handle", "params": {"eventId": 4, "handleType": "受理"}},
+     "expect": {"pending": "event.handle", "contains": ["确认"]},
+     "followup": {"utterance": "确认", "expect": {"pendingNone": true, "contains": ["事件 4 已执行「受理」"]}}},
+
+    {"id": "kb-search-empty", "module": "知识库", "utterance": "知识库里搜一下设备维护规范",
+     "stubs": ["kb.search.empty"],
+     "decision": {"action": "tool", "tool": "kb.search", "params": {"query": "设备维护规范"}},
+     "expect": {"pendingNone": true, "contains": ["知识库未检索到相关内容。"]}},
+
+    {"id": "kb-search-missing", "module": "知识库", "utterance": "帮我搜下知识库",
+     "decision": {"action": "tool", "tool": "kb.search", "params": {}},
+     "expect": {"contains": ["还需要补充", "检索问题"]}},
+
+    {"id": "global-chat-reply", "module": "全局", "utterance": "你好呀，你能干什么",
+     "decision": {"action": "chat", "reply": "你好！我是部门工作管理平台的 AI 助手，可以帮你查询任务、项目、合同、标讯、档案等。"},
+     "expect": {"pendingNone": true, "contains": ["你好！我是部门工作管理平台的 AI 助手"]}},
+
+    {"id": "global-chat-empty-reply", "module": "全局", "utterance": "嗯嗯",
+     "decision": {"action": "chat"},
+     "expect": {"isNull": true}},
+
+    {"id": "global-agent", "module": "全局", "utterance": "生成今天的日报",
+     "decision": {"action": "agent"},
+     "expect": {"isNull": true}},
+
+    {"id": "global-invalid-tool", "module": "全局", "utterance": "帮我飞一下任务",
+     "decision": {"action": "tool", "tool": "task.flying", "params": {}},
+     "expect": {"contains": ["该操作暂不支持对话执行"]}},
+
+    {"id": "global-retry-write-intent", "module": "全局", "utterance": "帮我创建一个任务：项目三一重能一期，任务名联调测试",
+     "fixtures": {"projects": [{"id": 1, "code": "PRJ001", "name": "三一重能一期"}]},
+     "decision": {"action": "chat", "reply": "好的呢"},
+     "decisionRetry": {"action": "tool", "tool": "task.create", "params": {"projectName": "三一重能一期", "taskName": "联调测试"}},
+     "expect": {"pending": "task.create", "contains": ["确认"]}},
+
+    {"id": "global-retry-still-chat", "module": "全局", "utterance": "帮我登记一个报修",
+     "decision": {"action": "chat", "reply": "好的呢"},
+     "decisionRetry": {"action": "chat", "reply": "还是聊聊吧"},
+     "expect": {"pendingNone": true, "contains": ["识别到写入类操作意图"]}},
+
+    {"id": "global-raw-fenced", "module": "全局", "utterance": "看下标讯",
+     "decisionRaw": "判定结果如下：\n```json\n{\"action\":\"tool\",\"tool\":\"tender.list\",\"params\":{}}\n```\n以上就是判定。",
+     "expect": {"pendingNone": true, "contains": ["未查询到符合条件的记录。"]}},
+
+    {"id": "global-raw-invalid", "module": "全局", "utterance": "哎呀",
+     "decisionRaw": "哎呀，我理解不了你的意思呢。",
+     "expect": {"isNull": true}},
+
+    {"id": "global-cancel-flow", "module": "全局", "role": "ROLE_PROJECT_LEADER", "utterance": "标讯7改成跟踪中",
+     "decision": {"action": "tool", "tool": "tender.updateStatus", "params": {"tenderId": 7, "status": "跟踪中"}},
+     "expect": {"pending": "tender.updateStatus", "contains": ["确认"]},
+     "followup": {"utterance": "取消", "expect": {"pendingNone": true, "contains": ["已取消该操作"]}}},
+
+    {"id": "global-project-id-resolve", "module": "全局", "utterance": "给1号项目建个任务叫按ID建任务",
+     "fixtures": {"projects": [{"id": 1, "code": "PRJ001", "name": "三一重能一期"}]},
+     "decision": {"action": "tool", "tool": "task.create", "params": {"projectName": "1", "taskName": "按ID建任务"}},
+     "expect": {"pending": "task.create", "contains": ["所属项目名称：三一重能一期"]}},
+
+    {"id": "global-user-notfound", "module": "全局", "utterance": "帮我创建任务：项目三一重能一期，任务名联调，负责人赵六",
+     "fixtures": {"projects": [{"id": 1, "code": "PRJ001", "name": "三一重能一期"}]},
+     "decision": {"action": "tool", "tool": "task.create", "params": {"projectName": "三一重能一期", "taskName": "联调", "assignee": "赵六"}},
+     "expect": {"contains": ["未找到成员「赵六」"]}},
+
+    {"id": "global-memory-inject", "module": "全局", "utterance": "查一下我的待办任务",
+     "convSummary": "此前讨论了三一重能一期项目的预算问题，结论是预算维持不变。",
+     "userMemories": ["用户主要负责三一重能一期项目"],
+     "decision": {"action": "tool", "tool": "task.myTodo", "params": {}},
+     "expect": {"pendingNone": true, "contains": ["当前没有符合条件的记录。"],
+       "promptContains": ["【会话此前摘要】", "【用户长期记忆】", "用户主要负责三一重能一期项目", "预算问题"]}},
+
+    {"id": "global-no-hit-prompt", "module": "全局", "utterance": "你好",
+     "decision": {"action": "chat", "reply": "你好！有什么可以帮你？"},
+     "expect": {"pendingNone": true, "contains": ["你好！有什么可以帮你？"],
+       "promptContains": ["未命中具体版块"]}},
+
+    {"id": "global-multi-hit-prompt", "module": "全局", "utterance": "查一下三一重能的任务和生产工单",
+     "fixtures": {"projects": [{"id": 1, "code": "PRJ001", "name": "三一重能一期"}]},
+     "decision": {"action": "tool", "tool": "task.list", "params": {"projectName": "三一重能"}},
+     "expect": {"pendingNone": true, "contains": ["未查询到符合条件的记录。"],
+       "promptContains": ["【命中版块：任务管理】", "【命中版块：生产管理】"]}},
+
+    {"id": "global-gateway-error", "module": "全局", "utterance": "查一下我的待办任务",
+     "gatewayThrows": true,
+     "expect": {"isNull": true}}
+  ]
+}

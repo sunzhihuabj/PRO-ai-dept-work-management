@@ -193,10 +193,12 @@ public class DashboardController {
     @Operation(summary = "快捷入口")
     public R<List<Map<String, Object>>> quickActions() {
         List<Map<String, Object>> actions = new ArrayList<>();
-        actions.add(action(1, "创建任务", "Plus", "/task/list", 1));
-        actions.add(action(2, "新建项目", "FolderAdd", "/project/list", 2));
+        // 路径必须与前端路由表一致（router/index.ts 子路由为 /task、/project），
+        // 旧值 /task/list、/project/list 未注册会命中 404 通配路由导致快捷入口失效
+        actions.add(action(1, "创建任务", "Plus", "/task", 1));
+        actions.add(action(2, "新建项目", "FolderAdd", "/project", 2));
         actions.add(action(3, "我的待办", "List", "/dashboard", 3));
-        actions.add(action(4, "任务列表", "Document", "/task/list", 4));
+        actions.add(action(4, "任务列表", "Document", "/task", 4));
         return R.ok(actions);
     }
 

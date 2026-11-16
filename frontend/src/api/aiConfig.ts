@@ -47,3 +47,27 @@ export function deleteAiConfigApi(id: number) {
 export function testAiConfigApi(id: number) {
   return post(`/v1/ai-configs/${id}/test`, {})
 }
+
+/** 探测结果（结构化契约，与网关 ModelProbeService 输出一致） */
+export interface ProbeResult {
+  success: boolean
+  protocol?: string
+  endpointUsed?: string
+  count: number
+  durationMs?: number
+  models?: { id: string; ownedBy?: string; contextLength?: number; parameterSize?: string }[]
+  cached?: boolean
+  errorType?: string | null
+  errorMessage?: string | null
+  note?: string | null
+}
+
+/** 探测模型列表（未保存配置：按 API 地址 + Key 主动拉取可用模型） */
+export function probeModelsApi(data: { providerType: string; endpoint: string; apiKey?: string }) {
+  return post('/v1/ai-configs/probe-models', data)
+}
+
+/** 探测模型列表（已保存通道：服务端解密 Key） */
+export function listChannelModelsApi(id: number) {
+  return get(`/v1/ai-configs/${id}/models`)
+}

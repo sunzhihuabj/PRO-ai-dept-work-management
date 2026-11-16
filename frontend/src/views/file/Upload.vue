@@ -39,7 +39,7 @@
           <div class="el-upload__text">将文件拖到此处，或<em>点击上传</em></div>
           <template #tip>
             <div class="el-upload__tip">
-              支持的文件类型: .doc/.docx/.xls/.xlsx/.ppt/.pptx/.pdf/.txt/.dwg/.jpg/.png/.gif/.zip/.rar，单个文件不超过 500 MB
+              支持的文件类型: .doc/.docx/.xls/.xlsx/.ppt/.pptx/.pdf/.txt/.dwg/.jpg/.png/.gif/.zip/.rar，单个文件不超过 100 MB
             </div>
           </template>
         </el-upload>
@@ -107,7 +107,22 @@ async function loadPhases() {
   }
 }
 
+const ALLOWED_EXTS = ['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'pdf', 'txt', 'dwg', 'jpg', 'jpeg', 'png', 'gif', 'zip', 'rar']
+const MAX_SIZE_MB = 100
+
+/** M7 整改：前端上传前校验扩展名与大小（后端另有白名单+魔数+配额兜底） */
 function onFileChange(file: any, files: any[]) {
+  const ext = (file.name || '').split('.').pop()?.toLowerCase() || ''
+  if (!ALLOWED_EXTS.includes(ext)) {
+    ElMessage.error(`不支持的文件类型 .${ext}（允许：${ALLOWED_EXTS.join('/')}）`)
+    files.pop()
+    return
+  }
+  if (file.size > MAX_SIZE_MB * 1024 * 1024) {
+    ElMessage.error(`文件超过 ${MAX_SIZE_MB}MB 上限`)
+    files.pop()
+    return
+  }
   fileList.value = files
 }
 

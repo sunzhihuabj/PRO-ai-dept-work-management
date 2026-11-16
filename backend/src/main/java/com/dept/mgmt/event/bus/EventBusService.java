@@ -49,14 +49,28 @@ public class EventBusService {
     }
 
     /**
-     * 发布事件（幂等：event_id 已存在时忽略并返回已有事件）
+     * 发布事件（M4 整改：支持业务幂等键——同一 bizKey 的事件唯一，重复发布被唯一键拦截忽略；
+     * 未传 bizKey 时保持随机 eventId，行为兼容现状）
      *
      * @param type    事件类型
      * @param payload 载荷
      * @return 事件唯一标识
      */
     public String publish(DomainEventType type, Map<String, Object> payload) {
-        String eventId = UUID.randomUUID().toString().replace("-", "");
+        return publish(type, payload, null);
+    }
+
+    /**
+     * 发布事件（带业务幂等键）
+     *
+     * @param bizKey 业务幂等键（如 "payment.due:contract:123"），null 时随机生成
+     */
+    public String publish(DomainEventType type, Map<String, Object> payload, String bizKey) {
+        // M4 整改：eventId 采用业务幂等键（类型:业务键）或随机 UUID；
+        // 修复原"eventId 随机导致幂等分支永不触发"的缺陷
+        String eventId = (bizKey == null || bizKey.isBlank())
+                ? UUID.randomUUID().toString().replace("-", "")
+                : type.getCode() + ":" + bizKey.trim();
         SysDomainEvent event = new SysDomainEvent();
         event.setEventId(eventId);
         event.setEventType(type.getCode());
@@ -109,14 +123,21 @@ public class EventBusService {
             }
             List<String> okConsumers = new java.util.ArrayList<>();
             Exception lastError = null;
+            // M4 整改：逐 handler 记账断点续投——从上次消费备注解析已成功的 handler，重试时跳过，避免重复执行
+            java.util.Set<String> alreadyDone = parseDoneConsumers(event.getConsumerNote());
             for (DomainEventHandler handler : eventHandlers) {
+                String handlerName = handler.getClass().getSimpleName();
+                if (alreadyDone.contains(handlerName)) {
+                    okConsumers.add(handlerName);
+                    continue;
+                }
                 try {
                     handler.handle(event.getEventId(), payload);
-                    okConsumers.add(handler.getClass().getSimpleName());
+                    okConsumers.add(handlerName);
                 } catch (Exception e) {
                     lastError = e;
                     log.warn("事件处理器执行失败: eventId={}, handler={}", event.getEventId(),
-                            handler.getClass().getSimpleName(), e);
+                            handlerName, e);
                 }
             }
             if (okConsumers.size() == eventHandlers.size()) {
@@ -150,5 +171,25 @@ public class EventBusService {
             }
         }
         return List.of();
+    }
+
+    /**
+     * M4：从上次消费备注解析已成功的 handler 集合（备注格式 "部分消费成功(A,B)，第n次重试: ..."）
+     */
+    private java.util.Set<String> parseDoneConsumers(String consumerNote) {
+        java.util.Set<String> done = new java.util.HashSet<>();
+        if (consumerNote == null || !consumerNote.startsWith("部分消费成功(")) {
+            return done;
+        }
+        int end = consumerNote.indexOf(')');
+        if (end > "部分消费成功(".length()) {
+            String list = consumerNote.substring("部分消费成功(".length(), end);
+            for (String name : list.split(",")) {
+                if (!name.isBlank()) {
+                    done.add(name.trim());
+                }
+            }
+        }
+        return done;
     }
 }

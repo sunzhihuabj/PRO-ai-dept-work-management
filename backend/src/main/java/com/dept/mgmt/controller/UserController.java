@@ -37,6 +37,7 @@ public class UserController {
      */
     @GetMapping
     @Operation(summary = "用户列表分页查询")
+    @PreAuthorize("hasAuthority('ROLE_DEPT_LEADER')")
     @RequirePerm("api:system/user:list")
     public R<PageResult<SysUser>> list(
             @RequestParam(defaultValue = "1") Integer pageNum,
@@ -69,24 +70,38 @@ public class UserController {
      * 创建用户
      */
     @PostMapping
-    @Operation(summary = "创建用户")
+    @Operation(summary = "创建用户（未提供密码时系统生成随机初始密码，仅本次响应回显）")
     @OperLog(title = "用户管理", businessType = 1)
+    @PreAuthorize("hasAuthority('ROLE_DEPT_LEADER')")
     @RequirePerm("api:system/user:create")
-    public R<Long> create(@Valid @RequestBody SysUserDTO dto) {
-        Long id = sysUserService.create(dto);
-        return R.ok("用户创建成功", id);
+    public R<java.util.Map<String, Object>> create(@Valid @RequestBody SysUserDTO dto) {
+        return R.ok("用户创建成功", sysUserService.create(dto));
     }
 
     /**
-     * 更新用户
+     * 更新用户（仅基础资料；密码/角色走独立接口）
      */
     @PutMapping("/{id}")
-    @Operation(summary = "更新用户")
+    @Operation(summary = "更新用户基础资料（密码走 reset-password，角色走 roles）")
     @OperLog(title = "用户管理", businessType = 2)
+    @PreAuthorize("hasAuthority('ROLE_DEPT_LEADER')")
     @RequirePerm("api:system/user:update")
     public R<Void> update(@PathVariable Long id, @Valid @RequestBody SysUserDTO dto) {
         sysUserService.update(id, dto);
         return R.ok("用户更新成功", null);
+    }
+
+    /**
+     * 角色分配（独立敏感操作，仅部门领导）
+     */
+    @PutMapping("/{id}/roles")
+    @Operation(summary = "分配用户角色（仅部门领导）")
+    @OperLog(title = "用户管理", businessType = 2)
+    @PreAuthorize("hasAuthority('ROLE_DEPT_LEADER')")
+    @RequirePerm("api:system/user:update")
+    public R<Void> assignRoles(@PathVariable Long id, @RequestBody RolesDTO dto) {
+        sysUserService.assignRoles(id, dto.getRoleCodes());
+        return R.ok("角色分配成功", null);
     }
 
     /**
@@ -95,6 +110,7 @@ public class UserController {
     @DeleteMapping("/{id}")
     @Operation(summary = "删除用户")
     @OperLog(title = "用户管理", businessType = 3)
+    @PreAuthorize("hasAuthority('ROLE_DEPT_LEADER')")
     @RequirePerm("api:system/user:delete")
     public R<Void> delete(@PathVariable Long id) {
         sysUserService.delete(id);
@@ -120,6 +136,7 @@ public class UserController {
     @PutMapping("/{id}/status")
     @Operation(summary = "切换用户状态")
     @OperLog(title = "用户管理", businessType = 2)
+    @PreAuthorize("hasAuthority('ROLE_DEPT_LEADER')")
     @RequirePerm("api:system/user:status")
     public R<Void> toggleStatus(@PathVariable Long id, @RequestBody StatusDTO dto) {
         SysUserDTO update = new SysUserDTO();
@@ -136,5 +153,10 @@ public class UserController {
     @Data
     public static class ResetPasswordDTO {
         private String newPassword;
+    }
+
+    @Data
+    public static class RolesDTO {
+        private String roleCodes;
     }
 }

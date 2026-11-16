@@ -107,9 +107,23 @@ public class FileController {
         if (!file.exists()) {
             return ResponseEntity.notFound().build();
         }
+        // H5 路径穿越整改：canonical 归属校验——数据库中路径被污染时拒绝读取根目录之外的文件
+        try {
+            String fileCanonical = file.getCanonicalPath();
+            String rootCanonical = new java.io.File(uploadRootPath).getCanonicalPath() + java.io.File.separator;
+            if (!fileCanonical.startsWith(rootCanonical)) {
+                log.warn("下载路径越界拦截: file={}, root={}", fileCanonical, rootCanonical);
+                return ResponseEntity.notFound().build();
+            }
+        } catch (java.io.IOException e) {
+            return ResponseEntity.notFound().build();
+        }
+        // Content-Disposition 文件名兜底净化（展示名仅存库展示，不含路径语义；去除引号/换行防响应头注入）
+        String safeName = fileInfo.getFileName() == null ? "download"
+                : fileInfo.getFileName().replaceAll("[\\r\\n\"\\\\]", "_");
         FileSystemResource resource = new FileSystemResource(file);
         return ResponseEntity.ok()
-                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + fileInfo.getFileName() + "\"")
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + safeName + "\"")
                 .contentLength(file.length())
                 .contentType(MediaType.APPLICATION_OCTET_STREAM)
                 .body(resource);
@@ -234,10 +248,22 @@ public class FileController {
         if (!f.exists()) {
             throw new com.dept.mgmt.common.exception.BusinessException(404, "文件在服务器上不存在: " + info.getFileName());
         }
-        if (f.length() > 1024 * 1024) {
-            return java.nio.file.Files.readString(f.toPath()).substring(0, 1024 * 1024) + "\n…（内容过长已截断）";
+        // H5 路径穿越整改：canonical 归属校验——拒绝读取上传根目录之外的文件
+        String fileCanonical = f.getCanonicalPath();
+        String rootCanonical = new java.io.File(uploadRootPath).getCanonicalPath() + java.io.File.separator;
+        if (!fileCanonical.startsWith(rootCanonical)) {
+            log.warn("AI 差异分析读取路径越界拦截: file={}", fileCanonical);
+            throw new com.dept.mgmt.common.exception.BusinessException(400, "非法的文件路径");
         }
-        return java.nio.file.Files.readString(f.toPath());
+        // L5 整改：限量读取（最多 1MB），不再全量读入内存后截断
+        int limit = 1024 * 1024;
+        try (java.io.InputStream in = java.nio.file.Files.newInputStream(f.toPath())) {
+            byte[] buf = in.readNBytes(limit + 1);
+            String content = new String(buf, java.nio.charset.StandardCharsets.UTF_8);
+            return content.length() > limit
+                    ? content.substring(0, limit) + "\n…（内容过长已截断）"
+                    : content;
+        }
     }
 
     @GetMapping("/archive-records")

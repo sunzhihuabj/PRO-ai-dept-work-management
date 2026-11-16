@@ -32,9 +32,16 @@ public class TaskExecutor {
 
     /** 并发控制上限（规划硬约束：≤5） */
     private static final int MAX_CONCURRENCY = 5;
-
     /** 单次轮询领取数 */
     private static final int BATCH_SIZE = 10;
+
+    /** M10：共享固定线程池（容量=并发上限，守护线程，命名便于排查） */
+    private static final java.util.concurrent.ExecutorService EXECUTOR =
+            java.util.concurrent.Executors.newFixedThreadPool(5, r -> {
+                Thread t = new Thread(r, "agent-exec-worker");
+                t.setDaemon(true);
+                return t;
+            });
 
     private final AgentTaskMapper taskMapper;
     private final MasterAgentService masterAgentService;
@@ -57,6 +64,49 @@ public class TaskExecutor {
         this.slots = new Semaphore(MAX_CONCURRENCY);
         this.handlers = handlerBeans.stream()
                 .collect(Collectors.toMap(CapabilityHandler::capabilityCode, Function.identity()));
+    }
+
+    /**
+     * M10 整改①：启动时重置悬挂任务——JVM 重启后 RUNNING 状态的任务不会再被捞取（仅捞 QUEUED），
+     * 会永久悬挂；重启后统一回退到 QUEUED 重新排队执行
+     */
+    @jakarta.annotation.PostConstruct
+    public void resetStaleRunningOnStartup() {
+        try {
+            int reset = taskMapper.update(null, new com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper<AgentTask>()
+                    .eq(AgentTask::getStatus, TaskStatus.RUNNING.getCode())
+                    .setSql("status = 'QUEUED', error_msg = CONCAT(IFNULL(error_msg,''),' [服务重启，任务重新排队]')"));
+            if (reset > 0) {
+                log.warn("服务重启：{} 个 RUNNING 状态的 Agent 任务已重置为 QUEUED 重新排队", reset);
+            }
+        } catch (Exception e) {
+            log.error("重置悬挂 Agent 任务失败（忽略，不影响启动）", e);
+        }
+    }
+
+    /**
+     * M10 整改②：超时看门狗——RUNNING 超过 15 分钟的任务标记失败转人工，
+     * 防止 handler 卡死导致 5 个并发槽位永久占满、全队列停摆
+     */
+    @Scheduled(fixedDelay = 60_000, initialDelay = 60_000)
+    public void timeoutWatchdog() {
+        try {
+            LocalDateTime threshold = LocalDateTime.now().minusMinutes(15);
+            List<AgentTask> stuck = taskMapper.selectList(new LambdaQueryWrapper<AgentTask>()
+                    .eq(AgentTask::getStatus, TaskStatus.RUNNING.getCode())
+                    .and(w -> w.isNull(AgentTask::getStartedAt)
+                            .or().lt(AgentTask::getStartedAt, threshold))
+                    .last("LIMIT 10"));
+            for (AgentTask task : stuck) {
+                task.setStatus(TaskStatus.FAILED.getCode());
+                task.setErrorMsg("执行超时（超过15分钟），已终止并转人工处理");
+                task.setFinishedAt(LocalDateTime.now());
+                taskMapper.updateById(task);
+                log.error("Agent 任务执行超时终止: taskNo={}, startedAt={}", task.getTaskNo(), task.getStartedAt());
+            }
+        } catch (Exception e) {
+            log.error("Agent 任务超时看门狗执行失败（忽略）", e);
+        }
     }
 
     /**
@@ -84,15 +134,14 @@ public class TaskExecutor {
             AgentTask claimed = taskMapper.selectById(task.getId());
             masterAgentService.transition(task.getId(), TaskStatus.QUEUED.getCode(), TaskStatus.RUNNING.getCode(),
                     executedBy, "执行器领取");
-            Thread worker = new Thread(() -> {
+            // M10 整改③：每任务 new Thread 改为共享固定线程池（容量=并发上限），避免线程失控创建
+            EXECUTOR.submit(() -> {
                 try {
                     execute(claimed, executedBy);
                 } finally {
                     slots.release();
                 }
-            }, "agent-exec-" + task.getId());
-            worker.setDaemon(true);
-            worker.start();
+            });
         }
     }
 

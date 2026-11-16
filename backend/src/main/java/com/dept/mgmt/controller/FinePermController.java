@@ -23,6 +23,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -72,6 +73,7 @@ public class FinePermController {
     }
 
     @PostMapping("/assignments")
+    @PreAuthorize("hasAuthority('ROLE_DEPT_LEADER')")
     @RequirePerm("api:system/perm-config:assign")
     @Operation(summary = "批量分配（effect=GRANT/DENY，支持批量）")
     public R<Integer> assign(@Valid @RequestBody PermAssignDTO dto) {
@@ -79,6 +81,7 @@ public class FinePermController {
     }
 
     @PutMapping("/assignments/remove")
+    @PreAuthorize("hasAuthority('ROLE_DEPT_LEADER')")
     @RequirePerm("api:system/perm-config:assign")
     @Operation(summary = "批量移除分配")
     public R<Integer> batchRemove(@Valid @RequestBody PermAssignDTO dto) {
@@ -87,6 +90,7 @@ public class FinePermController {
     }
 
     @PostMapping("/assignments/clear")
+    @PreAuthorize("hasAuthority('ROLE_DEPT_LEADER')")
     @RequirePerm("api:system/perm-config:assign")
     @Operation(summary = "清空主体全部分配")
     public R<Integer> clear(@RequestBody Map<String, Object> body) {
@@ -99,6 +103,7 @@ public class FinePermController {
     // ==================== 权限预览 ====================
 
     @GetMapping("/preview")
+    @PreAuthorize("hasAuthority('ROLE_DEPT_LEADER')")
     @RequirePerm("api:system/perm-config:preview")
     @Operation(summary = "预览指定用户的实际生效权限集合（分维度+冲突+合并）")
     public R<FinePermPreviewVO> preview(@RequestParam Long userId) {
@@ -130,6 +135,7 @@ public class FinePermController {
     }
 
     @PostMapping("/positions")
+    @PreAuthorize("hasAuthority('ROLE_DEPT_LEADER')")
     @RequirePerm("api:system/perm-config:position")
     @Operation(summary = "创建职位")
     public R<Long> createPosition(@RequestBody SysPosition position) {
@@ -137,6 +143,7 @@ public class FinePermController {
     }
 
     @PutMapping("/positions/{id}")
+    @PreAuthorize("hasAuthority('ROLE_DEPT_LEADER')")
     @RequirePerm("api:system/perm-config:position")
     @Operation(summary = "更新职位")
     public R<Void> updatePosition(@PathVariable Long id, @RequestBody SysPosition position) {
@@ -145,6 +152,7 @@ public class FinePermController {
     }
 
     @DeleteMapping("/positions/{id}")
+    @PreAuthorize("hasAuthority('ROLE_DEPT_LEADER')")
     @RequirePerm("api:system/perm-config:position")
     @Operation(summary = "删除职位（需先解除用户关联）")
     public R<Void> deletePosition(@PathVariable Long id) {
@@ -159,6 +167,7 @@ public class FinePermController {
     }
 
     @PostMapping("/users/{userId}/positions")
+    @PreAuthorize("hasAuthority('ROLE_DEPT_LEADER')")
     @RequirePerm("api:system/perm-config:assign")
     @Operation(summary = "为用户分配职位（FIXED无有效期/TEMP必须起止时间）")
     public R<Long> assignUserPosition(@PathVariable Long userId, @Valid @RequestBody UserPositionDTO dto) {
@@ -167,6 +176,7 @@ public class FinePermController {
     }
 
     @DeleteMapping("/user-positions/{id}")
+    @PreAuthorize("hasAuthority('ROLE_DEPT_LEADER')")
     @RequirePerm("api:system/perm-config:assign")
     @Operation(summary = "移除用户职位关联")
     public R<Void> removeUserPosition(@PathVariable Long id,
@@ -184,6 +194,7 @@ public class FinePermController {
     }
 
     @PostMapping("/templates")
+    @PreAuthorize("hasAuthority('ROLE_DEPT_LEADER')")
     @RequirePerm("api:system/perm-config:template")
     @Operation(summary = "创建模板")
     public R<Long> createTemplate(@Valid @RequestBody TemplateDTO dto) {
@@ -191,6 +202,7 @@ public class FinePermController {
     }
 
     @PutMapping("/templates/{id}")
+    @PreAuthorize("hasAuthority('ROLE_DEPT_LEADER')")
     @RequirePerm("api:system/perm-config:template")
     @Operation(summary = "更新模板（条目全量替换）")
     public R<Void> updateTemplate(@PathVariable Long id, @Valid @RequestBody TemplateDTO dto) {
@@ -199,6 +211,7 @@ public class FinePermController {
     }
 
     @DeleteMapping("/templates/{id}")
+    @PreAuthorize("hasAuthority('ROLE_DEPT_LEADER')")
     @RequirePerm("api:system/perm-config:template")
     @Operation(summary = "删除模板")
     public R<Void> deleteTemplate(@PathVariable Long id) {
@@ -207,6 +220,7 @@ public class FinePermController {
     }
 
     @PostMapping("/templates/{id}/apply")
+    @PreAuthorize("hasAuthority('ROLE_DEPT_LEADER')")
     @RequirePerm("api:system/perm-config:assign")
     @Operation(summary = "应用模板到主体（一键复用）")
     public R<Integer> applyTemplate(@PathVariable Long id, @RequestBody Map<String, Object> body) {
@@ -219,6 +233,7 @@ public class FinePermController {
     // ==================== 变更日志 ====================
 
     @GetMapping("/change-logs")
+    @PreAuthorize("hasAuthority('ROLE_DEPT_LEADER')")
     @RequirePerm("api:system/perm-config:log")
     @Operation(summary = "权限变更日志分页审计查询")
     public R<PageResult<SysPermChangeLog>> changeLogs(

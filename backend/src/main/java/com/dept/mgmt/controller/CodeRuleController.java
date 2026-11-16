@@ -32,6 +32,7 @@ public class CodeRuleController {
 
     @GetMapping
     @Operation(summary = "规则分页查询")
+    @PreAuthorize("hasAuthority('ROLE_DEPT_LEADER')")
     public R<PageResult<CodeRule>> list(@RequestParam(defaultValue = "1") Integer pageNum,
                                         @RequestParam(defaultValue = "10") Integer pageSize,
                                         @RequestParam(required = false) String ruleCode,

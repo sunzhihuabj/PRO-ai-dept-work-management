@@ -10,12 +10,14 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
 /**
  * 组织架构接口（原"部门管理"，T-310 命名统一；数据模型与路由 /v1/depts 保持兼容）
+ * 安全约束（H1 整改）：组织树为权限体系基础，写操作仅部门领导可执行（查询保持开放供下拉选择）
  */
 @Slf4j
 @RestController
@@ -35,6 +37,7 @@ public class SysDeptController {
     @PostMapping
     @Operation(summary = "新建组织节点")
     @OperLog(title = "组织架构", businessType = 1)
+    @PreAuthorize("hasAuthority('ROLE_DEPT_LEADER')")
     public R<Long> create(@Valid @RequestBody SysDeptDTO dto) {
         return R.ok("组织节点创建成功", sysDeptService.create(dto));
     }
@@ -42,6 +45,7 @@ public class SysDeptController {
     @PutMapping("/{id}")
     @Operation(summary = "更新组织节点")
     @OperLog(title = "组织架构", businessType = 2)
+    @PreAuthorize("hasAuthority('ROLE_DEPT_LEADER')")
     public R<Void> update(@PathVariable Long id, @Valid @RequestBody SysDeptDTO dto) {
         sysDeptService.update(id, dto);
         return R.ok("组织节点更新成功", null);
@@ -50,6 +54,7 @@ public class SysDeptController {
     @DeleteMapping("/{id}")
     @Operation(summary = "删除组织节点（存在下级节点/节点下有用户时禁止）")
     @OperLog(title = "组织架构", businessType = 3)
+    @PreAuthorize("hasAuthority('ROLE_DEPT_LEADER')")
     public R<Void> delete(@PathVariable Long id) {
         sysDeptService.delete(id);
         return R.ok("组织节点删除成功", null);

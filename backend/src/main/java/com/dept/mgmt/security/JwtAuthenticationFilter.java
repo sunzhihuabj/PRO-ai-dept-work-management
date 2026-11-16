@@ -34,15 +34,20 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     private final JwtUtils jwtUtils;
     private final com.dept.mgmt.fineperm.service.FinePermCacheService finePermCacheService;
 
-    /** 白名单路径（不需要认证） */
+    /** 白名单路径（不需要认证；Ant 模式，L1 整改：精确匹配替代 contains 子串匹配，杜绝误放行） */
     private static final List<String> WHITE_LIST = Arrays.asList(
             "/v1/auth/login",
-            "/v3/api-docs",
-            "/swagger-ui",
-            "/swagger-resources",
-            "/webjars",
-            "/favicon"
+            "/v1/auth/**",
+            "/v3/api-docs/**",
+            "/swagger-ui/**",
+            "/swagger-ui.html",
+            "/swagger-resources/**",
+            "/webjars/**",
+            "/favicon.ico"
     );
+
+    private final org.springframework.util.AntPathMatcher pathMatcher =
+            new org.springframework.util.AntPathMatcher();
 
     @Override
     protected void doFilterInternal(HttpServletRequest request,
@@ -118,9 +123,9 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     }
 
     /**
-     * 判断是否为白名单路径
+     * 判断是否为白名单路径（L1 整改：Ant 精确匹配）
      */
     private boolean isWhiteListed(String uri) {
-        return WHITE_LIST.stream().anyMatch(uri::contains);
+        return WHITE_LIST.stream().anyMatch(pattern -> pathMatcher.match(pattern, uri));
     }
 }

@@ -48,6 +48,43 @@ public class FileService {
     );
 
     /**
+     * M7 魔数校验：按扩展名核对文件头字节，伪造扩展名的内容直接拒绝。
+     * 文本类（txt）无固定文件头放行；dwg 各版本头为 "AC1x" 前缀宽松匹配。
+     */
+    private void assertMagicMatches(String ext, MultipartFile file) {
+        byte[] head = new byte[8];
+        int n;
+        try (java.io.InputStream in = file.getInputStream()) {
+            n = in.readNBytes(head, 0, head.length);
+        } catch (IOException e) {
+            throw new BusinessException(400, "无法读取上传文件内容");
+        }
+        if (n < 4) {
+            return; // 过短文件交由业务侧处理
+        }
+        StringBuilder hexBuilder = new StringBuilder(n * 2);
+        for (int i = 0; i < n; i++) {
+            hexBuilder.append(String.format("%02X", head[i]));
+        }
+        String hex = hexBuilder.toString();
+        boolean ok = switch (ext) {
+            case "pdf" -> hex.startsWith("25504446");
+            case "png" -> hex.startsWith("89504E47");
+            case "jpg", "jpeg" -> hex.startsWith("FFD8FF");
+            case "gif" -> hex.startsWith("47494638");
+            case "zip", "docx", "xlsx", "pptx" -> hex.startsWith("504B");
+            case "rar" -> hex.startsWith("52617221");
+            case "doc", "xls", "ppt" -> hex.startsWith("D0CF11E0");
+            case "dwg" -> hex.startsWith("4143"); // AC1x 系列版本头
+            case "txt" -> true; // 文本无固定头
+            default -> true;
+        };
+        if (!ok) {
+            throw new BusinessException(400, "文件内容与声明的类型不符（扩展名 ." + ext + "），已拒绝上传");
+        }
+    }
+
+    /**
      * 上传文件并持久化记录。
      * @param projectId 项目 ID（必填）
      * @param phaseId   阶段 ID（必填）
@@ -78,6 +115,8 @@ public class FileService {
         if (!ALLOWED_EXTENSIONS.contains(ext)) {
             throw new BusinessException(400, "不支持的文件类型: " + ext);
         }
+        // M7 整改：魔数（文件头）校验——防止伪造扩展名上传可执行/脚本内容
+        assertMagicMatches(ext, file);
 
         // 任务资料：按任务名重命名展示名，目录按任务隔离
         String displayBase = originalFilename;
@@ -104,8 +143,21 @@ public class FileService {
             throw new BusinessException(500, "创建目录失败: " + targetDir.getAbsolutePath());
         }
         String timestamp = String.valueOf(System.currentTimeMillis());
-        String storedFilename = timestamp + "_" + displayBase;
+        // H5 路径穿越整改：存储名完全随机化（不含用户可控的原始文件名），展示名 displayBase 仅存库
+        String storedFilename = timestamp + "_"
+                + java.util.UUID.randomUUID().toString().replace("-", "") + "." + ext;
         File destFile = new File(targetDir, storedFilename);
+        // canonical 归属校验：写入目标必须落在上传根目录内（防御 ..\ 拼接/符号链接逃逸）
+        try {
+            String destCanonical = destFile.getCanonicalPath();
+            String rootCanonical = new File(uploadRootPath).getCanonicalPath() + File.separator;
+            if (!destCanonical.startsWith(rootCanonical)) {
+                log.warn("上传目标路径越界拦截: dest={}, root={}", destCanonical, rootCanonical);
+                throw new BusinessException(400, "非法的存储路径");
+            }
+        } catch (java.io.IOException e) {
+            throw new BusinessException(500, "存储路径校验失败");
+        }
         try {
             file.transferTo(destFile);
         } catch (IOException e) {

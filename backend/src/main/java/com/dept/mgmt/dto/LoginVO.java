@@ -21,6 +21,9 @@ public class LoginVO {
     /** 过期时间（秒） */
     private Long expiresIn;
 
+    /** 账号仍在使用初始弱密码（M5 治理：true 时前端强制引导修改密码） */
+    private Boolean mustChangePassword;
+
     /** 用户信息 */
     private UserInfoVO user;
 

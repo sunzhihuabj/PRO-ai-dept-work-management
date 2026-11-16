@@ -28,11 +28,18 @@ public class AiGatewayClient {
     private final RestClient client;
 
     public AiGatewayClient(@Value("${ai.gateway.base-url:http://localhost:8090}") String baseUrl,
-                           @Value("${ai.gateway.api-key:dept-gateway-internal-key-2026}") String apiKey) {
+                           @Value("${ai.gateway.api-key:dept-gw-internal-2026r2-fA9kQ2xV}") String apiKey) {
         this.baseUrl = baseUrl;
         this.apiKey = apiKey;
+        // M3 超时治理：连接 3s / 读取 60s（LLM 对话响应慢，对齐网关 OpenAiCompatProvider 读超时），
+        // 防止网关不可达时线程挂起拖垮 Tomcat 线程池
+        org.springframework.http.client.SimpleClientHttpRequestFactory factory =
+                new org.springframework.http.client.SimpleClientHttpRequestFactory();
+        factory.setConnectTimeout(java.time.Duration.ofMillis(3_000));
+        factory.setReadTimeout(java.time.Duration.ofMillis(60_000));
         this.client = RestClient.builder()
                 .baseUrl(baseUrl)
+                .requestFactory(factory)
                 .defaultHeader("X-API-Key", apiKey)
                 .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
                 .build();

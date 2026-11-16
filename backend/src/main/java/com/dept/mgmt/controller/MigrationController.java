@@ -6,6 +6,7 @@ import com.dept.mgmt.mdm.service.MigrationService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -15,6 +16,7 @@ import org.springframework.web.multipart.MultipartFile;
 /**
  * 数据迁移接口（T-213）：存量客户/项目档案 Excel 批量导入 + 清洗校验报告
  * 物料迁移复用既有 /v1/materials/import（T-103 同一清洗口径）
+ * 安全约束（H1 整改）：数据迁移为高危管理操作，仅部门领导可执行
  *
  * @author dept-mgmt
  */
@@ -22,6 +24,7 @@ import org.springframework.web.multipart.MultipartFile;
 @RequestMapping("/v1/migration")
 @RequiredArgsConstructor
 @Tag(name = "数据迁移", description = "存量客户/项目批量导入+清洗校验报告（T-213）")
+@PreAuthorize("hasAuthority('ROLE_DEPT_LEADER')")
 public class MigrationController {
 
     private final MigrationService migrationService;

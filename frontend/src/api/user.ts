@@ -53,6 +53,11 @@ export function updateUserApi(id: number, data: UserDTO) {
   return put(`/v1/users/${id}`, data)
 }
 
+/** 角色分配（独立接口，仅部门领导可调；用户更新接口不再接受角色变更） */
+export function assignUserRolesApi(id: number, roleCodes: string) {
+  return put(`/v1/users/${id}/roles`, { roleCodes })
+}
+
 export function deleteUserApi(id: number) {
   return del(`/v1/users/${id}`)
 }

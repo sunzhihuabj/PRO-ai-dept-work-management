@@ -22,7 +22,7 @@
         </el-form-item>
       </el-form>
       <div class="login-tip">
-        <p>默认账号密码：</p>
+        <p>本地开发种子账号（仅限开发环境；上线部署后必须修改并移除本提示）：</p>
         <p>sunzhihua / 123456（部门负责人）</p>
         <p>lihailong / 123456（项目负责人）</p>
       </div>
@@ -35,6 +35,7 @@ import { ref, reactive } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useUserStore } from '@/store/user'
 import type { FormInstance, FormRules } from 'element-plus'
+import { ElMessageBox } from 'element-plus'
 import { User, Lock } from '@element-plus/icons-vue'
 
 const router = useRouter()
@@ -61,11 +62,19 @@ async function handleLogin() {
     if (!valid) return
     loading.value = true
     try {
-      await userStore.login({
+      const res = await userStore.login({
         username: form.username,
         password: form.password,
         rememberMe: form.rememberMe
       })
+      // M5 弱密码治理：账号仍在使用初始弱密码（123456）时强制引导改密
+      if ((res?.data as any)?.mustChangePassword) {
+        ElMessageBox.alert(
+          '您的账号仍在使用初始弱密码，存在被冒用的安全风险。<br>请登录后点击页面右上角头像 →「修改密码」，设置不少于8位且含字母和数字的新密码。',
+          '安全提示：请尽快修改初始密码',
+          { confirmButtonText: '知道了', dangerouslyUseHTMLString: true }
+        ).catch(() => {})
+      }
       const redirect = (route.query.redirect as string) || '/dashboard'
       router.push(redirect)
     } catch (error) {

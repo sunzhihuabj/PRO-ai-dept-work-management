@@ -258,7 +258,7 @@ import {
   Back, ChatDotRound, Cpu, Delete, DocumentCopy, Download, Edit, Fold, Expand, MagicStick,
   Operation, Paperclip, Plus, Promotion, RefreshRight, Search, SetUp, Top
 } from '@element-plus/icons-vue'
-import { marked } from 'marked'
+import { renderMarkdown } from '@/utils/sanitize'
 import TaskCard from './components/TaskCard.vue'
 import WorkflowPanel from './components/WorkflowPanel.vue'
 import {
@@ -622,14 +622,9 @@ function viewTask(t: AgentTask) {
 
 // ==================== 工具 ====================
 
-/** Markdown 渲染（基础净化：去 script/事件属性） */
+/** Markdown 渲染（H3 整改：统一经 DOMPurify 白名单净化，杜绝存储型 XSS） */
 function renderMd(src: string): string {
-  if (!src) return ''
-  const html = marked.parse(src, { async: false, breaks: true }) as string
-  return html
-    .replace(/<script[\s\S]*?<\/script>/gi, '')
-    .replace(/\son\w+\s*=\s*"[^"]*"/gi, '')
-    .replace(/\son\w+\s*=\s*'[^']*'/gi, '')
+  return renderMarkdown(src)
 }
 
 function formatTime(t?: string): string {

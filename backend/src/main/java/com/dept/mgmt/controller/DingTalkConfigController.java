@@ -8,6 +8,7 @@ import com.dept.mgmt.platform.notify.service.NotificationService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -16,6 +17,7 @@ import java.util.Map;
 /**
  * 通知通道配置接口（T-212 钉钉 Webhook）
  * webhook 地址运行时可调（yml 为默认值）；提供 DINGTALK 通道连通性测试
+ * 安全约束（H1 整改）：webhook 地址含接入密钥 token，配置与测试仅部门领导可操作
  *
  * @author dept-mgmt
  */
@@ -23,6 +25,7 @@ import java.util.Map;
 @RequestMapping("/v1/notify/dingtalk")
 @RequiredArgsConstructor
 @Tag(name = "钉钉通知", description = "钉钉 Webhook 配置与测试（T-212）")
+@PreAuthorize("hasAuthority('ROLE_DEPT_LEADER')")
 public class DingTalkConfigController {
 
     private final DingTalkNotificationChannel dingTalkChannel;

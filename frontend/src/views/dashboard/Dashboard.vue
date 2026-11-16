@@ -158,23 +158,22 @@ function handleTodoClick(item: any) {
 async function loadData() {
   todoLoading.value = true
   msgLoading.value = true
-  try {
-    const [statsRes, todoRes, msgRes, actionRes] = await Promise.all([
-      getStatsApi(),
-      getTodoApi(),
-      getNotificationsApi(10),
-      getQuickActionsApi()
-    ])
-    stats.value = statsRes.data
-    todoData.value = todoRes.data
-    notifications.value = msgRes.data || []
-    quickActions.value = actionRes.data || []
-  } catch (e) {
-    ElMessage.error('工作台数据加载失败，请稍后重试')
-  } finally {
-    todoLoading.value = false
-    msgLoading.value = false
+  // allSettled：单接口失败不连坐清空整个工作台（如待办失败时快捷入口仍可用）
+  const [statsR, todoR, msgR, actionR] = await Promise.allSettled([
+    getStatsApi(),
+    getTodoApi(),
+    getNotificationsApi(10),
+    getQuickActionsApi()
+  ])
+  if (statsR.status === 'fulfilled') stats.value = statsR.value.data
+  if (todoR.status === 'fulfilled') todoData.value = todoR.value.data
+  if (msgR.status === 'fulfilled') notifications.value = msgR.value.data || []
+  if (actionR.status === 'fulfilled') quickActions.value = actionR.value.data || []
+  if (statsR.status === 'rejected' || todoR.status === 'rejected' || msgR.status === 'rejected' || actionR.status === 'rejected') {
+    ElMessage.error('部分工作台数据加载失败，请稍后重试')
   }
+  todoLoading.value = false
+  msgLoading.value = false
 }
 
 // 页面被 keep-alive 缓存，使用 onActivated 在每次进入时刷新数据

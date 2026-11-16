@@ -34,7 +34,7 @@ public class AiConfigController {
     @Value("${ai.gateway.base-url:http://localhost:8090}")
     private String gatewayBaseUrl;
 
-    @Value("${ai.gateway.api-key:dept-gateway-internal-key-2026}")
+    @Value("${ai.gateway.api-key:dept-gw-internal-2026r2-fA9kQ2xV}")
     private String gatewayApiKey;
 
     private final org.springframework.web.client.RestClient.Builder restBuilder;
@@ -114,5 +114,19 @@ public class AiConfigController {
     @Operation(summary = "测试连接（发一条最小请求验证可达性）")
     public Object test(@PathVariable Long id) {
         return R.ok(proxy("POST", "/v1/admin/ai-configs/" + id + "/test", null));
+    }
+
+    @PostMapping("/probe-models")
+    @PreAuthorize("hasAuthority('ROLE_DEPT_LEADER')")
+    @Operation(summary = "探测模型列表（未保存配置，按 API 地址 + Key 主动拉取可用模型）")
+    public Object probeModels(@RequestBody Map<String, String> dto) {
+        return R.ok(proxy("POST", "/v1/admin/ai-configs/probe-models", dto));
+    }
+
+    @GetMapping("/{id}/models")
+    @PreAuthorize("hasAuthority('ROLE_DEPT_LEADER')")
+    @Operation(summary = "探测模型列表（已保存通道，服务端解密 Key）")
+    public Object listChannelModels(@PathVariable Long id) {
+        return R.ok(proxy("GET", "/v1/admin/ai-configs/" + id + "/models", null));
     }
 }

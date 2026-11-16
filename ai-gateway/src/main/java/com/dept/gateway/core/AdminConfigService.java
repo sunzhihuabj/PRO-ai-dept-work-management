@@ -30,6 +30,7 @@ public class AdminConfigService {
     private final AiProviderConfigMapper configMapper;
     private final AesGcmCipher cipher;
     private final ProviderRegistry providerRegistry;
+    private final ModelProbeService modelProbeService;
 
     /**
      * 配置列表（api_key_cipher 不输出，仅 hint 脱敏提示）
@@ -135,6 +136,30 @@ public class AdminConfigService {
     }
 
     // ===== 私有辅助 =====
+
+    /**
+     * 已保存通道的模型列表探测：服务端解密 Key 后调探测服务，前端全程无 Key 明文
+     * MOCK 通道由探测服务直接返回内置模型，无需外呼
+     */
+    public Map<String, Object> probeModels(Long id) {
+        AiProviderConfig config = configMapper.selectById(id);
+        if (config == null) {
+            throw new GatewayException(404, "配置不存在");
+        }
+        String apiKey = null;
+        if (StringUtils.hasText(config.getApiKeyCipher())) {
+            try {
+                config.setApiKeyPlain(cipher.decrypt(config.getApiKeyCipher()));
+                apiKey = config.resolveApiKey();
+            } catch (Exception e) {
+                return Map.of("success", false,
+                        "errorType", "KEY_DECRYPT",
+                        "errorMessage", "API Key 解密失败（加密密钥可能已变更），请重新保存 Key",
+                        "count", 0, "models", List.of());
+            }
+        }
+        return modelProbeService.probe(config.getProviderType(), config.getEndpoint(), apiKey);
+    }
 
     /** 按类型校验必填项 */
     private void validateByType(ProviderConfigDTO dto) {

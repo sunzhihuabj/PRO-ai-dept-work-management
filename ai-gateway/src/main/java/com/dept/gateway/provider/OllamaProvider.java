@@ -30,7 +30,12 @@ public class OllamaProvider implements AiProvider {
         if (!StringUtils.hasText(config.getEndpoint())) {
             throw new IllegalArgumentException("Ollama endpoint 未配置");
         }
-        RestClient client = RestClient.builder().baseUrl(config.getEndpoint()).build();
+        // M3 超时治理：连接 5s / 读取 60s（本地大模型推理慢），防止线程挂起
+        org.springframework.http.client.SimpleClientHttpRequestFactory factory =
+                new org.springframework.http.client.SimpleClientHttpRequestFactory();
+        factory.setConnectTimeout(java.time.Duration.ofMillis(5_000));
+        factory.setReadTimeout(java.time.Duration.ofMillis(60_000));
+        RestClient client = RestClient.builder().baseUrl(config.getEndpoint()).requestFactory(factory).build();
         Map<String, Object> resp = client.post()
                 .uri("/api/generate")
                 .contentType(MediaType.APPLICATION_JSON)

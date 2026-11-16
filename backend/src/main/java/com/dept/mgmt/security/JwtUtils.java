@@ -24,6 +24,12 @@ import java.util.Map;
 @Component
 public class JwtUtils {
 
+    /** 已随源码公开的旧默认密钥（轮换作废；生产环境检测到即拒绝启动） */
+    private static final String LEGACY_DEFAULT_SECRET = "3V/8Fp0IsOdSAOqOpm6xFXZWDEu4xw8kasX737jXMH9p/JLZskFtAidjwOJfJIBj";
+
+    /** 本地开发兜底密钥（轮换后新值；仅无 profile 本地开发使用，生产必须经 JWT_SECRET 注入） */
+    private static final String DEV_FALLBACK_SECRET = "ZGVwdC1tZ210LWp3dC1kZXYtc2VjcmV0LXIyLTIwMjYxMTEzLXJvdGF0ZWQ9PQ==";
+
     @Value("${jwt.secret}")
     private String secret;
 
@@ -32,12 +38,37 @@ public class JwtUtils {
 
     private SecretKey key;
 
+    @org.springframework.beans.factory.annotation.Autowired
+    private org.springframework.core.env.Environment environment;
+
+    /** 生产类 profile（prod/uat/release）判定：命中则密钥治理 fail-fast */
+    private boolean isProdLikeProfile() {
+        for (String p : environment.getActiveProfiles()) {
+            if ("prod".equalsIgnoreCase(p) || "uat".equalsIgnoreCase(p) || "release".equalsIgnoreCase(p)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     @PostConstruct
     public void init() {
-        // 密钥治理：仅接受 Base64 编码且解码后不少于32字节的密钥，不再回退到原始字节，防止弱密钥上线
+        // 密钥治理（H4 整改）：源码默认密钥视为已泄露。
+        // 1) 未配置/使用旧默认密钥时：生产类环境 fail-fast 拒绝启动；本地开发自动切换到轮换后的内置开发密钥；
+        // 2) 显式配置的密钥：仅接受 Base64 编码且解码后不少于32字节，不再回退到原始字节，防止弱密钥上线
+        String effective = secret;
+        if (effective == null || effective.isBlank() || LEGACY_DEFAULT_SECRET.equals(effective.trim())) {
+            if (isProdLikeProfile()) {
+                throw new IllegalStateException("JWT 密钥治理 fail-fast：生产环境检测到"
+                        + (effective == null || effective.isBlank() ? "未配置 JWT_SECRET" : "已泄露的旧默认密钥")
+                        + "，必须通过环境变量 JWT_SECRET 注入强随机 Base64 密钥（≥32 字节）后启动");
+            }
+            effective = DEV_FALLBACK_SECRET;
+            log.warn("未配置（或使用已泄露旧默认）JWT_SECRET，本地开发自动切换内置轮换开发密钥；生产环境必须显式注入 JWT_SECRET");
+        }
         byte[] keyBytes;
         try {
-            keyBytes = Base64.getDecoder().decode(secret);
+            keyBytes = Base64.getDecoder().decode(effective);
         } catch (IllegalArgumentException e) {
             throw new IllegalStateException("JWT密钥配置无效：jwt.secret 必须是 Base64 编码字符串", e);
         }

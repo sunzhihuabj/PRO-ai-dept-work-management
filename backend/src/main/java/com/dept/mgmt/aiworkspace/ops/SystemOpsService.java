@@ -2,8 +2,11 @@ package com.dept.mgmt.aiworkspace.ops;
 
 import com.dept.mgmt.aiworkspace.entity.AiConversation;
 import com.dept.mgmt.aiworkspace.entity.AiMessage;
+import com.dept.mgmt.aiworkspace.service.AiMemoryService;
 import com.dept.mgmt.common.client.AiGatewayClient;
 import com.dept.mgmt.common.exception.BusinessException;
+import com.dept.mgmt.entity.Project;
+import com.dept.mgmt.entity.SysUser;
 import com.dept.mgmt.fineperm.service.FinePermissionService;
 import com.dept.mgmt.mapper.AiMessageMapper;
 import com.dept.mgmt.security.LoginUser;
@@ -23,11 +26,20 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * 对话驱动系统操作服务（T-411）
+ * 对话驱动系统操作服务（T-411 / P0 智能化改造）
  *
  * <p>链路：用户自然语言 → LLM 工具选择+参数抽取（JSON 契约校验，走网关）
- * → 声明式参数校验（必填/枚举/类型，仅索要业务必需字段）
+ * → 声明式参数校验（必填/枚举/类型）→ 语义校验（P0-4：实体存在性/歧义澄清/写入前置校验）
  * → 权限校验（角色/精细权限点）→ 只读同步执行 / 写入待确认 → 结果按系统数据规范渲染。
+ *
+ * <p>P0 改造要点：
+ * <ul>
+ * <li><b>渐进披露（P0-1）</b>：decide() 只常驻注入全局口径 + 版块摘要目录（约 400 tokens），
+ *     本轮消息命中版块触发词后才注入该版块完整业务口径与参数详情，token 成本降约 50%。</li>
+ * <li><b>记忆注入（P0-3）</b>：decide() 携带会话滚动摘要与用户长期记忆，长会话不丢上下文。</li>
+ * <li><b>语义校验（P0-4）</b>：执行前对项目名/负责人做存在性与歧义校验（命中多个列候选让用户澄清），
+ *     写入类工具确认前先核对目标实体存在，杜绝「确认后才发现单号无效」。</li>
+ * </ul>
  * LLM 失败/判定为聊天时优雅降级，不阻塞对话主流程。
  *
  * @author dept-mgmt
@@ -48,10 +60,12 @@ public class SystemOpsService {
             "创建|新建|登记|录入|审批|批准|驳回|推进|流转|借阅|归还|绑定|解绑|处理|发起|提交|关闭|销毁|派发|指派");
 
     private final OpsToolRegistry registry;
+    private final OpsSkillCards skillCards;
     private final OpsPendingStore pendingStore;
     private final AiGatewayClient aiGatewayClient;
     private final AiMessageMapper messageMapper;
     private final FinePermissionService finePermissionService;
+    private final AiMemoryService aiMemoryService;
     private final ObjectMapper objectMapper;
 
     /** 输出 JSON 契约（网关侧校验 + 失败重生成一次） */
@@ -121,9 +135,12 @@ public class SystemOpsService {
         if (tool == null) {
             return saveMessage(conv.getId(), "该操作暂不支持对话执行。你可以让我查询任务/项目/合同/标讯/档案等，或创建任务、推进状态、录入工时等。");
         }
-        Map<String, Object> params = decision.params() == null ? Map.of() : decision.params();
+        // LLM 输出的 params 可能为不可变 Map，复制为可变以支持语义校验的规范化写回
+        Map<String, Object> params = decision.params() == null
+                ? new LinkedHashMap<>()
+                : new LinkedHashMap<>(decision.params());
 
-        // 声明式参数校验：必填/枚举/类型（缺失追问由后端按参数声明生成，只问业务必需字段）
+        // 1. 声明式参数校验：必填/枚举/类型（缺失追问由后端按参数声明生成，只问业务必需字段）
         String missing;
         try {
             missing = validate(tool, params);
@@ -134,7 +151,13 @@ public class SystemOpsService {
             return saveMessage(conv.getId(), "执行「" + tool.getTitle() + "」还需要补充：" + missing);
         }
 
-        // 权限校验
+        // 2. 语义校验（P0-4）：实体存在性/歧义澄清 → 写入前置校验；失败直接给出业务可读提示
+        String semantic = semanticValidate(tool, params, user);
+        if (semantic != null) {
+            return saveMessage(conv.getId(), semantic);
+        }
+
+        // 3. 权限校验
         String denied = checkPerm(tool, user);
         if (denied != null) {
             return saveMessage(conv.getId(), denied);
@@ -150,13 +173,91 @@ public class SystemOpsService {
                 + "\n\n回复「**确认**」执行，「**取消**」放弃（5 分钟内有效）。");
     }
 
-    /** 执行待确认操作 */
+    /**
+     * 语义校验（P0-4）：对声明 resolve 的参数做实体匹配——
+     * 未找到→提示核对；命中多个→列候选请用户澄清；唯一→把参数规范化为标准名称。
+     * 随后对写入类工具执行前置校验（目标实体存在性），失败文案直接返回给用户。
+     * 返回 null=全部通过。
+     */
+    String semanticValidate(OpsTool tool, Map<String, Object> params, LoginUser user) {
+        for (OpsParam p : tool.getParams()) {
+            if (p.getResolve() == null) {
+                continue;
+            }
+            Object raw = params.get(p.getName());
+            if (raw == null || (raw instanceof String s && !StringUtils.hasText(s))) {
+                continue; // 缺省参数走必填校验追问，不在此重复
+            }
+            String value = String.valueOf(raw);
+            switch (p.getResolve()) {
+                case "project" -> {
+                    OpsToolRegistry.EntityMatch<Project> match = registry.matchProject(value);
+                    if (match.entity() == null) {
+                        if (!match.candidates().isEmpty()) {
+                            return "项目「" + value + "」匹配到多个，请指明是哪一个：\n"
+                                    + numbered(match.candidates());
+                        }
+                        return "未找到项目「" + value + "」，请确认项目名称（可先说「查一下项目」核对）";
+                    }
+                    // 规范化：口语称呼 → 库内标准项目名，执行器与确认回执均使用标准名
+                    params.put(p.getName(), match.entity().getProjectName());
+                }
+                case "user" -> {
+                    OpsToolRegistry.EntityMatch<SysUser> match = registry.matchAssignee(value);
+                    if (match.entity() == null) {
+                        if (!match.candidates().isEmpty()) {
+                            return "成员「" + value + "」匹配到多位，请指明是哪一位：\n"
+                                    + numbered(match.candidates());
+                        }
+                        return "未找到成员「" + value + "」，请确认负责人姓名或账号";
+                    }
+                    params.put(p.getName(), match.entity().getUsername());
+                }
+                default -> {
+                }
+            }
+        }
+        // 写入类工具前置校验：确认执行前先核对目标实体存在
+        if (tool.getPrecheck() != null) {
+            try {
+                String err = tool.getPrecheck().apply(params, user);
+                if (err != null) {
+                    return err;
+                }
+            } catch (BusinessException e) {
+                return "「" + tool.getTitle() + "」无法执行：" + e.getMessage();
+            }
+        }
+        return null;
+    }
+
+    /** 候选清单编号渲染（1. PRJ-xxx 项目名） */
+    private String numbered(List<String> candidates) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < candidates.size(); i++) {
+            sb.append(i + 1).append(". ").append(candidates.get(i)).append('\n');
+        }
+        return sb.toString();
+    }
+
+    /** 执行待确认操作（H2 整改：确认前二次复核权限与前置校验——待确认期间权限/目标状态可能已变化） */
     private AiMessage executePending(AiConversation conv, OpsPendingStore.PendingOp pending, LoginUser user) {
         OpsTool tool = registry.find(pending.toolName());
-        pendingStore.remove(conv.getId());
         if (tool == null) {
+            pendingStore.remove(conv.getId());
             return saveMessage(conv.getId(), "该操作已失效，请重新描述需求。");
         }
+        String denied = checkPerm(tool, user);
+        if (denied != null) {
+            pendingStore.remove(conv.getId());
+            return saveMessage(conv.getId(), "待确认操作已取消：" + denied);
+        }
+        String semantic = semanticValidate(tool, pending.params(), user);
+        if (semantic != null) {
+            pendingStore.remove(conv.getId());
+            return saveMessage(conv.getId(), "待确认操作已取消：" + semantic);
+        }
+        pendingStore.remove(conv.getId());
         return execute(conv, tool, pending.params());
     }
 
@@ -175,15 +276,39 @@ public class SystemOpsService {
         }
     }
 
-    // ==================== LLM 意图判定 ====================
+    // ==================== LLM 意图判定（渐进披露 P0-1 + 记忆注入 P0-3） ====================
 
     private LlmDecision decide(AiConversation conv, String content, boolean forceTool) {
         StringBuilder prompt = new StringBuilder();
         prompt.append("今天是 ").append(LocalDate.now().format(DateTimeFormatter.ISO_DATE))
                 .append("。你是部门工作管理平台的 AI 操作助手，负责判定用户意图并抽取系统操作参数。\n\n");
-        prompt.append(OpsToolRegistry.SYSTEM_KNOWLEDGE).append('\n');
-        prompt.append("【可执行操作目录】（格式：工具名|版块|说明|参数；参数标记 必填/可选、类型、枚举值）\n")
-                .append(registry.catalog()).append('\n');
+        // 第一层：全局口径 + 版块摘要目录（常驻，约 400 tokens）
+        prompt.append(OpsSkillCards.GLOBAL_RULES).append('\n');
+        prompt.append("【可执行操作目录】（每行：版块名（一句话能力）：该版块工具名清单；工具名自解释：版块.动作）\n")
+                .append(skillCards.briefCatalog()).append('\n');
+        // 第二层：命中版块触发词才注入完整业务口径 + 该版块工具参数详情
+        List<OpsSkillCards.OpsSkillCard> hits = skillCards.match(content);
+        if (hits.isEmpty()) {
+            prompt.append("（本轮消息未命中具体版块：如需执行系统操作请指明版块，例如「查一下我的任务」；上文目录的参数详情从略）\n");
+        } else {
+            for (OpsSkillCards.OpsSkillCard card : hits) {
+                prompt.append("【命中版块：").append(card.name()).append("】\n")
+                        .append(card.knowledge()).append('\n')
+                        .append("【该版块工具参数详情】（格式：工具名|版块|说明|参数；参数标记 必填/可选、类型、枚举值）\n")
+                        .append(registry.catalog(card.name())).append('\n');
+            }
+        }
+        // 记忆注入（P0-3）：会话滚动摘要 + 用户长期事实
+        if (StringUtils.hasText(conv.getSummary())) {
+            prompt.append("【会话此前摘要】\n").append(conv.getSummary()).append('\n');
+        }
+        List<String> memories = aiMemoryService.recall(conv.getUserId());
+        if (!memories.isEmpty()) {
+            prompt.append("【用户长期记忆】（回答与抽取参数时可参考）\n");
+            for (String m : memories) {
+                prompt.append("- ").append(m).append('\n');
+            }
+        }
         prompt.append("【对话历史】\n");
         List<AiMessage> history = messageMapper.selectList(
                 new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<AiMessage>()
@@ -206,7 +331,7 @@ public class SystemOpsService {
                 0. 用户消息含 查/查询/列表/看看/有哪些/多少/进度 等词且涉及目录版块 → 必须选对应查询工具（tool）；含 创建/新建/登记/录入/审批/推进/借阅/归还/绑定/处理 等词 → 必须选对应写入工具（tool），绝不允许用 chat 直接声称已创建/已完成（实际执行由系统完成，chat 只能输出文字）。
                 1. 执行系统操作 → {"action":"tool","tool":"工具名","params":{...}}；参数取目录声明名，日期一律输出 yyyy-MM-dd（相对日期按今天换算），金额纯数字不带单位，项目用 projectName 名称；缺必填参数时仍选 tool，params 只填已知项（系统会自动追问缺项）。
                 2. AI 分析类能力（日报/周报/会议纪要生成、标讯解析与资格比对、报价建议、竞品分析、方案起草、BOM 智能校验、成本自动归集、售后诊断建议、晨会解读等）→ {"action":"agent"}；知识库检索一律走 kb.search 工具。
-                3. 普通咨询/闲聊/业务知识问答 → {"action":"chat","reply":"基于【系统版块知识】直接回答，500字内，禁止反问用户背景信息"}。
+                3. 普通咨询/闲聊/业务知识问答 → {"action":"chat","reply":"基于命中版块业务口径直接回答，500字内，禁止反问用户背景信息"}。
                 4. 禁止编造工具名与参数；不确定时选 chat。只输出 JSON 本身，不要任何解释文字或 markdown 代码块。
                 【示例】
                 用户：查一下我的待办任务 → {"action":"tool","tool":"task.myTodo","params":{}}
@@ -216,7 +341,7 @@ public class SystemOpsService {
                 用户：我有哪些待审批的事件 → {"action":"tool","tool":"event.myPending","params":{}}
                 用户：知识库里搜一下设备维护规范 → {"action":"tool","tool":"kb.search","params":{"query":"设备维护规范"}}
                 用户：生成今天的日报 → {"action":"agent"}
-                用户：合同的审批流程是什么 → {"action":"chat","reply":"合同按 草稿→会签→审批→用印→生效 流转，会签门要求四项收款比例合计100%，审批/用印仅部门领导可操作。"}
+                用户：合同的审批流程是什么 → {"action":"chat","reply":"合同按 草稿→会签→审批→用印→生效 流转，会签门要求四项收款比例合计100%，审批/印鉴仅部门领导可操作。"}
                 """);
 
         String content1 = aiGatewayClient.chat("CAP_DOC_SUMMARY", prompt.toString(),
@@ -224,7 +349,7 @@ public class SystemOpsService {
         return parseDecision(content1);
     }
 
-    private LlmDecision parseDecision(String raw) {
+    LlmDecision parseDecision(String raw) {
         if (!StringUtils.hasText(raw)) {
             return null;
         }
@@ -258,7 +383,7 @@ public class SystemOpsService {
     // ==================== 校验 ====================
 
     /** 声明式校验；通过返回 null，否则返回缺失/错误说明 */
-    private String validate(OpsTool tool, Map<String, Object> params) {
+    String validate(OpsTool tool, Map<String, Object> params) {
         List<String> missing = new java.util.ArrayList<>();
         for (OpsParam p : tool.getParams()) {
             Object v = params.get(p.getName());
@@ -276,10 +401,27 @@ public class SystemOpsService {
         return missing.isEmpty() ? null : String.join("；", missing);
     }
 
-    /** 权限校验：部门领导兜底；角色与精细权限点双重声明 */
-    private String checkPerm(OpsTool tool, LoginUser user) {
+    /**
+     * 权限校验：部门领导兜底；角色与精细权限点双重声明。
+     * H2 整改：写入类工具未声明 minRole/permCode 时不再默认放行——
+     * 挂了 precheck 的写入工具由 precheck 做目标存在性与归属判定（如任务仅负责人本人可操作）；
+     * 既无权限声明也无 precheck 的写入工具，按项目负责人基线判定。
+     */
+    String checkPerm(OpsTool tool, LoginUser user) {
         boolean leader = user.getRoles() != null && user.getRoles().contains("ROLE_DEPT_LEADER");
         if (leader) {
+            return null;
+        }
+        boolean hasPermDecl = tool.getMinRole() != null || tool.getPermCode() != null;
+        if (!tool.isReadOnly() && !hasPermDecl) {
+            if (tool.getPrecheck() == null) {
+                // 无权限声明且无前置校验的写入：按项目负责人基线兜底（默认拒绝未授权角色）
+                if (user.getRoles() == null || !user.getRoles().contains("ROLE_PROJECT_LEADER")) {
+                    return "「" + tool.getTitle() + "」为写入操作，需要 项目负责人 或部门领导权限，当前账号无权执行该操作。";
+                }
+                return null;
+            }
+            // 有 precheck 的写入：由语义校验阶段的 precheck 做目标存在性与归属判定
             return null;
         }
         if (tool.getMinRole() != null && (user.getRoles() == null || !user.getRoles().contains(tool.getMinRole()))) {

@@ -211,7 +211,9 @@ public class GatewayService {
             entry.setCallerId(request.getCallerId());
             if (prompt != null) {
                 entry.setPromptChars(prompt.length());
-                entry.setPromptPreview(truncate(prompt, 500));
+                // M9 留存合规：审计预览经脱敏后留存（手机号/身份证/银行卡等 PII 不落审计库）；
+                // 商用通道的完整 prompt 已在调用前脱敏，本地/mock 通道未脱敏，此处统一兜底
+                entry.setPromptPreview(truncate(desensitizeService.desensitize(prompt), 500));
             }
             entry.setTotalTokens(tokens);
             entry.setDurationMs(durationMs);
