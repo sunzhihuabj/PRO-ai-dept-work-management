@@ -58,6 +58,7 @@ public class AiChatService {
     private final WorkflowService workflowService;
     private final SystemOpsService systemOpsService;
     private final AiMemoryService aiMemoryService;
+    private final com.dept.mgmt.aiworkspace.service.HermesDelegateService hermesDelegateService;
 
     // ==================== 会话管理 ====================
 
@@ -151,7 +152,8 @@ public class AiChatService {
     /**
      * 意图路由并生成助手回复（chat 与 regenerate 共用）：
      * 流程创建意图 → 系统操作意图（T-411 对话驱动全系统操作，含工具执行/参数追问/闲聊回复，
-     * 判定为 AI 分析类能力时返回 null 转交 Agent）→ 任务意图 → 通用对话
+     * 判定为 AI 分析类能力时返回 null 转交 Agent）→ 任务意图 → Hermes 委托（B2 第四级：
+     * 复杂多步/跨模块指令委托 AI Agent 员工异步执行，Hermes 不可用自动跳过）→ 通用对话
      */
     private AiMessage routeAndReply(AiConversation conv, String content, Long userId) {
         if (WF_CREATE_PATTERN.matcher(content).find()) {
@@ -160,6 +162,10 @@ public class AiChatService {
         AiMessage assistantMsg = systemOpsService.tryOps(conv, content, current());
         if (assistantMsg == null) {
             assistantMsg = tryAgentTask(conv, content, userId);
+        }
+        if (assistantMsg == null) {
+            LoginUser u = current();
+            assistantMsg = hermesDelegateService.tryDelegate(conv, content, u.getUserId(), u.getUsername());
         }
         if (assistantMsg == null) {
             assistantMsg = generalChat(conv, content);
