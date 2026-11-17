@@ -30,10 +30,12 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * McpOpsBridge 单元测试（A3 只读桥接 + A4 身份透传与权限校验）
+ * McpOpsBridge 单元测试（A3 只读桥接 + A4 身份透传与权限校验 + B4 写工具审批化桥接）
  */
 @ExtendWith(MockitoExtension.class)
 class McpOpsBridgeTest {
@@ -44,12 +46,17 @@ class McpOpsBridgeTest {
     private SysUserMapper userMapper;
     @Mock
     private SystemOpsService systemOpsService;
+    @Mock
+    private com.dept.mgmt.agent.collab.support.ApprovalActionRegistry approvalActionRegistry;
+    @Mock
+    private com.dept.mgmt.agent.collab.service.DecisionAdviceService adviceService;
 
     private McpOpsBridge bridge;
 
     @BeforeEach
     void setUp() {
-        bridge = new McpOpsBridge(opsRegistry, userMapper, systemOpsService);
+        bridge = new McpOpsBridge(opsRegistry, userMapper, systemOpsService,
+                approvalActionRegistry, adviceService);
         ReflectionTestUtils.setField(bridge, "actingUserId", 1L);
         lenient().when(userMapper.selectById(anyLong())).thenAnswer(inv -> {
             long id = inv.getArgument(0);
@@ -85,21 +92,81 @@ class McpOpsBridgeTest {
                 .build();
     }
 
+    /** 白名单模拟：仅 task.create 登记（真实白名单见 ApprovalActionRegistry.ALLOWED_TOOLS） */
+    private void stubWhitelist() {
+        lenient().when(approvalActionRegistry.actionOf(any())).thenAnswer(inv ->
+                "task.create".equals(inv.getArgument(0)) ? "OPS_TASK_CREATE" : null);
+    }
+
     @Test
-    void shouldBridgeReadOnlyOnlyAndSkipDuplicates() {
+    void shouldBridgeReadOnlyAndWhitelistedWriteTools() {
+        stubWhitelist();
         when(opsRegistry.all()).thenReturn(List.of(
                 readTool("task.myTodo", true),             // 跳过：与 task.my_todo 重复
                 readTool("project.list", true),            // 跳过：与 project.query 重复
                 readTool("tender.collectPlatforms", true), // 跳过：与 tender.platforms 重复
-                readTool("task.detail", true),             // 桥接
-                readTool("kb.search", true),               // 桥接
-                readTool("task.create", false)));          // 跳过：写入类不暴露
+                readTool("task.detail", true),             // 只读桥接
+                readTool("kb.search", true),               // 只读桥接
+                readTool("task.create", false),            // B4：白名单写工具 → 审批化暴露
+                readTool("ecn.approve", false)));          // 白名单外写工具不暴露
 
         List<McpTool> tools = bridge.bridgeTools();
 
-        assertEquals(2, tools.size());
-        assertEquals(List.of("task.detail", "kb.search"),
+        assertEquals(3, tools.size());
+        assertEquals(List.of("task.detail", "kb.search", "task.create"),
                 tools.stream().map(McpTool::name).toList());
+    }
+
+    @Test
+    void shouldDeclareRequiresApprovalOnWriteTools() {
+        stubWhitelist();
+        when(opsRegistry.all()).thenReturn(List.of(
+                readTool("task.detail", true), readTool("task.create", false)));
+
+        List<McpTool> tools = bridge.bridgeTools();
+
+        assertFalse(tools.get(0).requiresApproval());
+        assertTrue(tools.get(1).requiresApproval());
+        assertTrue(tools.get(1).description().contains("requiresApproval=true"));
+        assertTrue(tools.get(1).description().contains("不直接写入"));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void shouldRequestApprovalOnWriteToolCallInsteadOfWriting() {
+        stubWhitelist();
+        when(opsRegistry.all()).thenReturn(List.of(readTool("task.create", false)));
+        com.dept.mgmt.agent.collab.entity.AgentDecisionAdvice advice =
+                new com.dept.mgmt.agent.collab.entity.AgentDecisionAdvice();
+        advice.setId(501L);
+        when(adviceService.requestToolApproval(eq("task.create"), any(), eq(7L), any()))
+                .thenReturn(advice);
+        McpTool tool = bridge.bridgeTools().get(0);
+        McpCallContext.setActingUserId(7L);
+
+        Object out = tool.handler().apply(Map.of("projectId", 9, "keyword", "新任务"));
+
+        Map<String, Object> result = (Map<String, Object>) out;
+        assertEquals(Boolean.TRUE, result.get("approvalRequired"));
+        assertEquals(501L, result.get("adviceId"));
+        assertTrue(String.valueOf(result.get("message")).contains("未直接写入"));
+        verify(adviceService).requestToolApproval(eq("task.create"), any(), eq(7L), any());
+        // 不直接写入：写工具 executor 无触发路径（tool.handler 即审批桥，非原 executor）
+    }
+
+    @Test
+    void shouldRejectWriteToolCallWhenPermissionDenied() {
+        stubWhitelist();
+        when(opsRegistry.all()).thenReturn(List.of(readTool("task.create", false)));
+        when(systemOpsService.checkPermission(any(), any())).thenReturn("无权执行");
+        McpCallContext.setActingUserId(7L);
+
+        McpTool tool = bridge.bridgeTools().get(0);
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> tool.handler().apply(Map.of("projectId", 9)));
+        assertEquals(403, ex.getCode());
+        // 权限被拒时不产生审批建议
+        verify(adviceService, never()).requestToolApproval(any(), any(), any(), any());
     }
 
     @Test

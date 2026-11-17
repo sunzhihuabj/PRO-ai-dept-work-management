@@ -266,7 +266,7 @@ public class DecisionAdviceService {
         structured.put("action", action);
         structured.put("actingUser", actingUser.getUsername());
         structured.put("params", toolParams == null ? Map.of() : toolParams);
-        advice(SCENE_TOOL_APPROVAL, "OPS_TOOL", null, toolName,
+        advice(SCENE_TOOL_APPROVAL, "OPS_TOOL", 0L, toolName,
                 "写操作待确认：" + tool.getTitle(),
                 "REQUEST",
                 "AI 委托执行「" + tool.getTitle() + "」" + preview

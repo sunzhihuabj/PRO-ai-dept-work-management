@@ -62,6 +62,9 @@ public class McpProtocolService {
                         m.put("name", t.name());
                         m.put("description", t.description());
                         m.put("inputSchema", t.inputSchema());
+                        // B4 写操作声明：requiresApproval + MCP annotations 只读提示
+                        m.put("requiresApproval", t.requiresApproval());
+                        m.put("annotations", Map.of("readOnlyHint", !t.requiresApproval()));
                         return m;
                     }).toList());
             case "tools/call" -> toolsCall(params);

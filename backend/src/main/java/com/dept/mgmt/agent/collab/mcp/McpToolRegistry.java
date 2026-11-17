@@ -135,7 +135,18 @@ public class McpToolRegistry {
                             } catch (Exception e) {
                                 throw new IllegalStateException("晨报生成失败: " + e.getMessage(), e);
                             }
-                        }));
+                        }),
+
+                // ---- Agent 能力点统一入口（B4 二期：AGT 全系列经任务队列异步执行，统一治理） ----
+                new McpTool("agent.capability.run",
+                        "提交 Agent 能力点任务（capabilityCode=AGT 编码，如 AGT-26 晨报/AGT-27 标讯采集；异步队列执行，立即返回任务号，结果经任务卡片/事件流回写）",
+                        McpTool.objectSchema(Map.of(
+                                "capabilityCode", Map.of("type", "string", "description", "能力点编码（AGT-XX）"),
+                                "instruction", Map.of("type", "string", "description", "任务指令（自然语言）"),
+                                "userId", Map.of("type", "integer", "description", "任务归属用户ID"),
+                                "params", Map.of("type", "object", "description", "扩展参数（可选，对象）")), List.of("capabilityCode", "instruction", "userId")),
+                        args -> masterAgentService.submitAs(strArg(args, "instruction"),
+                                strArg(args, "capabilityCode"), args.get("params"), requireLong(args, "userId"))));
     }
 
     private static long requireLong(Map<String, Object> args, String key) {

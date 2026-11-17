@@ -19,11 +19,13 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * Ops 工具 → MCP 工具自动注册桥（A3 只读工具全量化 + A4 身份透传，零手写）
+ * Ops 工具 → MCP 工具自动注册桥（A3 只读工具全量化 + A4 身份透传 + B4 写工具审批化，零手写）
  *
- * <p>遍历 {@link OpsToolRegistry} 中 readOnly=true 的工具，按 OpsParam 声明自动生成
- * JSON Schema 并包装为 McpTool——executor 复用 Service 层，不新增 SQL。
- * 写入类工具不在此暴露（A5 审批动作注册表落地后分级接入）。
+ * <p>只读工具（readOnly=true）：executor 直连 Service 层，不新增 SQL；
+ * 写入类工具（B4 二期）：仅暴露 {@code ApprovalActionRegistry} 白名单内的工具——
+ * executor 不直接写入，而是经 {@code DecisionAdviceService#requestToolApproval}
+ * 生成待确认审批建议（HMAC 锁定参数 + 委托人权限预校验），委托人采纳后才执行
+ * （HITL 双保险：白名单 deny-by-default + 审批确认）。白名单外写工具不暴露。
  *
  * <p>身份与权限（A4）：MCP 调用携带 {@code X-Acting-User-Id}（委托发起人）→
  * {@link McpCallContext} 请求级透传 → 本桥逐调用按该用户查库校验（存在且未禁用），
@@ -46,6 +48,8 @@ public class McpOpsBridge {
     private final OpsToolRegistry opsRegistry;
     private final SysUserMapper userMapper;
     private final SystemOpsService systemOpsService;
+    private final com.dept.mgmt.agent.collab.support.ApprovalActionRegistry approvalActionRegistry;
+    private final com.dept.mgmt.agent.collab.service.DecisionAdviceService adviceService;
 
     @Value("${app.mcp.acting-user-id:1}")
     private long actingUserId;
@@ -54,23 +58,38 @@ public class McpOpsBridge {
     private volatile LoginUser delegateUser;
 
     public McpOpsBridge(OpsToolRegistry opsRegistry, SysUserMapper userMapper,
-                        SystemOpsService systemOpsService) {
+                        SystemOpsService systemOpsService,
+                        com.dept.mgmt.agent.collab.support.ApprovalActionRegistry approvalActionRegistry,
+                        com.dept.mgmt.agent.collab.service.DecisionAdviceService adviceService) {
         this.opsRegistry = opsRegistry;
         this.userMapper = userMapper;
         this.systemOpsService = systemOpsService;
+        this.approvalActionRegistry = approvalActionRegistry;
+        this.adviceService = adviceService;
     }
 
-    /** 只读 Ops 工具 → McpTool 列表（保持注册顺序） */
+    /** Ops 工具 → McpTool 列表（只读直连 + 白名单写工具审批化，保持注册顺序） */
     public List<McpTool> bridgeTools() {
         List<McpTool> out = new ArrayList<>();
+        int writeCount = 0;
         for (OpsTool t : opsRegistry.all()) {
-            if (!t.isReadOnly() || SKIP.contains(t.getName())) {
+            if (SKIP.contains(t.getName())) {
                 continue;
             }
-            out.add(new McpTool(t.getName(), t.getDesc(), toSchema(t),
-                    args -> execute(t, args)));
+            if (t.isReadOnly()) {
+                out.add(new McpTool(t.getName(), t.getDesc(), toSchema(t),
+                        args -> execute(t, args)));
+            } else if (approvalActionRegistry.actionOf(t.getName()) != null) {
+                // B4：白名单写工具——requiresApproval 声明，调用即生成审批建议（不直接写入）
+                out.add(new McpTool(t.getName(),
+                        t.getDesc() + "（写操作·requiresApproval=true：调用即生成待确认审批建议，委托人在本系统采纳后才执行；本工具不直接写入）",
+                        toSchema(t), true, args -> executeWriteViaApproval(t, args)));
+                writeCount++;
+            }
+            // 白名单外写工具（如 ecn.approve / tender.collect）：不暴露
         }
-        log.info("MCP Ops 桥接注册完成: {} 个只读工具（A4 身份透传已启用）", out.size());
+        log.info("MCP Ops 桥接注册完成: 只读 {} + 写工具(审批化) {}（A4 身份透传 + B4 审批桥接已启用）",
+                out.size() - writeCount, writeCount);
         return out;
     }
 
@@ -112,6 +131,31 @@ public class McpOpsBridge {
             throw new BusinessException(403, denied);
         }
         return tool.getExecutor().apply(args == null ? Map.of() : args, user);
+    }
+
+    /**
+     * 写工具执行（B4 审批化）：不直接写入——解析生效身份并权限校验通过后，
+     * 经 requestToolApproval 生成待确认审批建议（HMAC 锁定参数，委托人采纳后执行）。
+     * 白名单校验在 requestToolApproval 内部二次把关（deny-by-default）。
+     */
+    private Object executeWriteViaApproval(OpsTool tool, Map<String, Object> args) {
+        LoginUser user = resolveActingUser();
+        String denied = systemOpsService.checkPermission(tool, user);
+        if (denied != null) {
+            throw new BusinessException(403, denied);
+        }
+        var advice = adviceService.requestToolApproval(tool.getName(),
+                args == null ? Map.of() : args, user.getUserId(), "MCP 外部 Agent（Hermes）委托办理");
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("approvalRequired", true);
+        out.put("adviceId", advice.getId());
+        out.put("toolName", tool.getName());
+        out.put("title", tool.getTitle());
+        out.put("message", "写操作已生成待确认审批建议（adviceId=" + advice.getId()
+                + "）。委托人在本系统「AI 决策建议」中采纳后执行，执行结果由审批链路回写；本调用未直接写入任何业务数据。");
+        log.info("MCP 写工具转审批: tool={}, adviceId={}, actingUser={}",
+                tool.getName(), advice.getId(), user.getUserId());
+        return out;
     }
 
     /**

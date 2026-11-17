@@ -69,6 +69,20 @@ class McpProtocolServiceTest {
         assertEquals("task.query", tool.get("name"));
         assertEquals("查询任务", tool.get("description"));
         assertNotNull(tool.get("inputSchema"));
+        // B4 写操作声明：只读工具 requiresApproval=false + annotations.readOnlyHint=true
+        assertEquals(false, tool.get("requiresApproval"));
+        assertEquals(true, ((Map<?, ?>) tool.get("annotations")).get("readOnlyHint"));
+    }
+
+    @Test
+    void toolsListDeclaresApprovalForWriteTools() {
+        // B4：写工具 requiresApproval=true + readOnlyHint=false（调用即生成审批建议）
+        when(registry.all()).thenReturn(List.of(new McpTool("task.create", "创建任务",
+                Map.of("type", "object"), true, args -> "ok")));
+        var result = asMap(service.handle(rpc(9, "tools/list", null)));
+        Map<?, ?> tool = (Map<?, ?>) ((List<?>) result.get("tools")).get(0);
+        assertEquals(true, tool.get("requiresApproval"));
+        assertEquals(false, ((Map<?, ?>) tool.get("annotations")).get("readOnlyHint"));
     }
 
     @Test
