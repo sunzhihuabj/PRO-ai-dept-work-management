@@ -433,6 +433,15 @@ public class SystemOpsService {
         return null;
     }
 
+    /**
+     * MCP 层权限校验入口（A4 身份透传：按 X-Acting-User-Id 对应用户逐调用校验）。
+     * 复用 checkPerm 语义：部门领导兜底；minRole/permCode 双重声明；写入基线兜底。
+     * 通过返回 null；否则返回业务可读的拒绝文案（MCP 层转为 isError=true 结果）。
+     */
+    public String checkPermission(OpsTool tool, LoginUser user) {
+        return checkPerm(tool, user);
+    }
+
     private String roleCn(String role) {
         return switch (role) {
             case "ROLE_DEPT_LEADER" -> "部门领导";

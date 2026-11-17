@@ -3,6 +3,8 @@ package com.dept.mgmt.agent.collab.mcp;
 import com.dept.mgmt.aiworkspace.ops.OpsParam;
 import com.dept.mgmt.aiworkspace.ops.OpsTool;
 import com.dept.mgmt.aiworkspace.ops.OpsToolRegistry;
+import com.dept.mgmt.aiworkspace.ops.SystemOpsService;
+import com.dept.mgmt.common.exception.BusinessException;
 import com.dept.mgmt.entity.SysUser;
 import com.dept.mgmt.mapper.SysUserMapper;
 import com.dept.mgmt.security.LoginUser;
@@ -15,18 +17,18 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.function.Function;
 
 /**
- * Ops 工具 → MCP 工具自动注册桥（A3：只读工具全量化，零手写）
+ * Ops 工具 → MCP 工具自动注册桥（A3 只读工具全量化 + A4 身份透传，零手写）
  *
  * <p>遍历 {@link OpsToolRegistry} 中 readOnly=true 的工具，按 OpsParam 声明自动生成
  * JSON Schema 并包装为 McpTool——executor 复用 Service 层，不新增 SQL。
- * 写入类工具不在此暴露（A4 身份透传 + A5 审批动作注册表落地后分级接入）。
+ * 写入类工具不在此暴露（A5 审批动作注册表落地后分级接入）。
  *
- * <p>身份方案（本切片）：MCP 调用无登录态，统一以系统委托身份
- * {@code app.mcp.acting-user-id}（默认 1=管理员）执行；A4 升级为
- * X-Acting-User-Id 逐调用透传 + EffectivePermissionService 校验。
+ * <p>身份与权限（A4）：MCP 调用携带 {@code X-Acting-User-Id}（委托发起人）→
+ * {@link McpCallContext} 请求级透传 → 本桥逐调用按该用户查库校验（存在且未禁用），
+ * 并复用 {@link SystemOpsService#checkPermission} 做 minRole/permCode 权限判定；
+ * 无透传/无效用户回落系统委托身份 {@code app.mcp.acting-user-id}（默认 1）。
  *
  * @author dept-mgmt
  */
@@ -43,16 +45,19 @@ public class McpOpsBridge {
 
     private final OpsToolRegistry opsRegistry;
     private final SysUserMapper userMapper;
+    private final SystemOpsService systemOpsService;
 
     @Value("${app.mcp.acting-user-id:1}")
     private long actingUserId;
 
-    /** 委托身份缓存（启动后首次调用时解析，失败回退最小身份） */
+    /** 系统委托身份缓存（启动后首次调用时解析，失败回退最小身份） */
     private volatile LoginUser delegateUser;
 
-    public McpOpsBridge(OpsToolRegistry opsRegistry, SysUserMapper userMapper) {
+    public McpOpsBridge(OpsToolRegistry opsRegistry, SysUserMapper userMapper,
+                        SystemOpsService systemOpsService) {
         this.opsRegistry = opsRegistry;
         this.userMapper = userMapper;
+        this.systemOpsService = systemOpsService;
     }
 
     /** 只读 Ops 工具 → McpTool 列表（保持注册顺序） */
@@ -65,7 +70,7 @@ public class McpOpsBridge {
             out.add(new McpTool(t.getName(), t.getDesc(), toSchema(t),
                     args -> execute(t, args)));
         }
-        log.info("MCP Ops 桥接注册完成: {} 个只读工具", out.size());
+        log.info("MCP Ops 桥接注册完成: {} 个只读工具（A4 身份透传已启用）", out.size());
         return out;
     }
 
@@ -96,8 +101,37 @@ public class McpOpsBridge {
         };
     }
 
+    /**
+     * 工具执行：解析生效身份（X-Acting-User-Id 透传优先 → 系统委托回落）
+     * → 逐调用权限校验（复用 SystemOpsService.checkPerm 语义）→ 以该身份执行。
+     */
     private Object execute(OpsTool tool, Map<String, Object> args) {
-        return tool.getExecutor().apply(args == null ? Map.of() : args, delegateUser());
+        LoginUser user = resolveActingUser();
+        String denied = systemOpsService.checkPermission(tool, user);
+        if (denied != null) {
+            throw new BusinessException(403, denied);
+        }
+        return tool.getExecutor().apply(args == null ? Map.of() : args, user);
+    }
+
+    /**
+     * 生效身份解析：透传用户（校验存在且未禁用，无效即 401 语义拒绝——
+     * 避免冒用他人身份静默降级到委托身份执行）→ 系统委托身份回落。
+     */
+    private LoginUser resolveActingUser() {
+        Long acting = McpCallContext.actingUserId();
+        if (acting != null) {
+            SysUser su = userMapper.selectById(acting);
+            if (su == null || (su.getStatus() != null && su.getStatus() == 0)) {
+                throw new BusinessException(401, "X-Acting-User-Id 对应用户无效或已禁用: " + acting);
+            }
+            return toLoginUser(su);
+        }
+        return delegateUser();
+    }
+
+    private LoginUser toLoginUser(SysUser su) {
+        return new LoginUser(su.getId(), su.getUsername(), su.getRoleCodes(), List.of());
     }
 
     /** 系统委托身份（懒加载：按 app.mcp.acting-user-id 查库；查不到回退最小身份） */
@@ -111,7 +145,7 @@ public class McpOpsBridge {
                 SysUser su = userMapper.selectById(actingUserId);
                 delegateUser = su == null
                         ? new LoginUser(actingUserId, "mcp-delegate", "", List.of())
-                        : new LoginUser(su.getId(), su.getUsername(), su.getRoleCodes(), List.of());
+                        : toLoginUser(su);
                 log.info("MCP 系统委托身份就绪: userId={} username={}",
                         delegateUser.getUserId(), delegateUser.getUsername());
             }

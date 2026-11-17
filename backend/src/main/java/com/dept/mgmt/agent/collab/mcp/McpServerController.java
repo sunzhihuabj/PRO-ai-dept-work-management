@@ -46,36 +46,59 @@ public class McpServerController {
     @Operation(summary = "MCP JSON-RPC 入口（initialize/tools/list/tools/call/ping）")
     public ResponseEntity<String> post(@RequestBody String body,
                                        @RequestHeader(value = "X-API-Key", required = false) String xApiKey,
-                                       @RequestHeader(value = "Authorization", required = false) String authorization) {
+                                       @RequestHeader(value = "Authorization", required = false) String authorization,
+                                       @RequestHeader(value = "X-Acting-User-Id", required = false) String actingUserId) {
         if (!hasValidKey(xApiKey, authorization)) {
             return jsonRpcErrorStatus(HttpStatus.UNAUTHORIZED, null, -32000,
                     "Unauthorized: missing/invalid X-API-Key or Bearer");
         }
-        Map<String, Object> request;
+        // A4 身份透传：X-Acting-User-Id（委托发起人）；无效值忽略并回落系统委托身份
+        Long acting = parseActingUserId(actingUserId);
         try {
-            request = objectMapper.readValue(body, new com.fasterxml.jackson.core.type.TypeReference<Map<String, Object>>() {
-            });
-        } catch (Exception e) {
-            return jsonRpcError(null, -32700, "JSON 解析失败: " + e.getMessage());
-        }
-        Object id = request.get("id");
-        try {
-            Object result = protocol.handle(request);
-            if (result == null) {
-                // 通知（notifications/initialized 等）：202 无正文
-                return ResponseEntity.accepted().build();
+            if (acting != null) {
+                McpCallContext.setActingUserId(acting);
             }
-            Map<String, Object> resp = new LinkedHashMap<>();
-            resp.put("jsonrpc", "2.0");
-            resp.put("id", id);
-            resp.put("result", result);
-            String json = objectMapper.writeValueAsString(resp);
-            return ResponseEntity.ok().contentType(MediaType.APPLICATION_JSON).body(json);
-        } catch (McpProtocolService.McpRpcException e) {
-            return jsonRpcError(id, e.code(), e.getMessage());
-        } catch (Exception e) {
-            log.error("MCP 请求处理异常", e);
-            return jsonRpcError(id, -32603, "内部错误");
+            Map<String, Object> request;
+            try {
+                request = objectMapper.readValue(body, new com.fasterxml.jackson.core.type.TypeReference<Map<String, Object>>() {
+                });
+            } catch (Exception e) {
+                return jsonRpcError(null, -32700, "JSON 解析失败: " + e.getMessage());
+            }
+            Object id = request.get("id");
+            try {
+                Object result = protocol.handle(request);
+                if (result == null) {
+                    // 通知（notifications/initialized 等）：202 无正文
+                    return ResponseEntity.accepted().build();
+                }
+                Map<String, Object> resp = new LinkedHashMap<>();
+                resp.put("jsonrpc", "2.0");
+                resp.put("id", id);
+                resp.put("result", result);
+                String json = objectMapper.writeValueAsString(resp);
+                return ResponseEntity.ok().contentType(MediaType.APPLICATION_JSON).body(json);
+            } catch (McpProtocolService.McpRpcException e) {
+                return jsonRpcError(id, e.code(), e.getMessage());
+            } catch (Exception e) {
+                log.error("MCP 请求处理异常", e);
+                return jsonRpcError(id, -32603, "内部错误");
+            }
+        } finally {
+            McpCallContext.clear();
+        }
+    }
+
+    /** X-Acting-User-Id 解析：非法/非正数忽略（回落系统委托身份） */
+    private static Long parseActingUserId(String header) {
+        if (header == null || header.isBlank()) {
+            return null;
+        }
+        try {
+            long v = Long.parseLong(header.trim());
+            return v > 0 ? v : null;
+        } catch (NumberFormatException e) {
+            return null;
         }
     }
 

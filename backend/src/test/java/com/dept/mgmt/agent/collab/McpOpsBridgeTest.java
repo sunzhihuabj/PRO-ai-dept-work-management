@@ -3,9 +3,12 @@ package com.dept.mgmt.agent.collab.mcp;
 import com.dept.mgmt.aiworkspace.ops.OpsParam;
 import com.dept.mgmt.aiworkspace.ops.OpsTool;
 import com.dept.mgmt.aiworkspace.ops.OpsToolRegistry;
+import com.dept.mgmt.aiworkspace.ops.SystemOpsService;
+import com.dept.mgmt.common.exception.BusinessException;
 import com.dept.mgmt.entity.SysUser;
 import com.dept.mgmt.mapper.SysUserMapper;
 import com.dept.mgmt.security.LoginUser;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -16,17 +19,21 @@ import org.springframework.test.util.ReflectionTestUtils;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
 
 /**
- * McpOpsBridge 单元测试（A3：Ops 只读工具自动桥接）
+ * McpOpsBridge 单元测试（A3 只读桥接 + A4 身份透传与权限校验）
  */
 @ExtendWith(MockitoExtension.class)
 class McpOpsBridgeTest {
@@ -35,21 +42,34 @@ class McpOpsBridgeTest {
     private OpsToolRegistry opsRegistry;
     @Mock
     private SysUserMapper userMapper;
+    @Mock
+    private SystemOpsService systemOpsService;
 
     private McpOpsBridge bridge;
 
     @BeforeEach
     void setUp() {
-        bridge = new McpOpsBridge(opsRegistry, userMapper);
+        bridge = new McpOpsBridge(opsRegistry, userMapper, systemOpsService);
         ReflectionTestUtils.setField(bridge, "actingUserId", 1L);
-        lenient().when(userMapper.selectById(anyLong())).thenReturn(sysUser());
+        lenient().when(userMapper.selectById(anyLong())).thenAnswer(inv -> {
+            long id = inv.getArgument(0);
+            return sysUser(id);
+        });
+        // 默认放行（权限校验通过）
+        lenient().when(systemOpsService.checkPermission(any(), any())).thenReturn(null);
     }
 
-    private SysUser sysUser() {
+    @AfterEach
+    void tearDown() {
+        McpCallContext.clear();
+    }
+
+    private SysUser sysUser(long id) {
         SysUser u = new SysUser();
-        u.setId(1L);
-        u.setUsername("admin");
-        u.setRoleCodes("ROLE_DEPT_LEADER");
+        u.setId(id);
+        u.setUsername("user" + id);
+        u.setRoleCodes("ROLE_WORKER");
+        u.setStatus(1);
         return u;
     }
 
@@ -68,12 +88,12 @@ class McpOpsBridgeTest {
     @Test
     void shouldBridgeReadOnlyOnlyAndSkipDuplicates() {
         when(opsRegistry.all()).thenReturn(List.of(
-                readTool("task.myTodo", true),          // 跳过：与 task.my_todo 重复
-                readTool("project.list", true),          // 跳过：与 project.query 重复
+                readTool("task.myTodo", true),             // 跳过：与 task.my_todo 重复
+                readTool("project.list", true),            // 跳过：与 project.query 重复
                 readTool("tender.collectPlatforms", true), // 跳过：与 tender.platforms 重复
-                readTool("task.detail", true),           // 桥接
-                readTool("kb.search", true),             // 桥接
-                readTool("task.create", false)));        // 跳过：写入类不暴露
+                readTool("task.detail", true),             // 桥接
+                readTool("kb.search", true),               // 桥接
+                readTool("task.create", false)));          // 跳过：写入类不暴露
 
         List<McpTool> tools = bridge.bridgeTools();
 
@@ -100,18 +120,80 @@ class McpOpsBridgeTest {
     }
 
     @Test
-    void shouldExecuteWithDelegateUser() {
+    void shouldFallBackToDelegateWhenNoContext() {
         when(opsRegistry.all()).thenReturn(List.of(readTool("task.detail", true)));
 
         McpTool tool = bridge.bridgeTools().get(0);
         Object out = tool.handler().apply(new LinkedHashMap<>(Map.of("projectId", 9)));
 
+        // 无透传 → 系统委托身份（userId=1）
         assertEquals("ok:task.detail:1", out);
     }
 
     @Test
+    void shouldExecuteAsActingUserFromContext() {
+        when(opsRegistry.all()).thenReturn(List.of(readTool("task.my_todo_x", true)));
+        McpCallContext.setActingUserId(7L);
+
+        Object out = bridge.bridgeTools().get(0).handler().apply(Map.of("projectId", 9));
+
+        assertEquals("ok:task.my_todo_x:7", out);
+    }
+
+    @Test
+    void shouldRejectInvalidActingUser() {
+        when(userMapper.selectById(99L)).thenReturn(null);
+        when(opsRegistry.all()).thenReturn(List.of(readTool("task.detail", true)));
+        McpCallContext.setActingUserId(99L);
+
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> bridge.bridgeTools().get(0).handler().apply(Map.of("projectId", 9)));
+        assertEquals(401, ex.getCode());
+    }
+
+    @Test
+    void shouldRejectDisabledActingUser() {
+        SysUser disabled = sysUser(8L);
+        disabled.setStatus(0);
+        when(userMapper.selectById(8L)).thenReturn(disabled);
+        when(opsRegistry.all()).thenReturn(List.of(readTool("task.detail", true)));
+        McpCallContext.setActingUserId(8L);
+
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> bridge.bridgeTools().get(0).handler().apply(Map.of("projectId", 9)));
+        assertEquals(401, ex.getCode());
+    }
+
+    @Test
+    void shouldCheckPermissionBeforeExecute() {
+        when(opsRegistry.all()).thenReturn(List.of(readTool("contract.bindProject_x", true)));
+        when(systemOpsService.checkPermission(any(), any())).thenReturn("「合同绑定项目」需要权限，当前账号无权执行该操作。");
+        McpCallContext.setActingUserId(7L);
+
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> bridge.bridgeTools().get(0).handler().apply(Map.of("projectId", 9)));
+        assertEquals(403, ex.getCode());
+    }
+
+    @Test
+    void shouldPassActingUserToPermissionCheck() {
+        when(opsRegistry.all()).thenReturn(List.of(readTool("task.detail", true)));
+        AtomicReference<Long> checkedUser = new AtomicReference<>();
+        when(systemOpsService.checkPermission(any(), any())).thenAnswer(inv -> {
+            LoginUser u = inv.getArgument(1);
+            checkedUser.set(u.getUserId());
+            return null;
+        });
+        McpCallContext.setActingUserId(9L);
+
+        bridge.bridgeTools().get(0).handler().apply(Map.of("projectId", 9));
+
+        assertEquals(9L, checkedUser.get());
+    }
+
+    @Test
     void shouldFallbackToMinimalDelegateWhenUserMissing() {
-        when(userMapper.selectById(anyLong())).thenReturn(null);
+        when(userMapper.selectById(1L)).thenReturn(null);
         when(opsRegistry.all()).thenReturn(List.of(readTool("kb.search", true)));
 
         Object out = bridge.bridgeTools().get(0).handler().apply(Map.of());

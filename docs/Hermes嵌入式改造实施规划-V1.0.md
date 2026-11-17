@@ -39,7 +39,7 @@
 | A1 | Hermes API Server 服务化 | ✅ 2026-11-17 完成：API Server 常驻 127.0.0.1:8642（计划任务 DepSvc-svc-hermes → deploy/svc-hermes.cmd → `hermes gateway run --external-supervisor`）；health/Bearer 401/models/completions 全验证 | 常驻进程 + 健康检查 |
 | A2 | Hermes 服务配置固化 | ✅ 2026-11-17 完成：真实配置路径 AppData\Local\hermes\config.yaml，providers.dept-gateway 绑定网关门面（审计 caller_id=openai-compat）；dept-mgmt MCP 8 工具注册（venv 补装 mcp SDK）；实测命名规则 `mcp__dept_mgmt__<tool>`；格式定稿入接口说明文档第 4 节 | 配置定稿 + E2E 工具调用 |
 | A3 | MCP 工具全量化（一期） | ✅ 2026-11-17 完成：McpOpsBridge 自动注册器（遍历 OpsToolRegistry 只读工具零手写，OpsParam→JSON Schema 自动转换，去重跳过 3 个语义重复项），MCP 工具 8→27；单测 5 例 + 全量回归绿；抽样实调（task.detail/contract.list 中文枚举/kb.search）+ Hermes 全量发现 27 工具 | MCP 工具数 8→27 |
-| A4 | 身份与权限映射 | Hermes 调 MCP 时携带 `X-Acting-User-Id`（委托发起人）；后端 MCP 工具执行前经 EffectivePermissionService 按该用户校验（复用 T-102 引擎），拒绝越权 | 身份透传协议 + 权限拦截 |
+| A4 | 身份与权限映射 | ✅ 2026-11-17 完成：X-Acting-User-Id 头 → McpCallContext(ThreadLocal) → McpOpsBridge 逐调用查库校验（无效/禁用 401 拒绝防冒用），权限校验复用 SystemOpsService.checkPermission（minRole/permCode 双声明）；无头回落系统委托身份；Hermes headers 已带 "1"（引号坑已记录）；集成三场景实测通过 | 身份透传协议 + 权限拦截 |
 | A5 | 决策建议审批动作扩展 | AUTO_ASSIGN_TASK 之外按 Ops 写工具逐个登记审批动作（对应阶段 B） | 审批动作注册表 |
 
 ### 阶段 B：Hermes Agent 核心能力对接（2-3 周）
