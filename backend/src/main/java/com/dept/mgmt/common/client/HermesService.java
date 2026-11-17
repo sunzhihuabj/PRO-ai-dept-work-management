@@ -39,6 +39,7 @@ public class HermesService {
             "completed", "failed", "cancelled", "stopped", "error");
 
     private final String baseUrl;
+    private final String apiKey;
     private final boolean enabled;
     private final long pollIntervalMs;
     private final long awaitTimeoutMs;
@@ -56,6 +57,7 @@ public class HermesService {
                          @Value("${app.hermes.enabled:true}") boolean enabled,
                          @Value("${app.hermes.poll-interval-ms:2000}") long pollIntervalMs,
                          @Value("${app.hermes.await-timeout-ms:600000}") long awaitTimeoutMs) {        this.baseUrl = baseUrl;
+        this.apiKey = apiKey;
         this.enabled = enabled;
         this.pollIntervalMs = pollIntervalMs;
         this.awaitTimeoutMs = awaitTimeoutMs;
@@ -76,6 +78,7 @@ public class HermesService {
     HermesService(String baseUrl, boolean enabled, long pollIntervalMs, long awaitTimeoutMs,
                   org.springframework.web.client.RestClient existingClient) {
         this.baseUrl = baseUrl;
+        this.apiKey = "test-key";
         this.enabled = enabled;
         this.pollIntervalMs = pollIntervalMs;
         this.awaitTimeoutMs = awaitTimeoutMs;
@@ -243,5 +246,68 @@ public class HermesService {
             return s;
         }
         return out == null ? null : out.toString();
+    }
+
+    /**
+     * 消费 run 执行过程事件流（B3 过程回写）：GET /v1/runs/{id}/events SSE——
+     * 连接后服务端先重放 backlog（含历史事件，Last-Event-ID 语义），随 run 生命周期推送
+     * tool.started / tool.completed / approval.request / message.interim / run.{终态} 等事件，
+     * 流关闭（终态后服务端发 close 哨兵）或读超时（30s 无事件）即返回。
+     *
+     * <p>降级语义：连接失败/非 200/解析异常一律静默返回 false——过程事件缺失不影响
+     * awaitRun 终态轮询回写（调用方独立执行）。
+     *
+     * @param runId   run ID
+     * @param onEvent 逐事件回调（payload 含 event/seq/timestamp 及事件字段）
+     * @return 是否成功读到事件流
+     */
+    @SuppressWarnings("unchecked")
+    public boolean consumeEvents(String runId, java.util.function.Consumer<Map<String, Object>> onEvent) {
+        if (!enabled || runId == null || runId.isBlank()) {
+            return false;
+        }
+        java.net.HttpURLConnection conn = null;
+        try {
+            java.net.URL url = java.net.URI.create(baseUrl + "/v1/runs/" + runId + "/events").toURL();
+            conn = (java.net.HttpURLConnection) url.openConnection();
+            conn.setConnectTimeout(2_000);
+            conn.setReadTimeout(30_000);
+            conn.setRequestProperty(HttpHeaders.ACCEPT, "text/event-stream");
+            conn.setRequestProperty(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey);
+            if (conn.getResponseCode() != 200) {
+                log.debug("Hermes run 事件流不可用: runId={}, http={}", runId, conn.getResponseCode());
+                return false;
+            }
+            int count = 0;
+            try (var reader = new java.io.BufferedReader(
+                    new java.io.InputStreamReader(conn.getInputStream(), java.nio.charset.StandardCharsets.UTF_8))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    // SSE 帧：注释行（": keepalive"）跳过，仅取 "data:" 载荷
+                    if (!line.startsWith("data:")) {
+                        continue;
+                    }
+                    String data = line.substring(5).trim();
+                    if (data.isEmpty()) {
+                        continue;
+                    }
+                    try {
+                        onEvent.accept(objectMapper.readValue(data, Map.class));
+                        count++;
+                    } catch (Exception parseEx) {
+                        log.debug("Hermes run 事件解析跳过: runId={}, err={}", runId, parseEx.getMessage());
+                    }
+                }
+            }
+            log.debug("Hermes run 事件流读取完成: runId={}, events={}", runId, count);
+            return true;
+        } catch (Exception e) {
+            log.debug("Hermes run 事件流读取结束/失败（降级继续终态轮询）: runId={}, err={}", runId, e.getMessage());
+            return false;
+        } finally {
+            if (conn != null) {
+                conn.disconnect();
+            }
+        }
     }
 }

@@ -2,18 +2,24 @@ package com.dept.mgmt.aiworkspace.service;
 
 import com.dept.mgmt.aiworkspace.entity.AiConversation;
 import com.dept.mgmt.aiworkspace.entity.AiMessage;
+import com.dept.mgmt.aiworkspace.entity.HermesRunEvent;
 import com.dept.mgmt.mapper.AiConversationMapper;
 import com.dept.mgmt.mapper.AiMessageMapper;
+import com.dept.mgmt.mapper.HermesRunEventMapper;
 import com.dept.mgmt.common.client.HermesService;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.regex.Pattern;
+import com.dept.mgmt.common.exception.BusinessException;
 
 /**
  * Hermes 委托服务（B2：AI 助手第四级路由——复杂多步任务委托 AI Agent 员工）
@@ -51,6 +57,12 @@ public class HermesDelegateService {
     private static final Pattern PURE_QUERY = Pattern.compile(
             "^(查|看|看下|看看|问|告诉|什么|多少|是否|有没有|如何|怎么)");
 
+    /** 过程事件入库白名单（B3）：丢弃 message.delta/reasoning.available 等逐 token 噪声流 */
+    private static final Set<String> STORED_EVENT_TYPES = Set.of(
+            "tool.started", "tool.completed", "approval.request",
+            "message.interim", "subagent.start", "subagent.complete",
+            "run.completed", "run.failed", "run.cancelled", "run.interrupted", "run.steered");
+
     /** Hermes 任务书系统约束（贴合系统数据规范，工具经 MCP 暴露） */
     private static final String TASK_BOOK_HEADER =
             "你是部门工作管理系统的 AI Agent 员工，以指定用户的身份执行任务。"
@@ -62,6 +74,7 @@ public class HermesDelegateService {
     private final HermesService hermesService;
     private final AiMessageMapper messageMapper;
     private final AiConversationMapper conversationMapper;
+    private final HermesRunEventMapper runEventMapper;
 
     /** 单线程后台执行器（daemon：JVM 退出不阻塞；并发上限由 Hermes 侧控制） */
     private final ExecutorService pollExecutor = Executors.newSingleThreadExecutor(r -> {
@@ -72,10 +85,12 @@ public class HermesDelegateService {
 
     public HermesDelegateService(HermesService hermesService,
                                  AiMessageMapper messageMapper,
-                                 AiConversationMapper conversationMapper) {
+                                 AiConversationMapper conversationMapper,
+                                 HermesRunEventMapper runEventMapper) {
         this.hermesService = hermesService;
         this.messageMapper = messageMapper;
         this.conversationMapper = conversationMapper;
+        this.runEventMapper = runEventMapper;
     }
 
     /**
@@ -98,7 +113,10 @@ public class HermesDelegateService {
                 "hermes");
         // 后台轮询至终态并回写结果（不阻塞 chat HTTP 线程）
         Long convId = conv.getId();
-        pollExecutor.submit(() -> pollAndWriteBack(convId, runId, content));
+        pollExecutor.submit(() -> {
+            consumeAndStoreEvents(runId);
+            pollAndWriteBack(convId, runId, content);
+        });
         log.info("对话已委托 Hermes: conv={}, runId={}", convId, runId);
         return card;
     }
@@ -121,6 +139,71 @@ public class HermesDelegateService {
                 + "【委托人】" + (StringUtils.hasText(username) ? username : "user-" + userId)
                 + "（userId=" + userId + "，业务工具以该身份执行）\n\n"
                 + "【任务】\n" + content;
+    }
+
+    /**
+     * 消费 run 过程事件流并落库（B3 过程回写）：SSE 流关闭（终态后）或读超时即返回；
+     * 噪声事件（message.delta/reasoning.available 等逐 token 流）不入库，(run_id, seq) 幂等去重；
+     * 事件流失败静默降级——不影响 pollAndWriteBack 终态轮询回写
+     */
+    private void consumeAndStoreEvents(String runId) {
+        hermesService.consumeEvents(runId, ev -> {
+            String type = String.valueOf(ev.get("event"));
+            if (!STORED_EVENT_TYPES.contains(type)) {
+                return;
+            }
+            HermesRunEvent e = new HermesRunEvent();
+            e.setRunId(runId);
+            Object seq = ev.get("seq");
+            e.setSeq(seq instanceof Number n ? n.longValue() : -1L);
+            e.setEventType(type);
+            Object tool = ev.get("tool");
+            e.setTool(tool == null ? null : abbreviate(String.valueOf(tool), 128));
+            e.setPreview(previewOf(ev));
+            Object duration = ev.get("duration");
+            e.setDurationMs(duration instanceof Number n ? Math.round(n.doubleValue() * 1000) : null);
+            e.setIsError(Boolean.TRUE.equals(ev.get("error")) ? 1 : 0);
+            e.setCreateTime(LocalDateTime.now());
+            try {
+                runEventMapper.insert(e);
+            } catch (Exception dup) {
+                // (run_id, seq) 冲突 = 重连重放已落库事件，幂等跳过
+                log.debug("Hermes run 事件重复跳过: runId={}, seq={}", runId, e.getSeq());
+            }
+        });
+    }
+
+    /** 事件预览字段收敛（preview/text/error 兜底，截断 500 字符） */
+    private static String previewOf(Map<String, Object> ev) {
+        for (String key : new String[]{"preview", "text", "error"}) {
+            Object v = ev.get(key);
+            if (v instanceof String s && StringUtils.hasText(s)) {
+                return abbreviate(s, 500);
+            }
+        }
+        return null;
+    }
+
+    /**
+     * 查询 run 执行事件时间线（B3）：仅限 runId 归属当前用户会话（ai_message 内嵌标记 → 会话归属校验）
+     */
+    public List<HermesRunEvent> eventsForUser(Long userId, String runId) {
+        String marker = RUN_MARKER_PREFIX + runId + RUN_MARKER_SUFFIX;
+        AiMessage msg = messageMapper.selectOne(new LambdaQueryWrapper<AiMessage>()
+                .likeRight(AiMessage::getContent, marker)
+                .orderByDesc(AiMessage::getId)
+                .last("LIMIT 1"));
+        if (msg == null) {
+            throw new BusinessException(404, "委托任务不存在");
+        }
+        AiConversation conv = conversationMapper.selectById(msg.getConversationId());
+        if (conv == null || !conv.getUserId().equals(userId)) {
+            throw new BusinessException(404, "委托任务不存在");
+        }
+        return runEventMapper.selectList(new LambdaQueryWrapper<HermesRunEvent>()
+                .eq(HermesRunEvent::getRunId, runId)
+                .orderByAsc(HermesRunEvent::getSeq)
+                .last("LIMIT 200"));
     }
 
     /** 后台轮询至终态并回写结果消息 */

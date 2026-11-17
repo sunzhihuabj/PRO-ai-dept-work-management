@@ -183,4 +183,40 @@ class HermesServiceTest {
         assertNull(HermesService.extractOutput(null));
         assertEquals("text", HermesService.extractOutput(Map.of("output", "text")));
     }
+
+    @Test
+    void consumeEventsShouldParseSsePayloadsAndStopOnClose() throws Exception {
+        // JDK 内置 HttpServer 模拟 Hermes SSE 端点：2 个有效事件 + 坏行 + keepalive/注释帧 + 流关闭
+        com.sun.net.httpserver.HttpServer http = com.sun.net.httpserver.HttpServer.create(
+                new java.net.InetSocketAddress(0), 0);
+        http.createContext("/v1/runs/run_sse/events", exchange -> {
+            byte[] body = ("id: 0\ndata: {\"event\":\"tool.started\",\"seq\":0,\"tool\":\"mcp__dept_mgmt__task_my_todo\",\"preview\":\"查询待办\"}\n\n"
+                    + ": keepalive\n\n"
+                    + "id: 1\ndata: {\"event\":\"tool.completed\",\"seq\":1,\"tool\":\"mcp__dept_mgmt__task_my_todo\",\"duration\":0.35,\"error\":false,\"preview\":\"2条\"}\n\n"
+                    + "data: not-json\n\n"
+                    + ": stream closed\n\n").getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().add("Content-Type", "text/event-stream");
+            exchange.sendResponseHeaders(200, body.length);
+            try (var os = exchange.getResponseBody()) {
+                os.write(body);
+            }
+        });
+        http.start();
+        try {
+            HermesService sse = new HermesService("http://127.0.0.1:" + http.getAddress().getPort(),
+                    true, 10, 300, org.springframework.web.client.RestClient.builder().build());
+            java.util.List<Map<String, Object>> events = new java.util.ArrayList<>();
+            assertTrue(sse.consumeEvents("run_sse", events::add));
+            // 2 个有效 JSON 事件回调，坏行跳过，注释帧忽略，流关闭即返回
+            assertEquals(2, events.size());
+            assertEquals("tool.started", events.get(0).get("event"));
+            assertEquals("mcp__dept_mgmt__task_my_todo", events.get(0).get("tool"));
+            assertEquals("tool.completed", events.get(1).get("event"));
+            assertEquals(false, events.get(1).get("error"));
+            // 停用时短路降级
+            assertFalse(disabledService().consumeEvents("run_x", e -> { }));
+        } finally {
+            http.stop(0);
+        }
+    }
 }

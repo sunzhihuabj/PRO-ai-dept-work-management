@@ -48,7 +48,7 @@
 | --- | --- | --- | --- |
 | B1 | HermesService（Java 客户端） | ✅ 2026-11-17 完成：/v1/runs 提交/轮询/停止/审批回调/health 探测封装（契约经真实 8642 实测）；app.hermes.enabled 总开关 + available() 30s 探测缓存降级（不引 Resilience4j，C4 后评估）；单测 10 例 + 全量回归 167 绿；期间修复网关被误中断（^C）重启复验 | HermesService + 降级开关 |
 | B2 | AiChatService 第四级路由 | ✅ 2026-11-17 完成：HermesDelegateService 插入路由链第四级（WF意图→Ops单轮→Agent能力点→Hermes委托→通用对话）；启发式委托判定（触发词/多步串联/排除纯查询与短内容，不耗 LLM 配额）；chat() 立即返回 msgType=hermes 卡片（content 内嵌 `<!-- hermes-run:runId -->` 标记），后台单线程 daemon 轮询 awaitRun 至终态回写 assistant 消息（成功带 output/失败带 error/超时 stopRun 提示）；Hermes 不可用返回 null 降级通用对话；单测 10 例 + 全量回归 177 绿；集成实测：委托卡片返回 + 53s 后终态回写（run 失败系 LM gemma Clean EOF 已知问题，客户端降级语义正确） | 路由决策表 + 委托服务 |
-| B3 | 执行过程回写 | Hermes run 的步骤事件（工具调用/中间产出）→ agent_task_event → AI 助手前端实时进度卡片（复用 Agent 卡片轮询） | 过程可视化 |
+| B3 | 执行过程回写 | ✅ 2026-11-17 完成：消费 Hermes 原生 SSE 事件流（GET /v1/runs/{id}/events，HermesService.consumeEvents，HttpURLConnection+Bearer，流关闭/读超时静默降级）→ 白名单过滤（tool.started/completed、approval.request、message.interim、subagent.*、run.*，丢弃 message.delta 逐 token 噪声）→ hermes_run_event 新表落库（(run_id,seq) 唯一幂等，DDL 11_hermes_run_event.sql）；委托后台线程先消费事件再等终态（事件缺失不影响 B2 回写）；新增查询接口 GET /v1/ai/ws/hermes/runs/{runId}/events（ai_message 内嵌标记→会话归属校验，非本人 404）；单测 4 例（SSE 解析/坏行/停用短路/归属校验）+ 全量回归 181 绿；集成实测：事件落库（run.failed seq=4）+ 接口时间线返回 + 未知 run 404 | 过程可视化 + 事件表 |
 | B4 | MCP 工具全量化（二期） | 写入类 Ops 工具暴露为 MCP（带 riskLevel/requiresApproval 声明）；能力点 AGT 系列（AGT-26 晨报/AGT-27 采集等）暴露 | MCP 全量 60 工具 |
 | B5 | 审批回调映射 | Hermes `auth-required` 中断 → 映射为本系统决策建议（PENDING）→ /ai/advice 采纳 → 回调 `/v1/runs/{id}/approval` 继续执行 | HITL 双向闭环 |
 

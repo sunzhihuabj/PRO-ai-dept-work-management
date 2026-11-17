@@ -2,10 +2,13 @@ package com.dept.mgmt.aiworkspace;
 
 import com.dept.mgmt.aiworkspace.entity.AiConversation;
 import com.dept.mgmt.aiworkspace.entity.AiMessage;
+import com.dept.mgmt.aiworkspace.entity.HermesRunEvent;
 import com.dept.mgmt.aiworkspace.service.HermesDelegateService;
 import com.dept.mgmt.common.client.HermesService;
+import com.dept.mgmt.common.exception.BusinessException;
 import com.dept.mgmt.mapper.AiConversationMapper;
 import com.dept.mgmt.mapper.AiMessageMapper;
+import com.dept.mgmt.mapper.HermesRunEventMapper;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -38,13 +41,15 @@ class HermesDelegateServiceTest {
     private AiMessageMapper messageMapper;
     @Mock
     private AiConversationMapper conversationMapper;
+    @Mock
+    private HermesRunEventMapper runEventMapper;
 
     private HermesDelegateService service;
 
     @BeforeEach
     @SuppressWarnings("unchecked")
     void setUp() {
-        service = new HermesDelegateService(hermesService, messageMapper, conversationMapper);
+        service = new HermesDelegateService(hermesService, messageMapper, conversationMapper, runEventMapper);
         // 消息插入回填 ID（模拟自增）
         lenient().when(messageMapper.insert(any(AiMessage.class))).thenAnswer(inv -> {
             inv.getArgument(0, AiMessage.class).setId(100L);
@@ -161,7 +166,7 @@ class HermesDelegateServiceTest {
 
         AiMessage card = service.tryDelegate(conv(), "委托AI Agent员工整理项目进度", 7L, "u");
         assertNotNull(card);
-        Thread.sleep(300); // 后台线程完成轮询与回写
+        Thread.sleep(300); // 后台线程完成事件消费、轮询与回写
         ArgumentCaptor<AiMessage> msgCaptor = ArgumentCaptor.forClass(AiMessage.class);
         verify(messageMapper, org.mockito.Mockito.atLeastOnce()).insert(msgCaptor.capture());
         assertTrue(msgCaptor.getAllValues().stream()
@@ -169,5 +174,50 @@ class HermesDelegateServiceTest {
                         && m.getContent().contains("执行完成")
                         && m.getContent().contains("hermes-run:run_ok1")
                         && m.getContent().contains("汇总完成")));
+    }
+
+    // ==================== 过程事件时间线（B3） ====================
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void eventsForUserShouldReturnTimelineWhenOwner() {
+        AiMessage card = new AiMessage();
+        card.setConversationId(5L);
+        when(messageMapper.selectOne(any())).thenReturn(card);
+        AiConversation conv = new AiConversation();
+        conv.setUserId(7L);
+        when(conversationMapper.selectById(5L)).thenReturn(conv);
+        HermesRunEvent ev = new HermesRunEvent();
+        ev.setRunId("run_t1");
+        ev.setSeq(0L);
+        ev.setEventType("tool.started");
+        when(runEventMapper.selectList(any())).thenReturn(java.util.List.of(ev));
+
+        java.util.List<HermesRunEvent> list = service.eventsForUser(7L, "run_t1");
+        assertEquals(1, list.size());
+        assertEquals("tool.started", list.get(0).getEventType());
+    }
+
+    @Test
+    void eventsForUserShouldRejectWhenNotOwner() {
+        AiMessage card = new AiMessage();
+        card.setConversationId(5L);
+        when(messageMapper.selectOne(any())).thenReturn(card);
+        AiConversation conv = new AiConversation();
+        conv.setUserId(9L);
+        when(conversationMapper.selectById(5L)).thenReturn(conv);
+
+        BusinessException ex = org.junit.jupiter.api.Assertions.assertThrows(BusinessException.class,
+                () -> service.eventsForUser(7L, "run_t2"));
+        assertEquals(404, ex.getCode());
+        verify(runEventMapper, never()).selectList(any());
+    }
+
+    @Test
+    void eventsForUserShouldRejectUnknownRun() {
+        when(messageMapper.selectOne(any())).thenReturn(null);
+        BusinessException ex = org.junit.jupiter.api.Assertions.assertThrows(BusinessException.class,
+                () -> service.eventsForUser(7L, "run_ghost"));
+        assertEquals(404, ex.getCode());
     }
 }

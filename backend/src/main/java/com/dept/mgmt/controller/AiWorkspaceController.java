@@ -44,6 +44,17 @@ public class AiWorkspaceController {
     private final AiChatService chatService;
     private final WorkflowService workflowService;
     private final WorkflowEngineService engineService;
+    private final com.dept.mgmt.aiworkspace.service.HermesDelegateService hermesDelegateService;
+
+    // ==================== Hermes 委托（B2/B3） ====================
+
+    @GetMapping("/hermes/runs/{runId}/events")
+    @Operation(summary = "Hermes 委托执行事件时间线（B3 过程回写，仅限本人会话的委托任务）")
+    public R<List<com.dept.mgmt.aiworkspace.entity.HermesRunEvent>> hermesRunEvents(
+            @PathVariable String runId) {
+        com.dept.mgmt.security.LoginUser user = com.dept.mgmt.security.LoginUser.current();
+        return R.ok(hermesDelegateService.eventsForUser(user.getUserId(), runId));
+    }
 
     // ==================== 对话 ====================
 
