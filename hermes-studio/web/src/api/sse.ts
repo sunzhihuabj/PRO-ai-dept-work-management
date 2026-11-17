@@ -23,6 +23,7 @@ export async function sseFetch(url: string, opts: SseOptions): Promise<void> {
     ...(opts.headers || {})
   }
   if (opts.body !== undefined) headers['Content-Type'] = 'application/json'
+  if (opts.body !== undefined) headers['Content-Type'] = 'application/json'
   const resp = await fetch(url, {
     method: opts.method || 'GET',
     headers,
@@ -67,5 +68,48 @@ export async function sseFetch(url: string, opts: SseOptions): Promise<void> {
     }
   } finally {
     opts.onClose?.()
+  }
+}
+
+export interface ReconnectOptions {
+  headers?: Record<string, string>
+  signal?: AbortSignal
+  onFrame: (frame: SseFrame) => void
+  onStatus?: (status: 'open' | 'reconnecting' | 'closed') => void
+  maxRetries?: number
+}
+
+// 面向 GET 型 SSE（/v1/runs/{id}/events）的断线续传封装：
+// 以 frame.id（Hermes seq）为游标，重连自动带 Last-Event-ID，服务端补发缺口；
+// 服务端正常关闭（run 终态哨兵）视为终结；异常按指数退避重连（1s/2s/4s…上限 8s）。
+export async function sseReconnect(url: string, opts: ReconnectOptions): Promise<void> {
+  let lastId = ''
+  let failures = 0
+  const maxRetries = opts.maxRetries ?? 5
+  for (;;) {
+    if (opts.signal?.aborted) return
+    try {
+      await sseFetch(url, {
+        headers: { ...(opts.headers || {}), ...(lastId ? { 'Last-Event-ID': lastId } : {}) },
+        signal: opts.signal,
+        onFrame: (f) => {
+          if (f.id) lastId = f.id
+          failures = 0
+          opts.onFrame(f)
+        },
+        onClose: () => {}
+      })
+      opts.onStatus?.('closed')
+      return
+    } catch (e) {
+      if (opts.signal?.aborted) return
+      failures++
+      if (failures > maxRetries) {
+        opts.onStatus?.('closed')
+        throw e
+      }
+      opts.onStatus?.('reconnecting')
+      await new Promise((r) => setTimeout(r, Math.min(1000 * 2 ** (failures - 1), 8000)))
+    }
   }
 }

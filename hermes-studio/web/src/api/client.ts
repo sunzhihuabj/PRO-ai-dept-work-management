@@ -31,12 +31,19 @@ export async function api<T = any>(path: string, opts: RequestInit = {}): Promis
     Authorization: `Bearer ${getToken()}`,
     ...((opts.headers as Record<string, string>) || {})
   }
-  if (opts.body && !headers['Content-Type']) headers['Content-Type'] = 'application/json'
-  const resp = await fetch(path, { ...opts, headers })
+  // 对象 body 统一序列化为 JSON（fetch 不会自动做，否则变成 "[object Object]"）
+  let body = opts.body
+  if (body !== undefined && body !== null && typeof body !== 'string') {
+    body = JSON.stringify(body)
+    headers['Content-Type'] = headers['Content-Type'] || 'application/json'
+  }
+  const resp = await fetch(path, { ...opts, headers, body })
   if (resp.status === 401) {
     clearToken()
-    window.location.hash = ''
-    window.location.href = '/login'
+    // 已在登录页时不再跳转（避免 App 层健康检查等后台请求触发无限重载）
+    if (!window.location.pathname.startsWith('/login')) {
+      window.location.href = '/login'
+    }
     throw new ApiError(401, '登录态失效')
   }
   const text = await resp.text()

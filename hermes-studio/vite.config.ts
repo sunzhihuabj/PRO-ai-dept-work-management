@@ -15,6 +15,15 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     emptyOutDir: true,
-    chunkSizeWarningLimit: 1500
+    chunkSizeWarningLimit: 1500,
+    rollupOptions: {
+      output: {
+        // 重依赖拆分：element-plus / markdown 渲染链路独立分包，多页共享缓存
+        manualChunks: {
+          'element-plus': ['element-plus', '@element-plus/icons-vue'],
+          'markdown-render': ['markdown-it', 'highlight.js']
+        }
+      }
+    }
   }
 })

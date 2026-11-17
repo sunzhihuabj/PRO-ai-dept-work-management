@@ -2,8 +2,7 @@
 import { onUnmounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getRun, resolveRunApproval, steerRun, stopRun, submitRun, listSessions } from '../api/hermes'
-import { sseFetch } from '../api/sse'
-import { getToken } from '../api/client'
+import { sseReconnect } from '../api/sse'
 import StatusTag from '../components/StatusTag.vue'
 import EventTimeline, { EvItem } from '../components/EventTimeline.vue'
 import ApprovalCard from '../components/ApprovalCard.vue'
@@ -26,6 +25,7 @@ interface RunItem {
   approval?: any
   lastSeq: number
   sseOpen: boolean
+  sseState?: string
   polling?: number
 }
 
@@ -85,13 +85,12 @@ async function loadSessions() {
   }
 }
 
-// ---------- 监听：SSE 事件流 + 轮询兜底 ----------
+// ---------- 监听：SSE 事件流（断线续传）+ 轮询兜底 ----------
 function watchRun(item: RunItem) {
-  // SSE
+  // SSE（断线自动重连 + Last-Event-ID 续传，终态哨兵关闭后停止）
   if (!item.sseOpen) {
     item.sseOpen = true
-    sseFetch(`/api/hermes/v1/runs/${item.runId}/events`, {
-      headers: { Authorization: `Bearer ${getToken()}` },
+    sseReconnect(`/api/hermes/v1/runs/${item.runId}/events`, {
       onFrame: (f) => {
         let p: any = null
         try {
@@ -100,16 +99,18 @@ function watchRun(item: RunItem) {
           return
         }
         if (!p) return
-        if (typeof p.seq === 'number' && p.seq <= item.lastSeq) return // 幂等去重
+        if (typeof p.seq === 'number' && p.seq <= item.lastSeq) return // 重放去重
         if (typeof p.seq === 'number') item.lastSeq = p.seq
         item.events.push(p)
         applyEvent(item, p)
       },
-      onClose: () => {
-        item.sseOpen = false
+      onStatus: (s) => {
+        item.sseState = s
+        if (s === 'closed') item.sseOpen = false
       }
     }).catch(() => {
       item.sseOpen = false
+      item.sseState = 'closed'
     })
   }
   // 轮询兜底（SSE 断线时状态仍能收敛）
@@ -254,6 +255,7 @@ loadSessions()
         <StatusTag :status="r.status" />
         <span class="mono" style="font-size: 13px">{{ r.runId }}</span>
         <span class="muted">{{ new Date(r.createdAt).toLocaleTimeString('zh-CN', { hour12: false }) }}</span>
+        <el-tag v-if="r.sseState === 'reconnecting'" size="small" type="warning" effect="plain">事件流重连中…</el-tag>
         <el-space style="margin-left: auto">
           <el-button v-if="!isTerminal(r.status)" size="small" @click="steer(r)">引导 Steer</el-button>
           <el-button v-if="!isTerminal(r.status) && r.status !== 'stopping'" size="small" type="danger" plain @click="stop(r)">中断 Stop</el-button>

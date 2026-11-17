@@ -26,6 +26,20 @@ app.post('/api/auth/login', express.json({ limit: '64kb' }), (req, res) => {
 })
 
 // ---------- Studio 自有数据：工作流 CRUD ----------
+// BFF 自身健康（公开，供计划任务/监控探活）
+app.get('/api/studio/health', async (req, res) => {
+  let hermesOk = false
+  try {
+    const ctrl = new AbortController()
+    const t = setTimeout(() => ctrl.abort(), 1500)
+    const r = await fetch(`${config.hermesBaseUrl}/health`, { signal: ctrl.signal })
+    hermesOk = (await r.json())?.status === 'ok'
+    clearTimeout(t)
+  } catch {
+    hermesOk = false
+  }
+  res.json({ ok: true, version: config.version, hermesOk, ts: Date.now() })
+})
 app.use('/api/studio', requireAuth, express.json({ limit: '1mb' }))
 app.get('/api/studio/config', (req, res) => {
   res.json({
@@ -50,7 +64,18 @@ app.use('/api/hermes', requireAuth, hermesProxy)
 
 // ---------- 静态托管（生产模式） ----------
 if (fs.existsSync(webDist)) {
-  app.use(express.static(webDist))
+  // assets 带 hash → 长缓存；index.html 不缓存保证发版即生效
+  app.use(
+    express.static(webDist, {
+      setHeaders: (res, filePath) => {
+        if (filePath.includes(`${path.sep}assets${path.sep}`)) {
+          res.setHeader('Cache-Control', 'public, max-age=604800, immutable')
+        } else {
+          res.setHeader('Cache-Control', 'no-cache')
+        }
+      }
+    })
+  )
   app.get(/^\/(?!api\/).*/, (req, res) => res.sendFile(path.join(webDist, 'index.html')))
 } else {
   app.get('/', (req, res) =>
@@ -64,6 +89,15 @@ app.use((err, req, res, next) => {
   if (!res.headersSent) res.status(500).json({ error: { message: String(err?.message || err) } })
 })
 
-app.listen(config.port, '127.0.0.1', () => {
+const server = app.listen(config.port, '127.0.0.1', () => {
   console.log(`[hermes-studio] BFF http://127.0.0.1:${config.port} → Hermes ${config.hermesBaseUrl}`)
 })
+
+// 优雅停机（计划任务停止/部署重启时不杀进行中的 SSE，先关监听再退出）
+for (const sig of ['SIGINT', 'SIGTERM']) {
+  process.on(sig, () => {
+    console.log(`[hermes-studio] 收到 ${sig}，关闭监听…`)
+    server.close(() => process.exit(0))
+    setTimeout(() => process.exit(0), 3000).unref()
+  })
+}

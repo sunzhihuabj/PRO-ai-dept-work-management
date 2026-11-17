@@ -14,6 +14,11 @@ export function hermesProxy(req, res) {
   headers.host = target.host
   headers.authorization = `Bearer ${config.hermesApiKey}`
   delete headers.connection
+  // F10(2026-11-18)：剥离浏览器 CORS 请求头 —— BFF 是服务端到服务端调用，
+  // 转发 Origin 会被 Hermes CORS 白名单 403（带 Origin 且不在白名单直接拒绝），curl 无 Origin 所以 API 测试全过
+  for (const h of ['origin', 'referer', 'access-control-request-method', 'access-control-request-headers', 'sec-fetch-site', 'sec-fetch-mode', 'sec-fetch-dest']) {
+    delete headers[h]
+  }
   // content-length 原样保留：body 未被解析，pipe 的是原始字节流
 
   const lib = target.protocol === 'https:' ? https : http

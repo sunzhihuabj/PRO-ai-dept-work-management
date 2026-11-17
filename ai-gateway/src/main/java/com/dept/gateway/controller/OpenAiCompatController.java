@@ -78,11 +78,14 @@ public class OpenAiCompatController {
         String id = "chatcmpl-" + UUID.randomUUID().toString().replace("-", "").substring(0, 24);
 
         if (Boolean.TRUE.equals(body.getStream())) {
-            // SSE 单分片仿真流式（真流式为阶段二）；SseEmitter 必须直接返回，不可包 ResponseEntity
+            // SSE 仿真流式（真流式为阶段二）；SseEmitter 必须直接返回，不可包 ResponseEntity
+            // F9(2026-11-18)：OpenAI 流式契约要求最后一个 choice 携带非 null finish_reason，
+            // 否则严格客户端（Hermes Agent）判定"流被截断"，触发 4 轮 continuation 重试后 run.failed
             com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
             SseEmitter emitter = new SseEmitter(120_000L);
             try {
                 emitter.send(SseEmitter.event().data(mapper.writeValueAsString(chunkFrame(id, model, resp.getContent()))));
+                emitter.send(SseEmitter.event().data(mapper.writeValueAsString(stopFrame(id, model))));
                 emitter.send(SseEmitter.event().data("[DONE]"));
                 emitter.complete();
             } catch (Exception e) {
@@ -122,6 +125,22 @@ public class OpenAiCompatController {
         choice.put("index", 0);
         choice.put("delta", delta);
         choice.put("finish_reason", null);
+        Map<String, Object> chunk = new LinkedHashMap<>();
+        chunk.put("id", id);
+        chunk.put("object", "chat.completion.chunk");
+        chunk.put("created", System.currentTimeMillis() / 1000);
+        chunk.put("model", model);
+        chunk.put("choices", List.of(choice));
+        return chunk;
+    }
+
+    /** 流式终止块：空 delta + finish_reason=stop（F9 修复，见 chatCompletions 注释） */
+    private Map<String, Object> stopFrame(String id, String model) {
+        Map<String, Object> delta = new LinkedHashMap<>();
+        Map<String, Object> choice = new LinkedHashMap<>();
+        choice.put("index", 0);
+        choice.put("delta", delta);
+        choice.put("finish_reason", "stop");
         Map<String, Object> chunk = new LinkedHashMap<>();
         chunk.put("id", id);
         chunk.put("object", "chat.completion.chunk");
