@@ -46,7 +46,7 @@ public class AiWorkspaceController {
     private final WorkflowEngineService engineService;
     private final com.dept.mgmt.aiworkspace.service.HermesDelegateService hermesDelegateService;
 
-    // ==================== Hermes 委托（B2/B3） ====================
+    // ==================== Hermes 委托（B2/B3/C2） ====================
 
     @GetMapping("/hermes/runs/{runId}/events")
     @Operation(summary = "Hermes 委托执行事件时间线（B3 过程回写，仅限本人会话的委托任务）")
@@ -54,6 +54,18 @@ public class AiWorkspaceController {
             @PathVariable String runId) {
         com.dept.mgmt.security.LoginUser user = com.dept.mgmt.security.LoginUser.current();
         return R.ok(hermesDelegateService.eventsForUser(user.getUserId(), runId));
+    }
+
+    @GetMapping("/hermes/delegations")
+    @Operation(summary = "Hermes 委托任务列表（C2 AI Agent 员工面板；负责人看全部，其他用户仅本人委托）")
+    public R<List<Map<String, Object>>> hermesDelegations(
+            @RequestParam(defaultValue = "1") Integer pageNum,
+            @RequestParam(defaultValue = "20") Integer pageSize) {
+        com.dept.mgmt.security.LoginUser user = com.dept.mgmt.security.LoginUser.current();
+        boolean leader = user.getAuthorities().stream()
+                .anyMatch(a -> "ROLE_DEPT_LEADER".equals(a.getAuthority()));
+        return R.ok(hermesDelegateService.pageDelegations(
+                user.getUserId(), leader, pageNum, pageSize));
     }
 
     // ==================== 对话 ====================

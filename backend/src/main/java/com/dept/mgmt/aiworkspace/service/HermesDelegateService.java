@@ -223,6 +223,108 @@ public class HermesDelegateService {
     }
 
     /**
+     * 委托任务列表（C2 AI Agent 员工面板）：以 msg_type=hermes 卡片消息为委托主记录，
+     * 关联事件终态 / 结果消息 / HERMES_APPROVAL 审批建议。数据范围：部门负责人看全部，其他用户仅看本人会话的委托。
+     */
+    public java.util.List<java.util.Map<String, Object>> pageDelegations(
+            Long userId, boolean leader, int pageNum, int pageSize) {
+        // 1) 数据范围：非负责人仅本人会话
+        List<Long> convIds = null;
+        if (!leader) {
+            convIds = conversationMapper.selectList(new LambdaQueryWrapper<AiConversation>()
+                            .eq(AiConversation::getUserId, userId))
+                    .stream().map(AiConversation::getId).toList();
+            if (convIds.isEmpty()) {
+                return List.of();
+            }
+        }
+        // 2) 委托卡片消息分页（每条 = 一次委托）
+        LambdaQueryWrapper<AiMessage> qw = new LambdaQueryWrapper<AiMessage>()
+                .eq(AiMessage::getMsgType, "hermes")
+                .orderByDesc(AiMessage::getId)
+                .last("LIMIT " + Math.min(Math.max(pageSize, 1), 50) + " OFFSET " + Math.max(pageNum - 1, 0) * pageSize);
+        if (convIds != null) {
+            qw.in(AiMessage::getConversationId, convIds);
+        }
+        List<AiMessage> cards = messageMapper.selectList(qw);
+        if (cards.isEmpty()) {
+            return List.of();
+        }
+        // 3) 组装：runId 解析 + 事件终态 + 结果消息 + 审批建议
+        java.util.List<Map<String, Object>> out = new java.util.ArrayList<>();
+        Set<Long> convIdSet = cards.stream().map(AiMessage::getConversationId).collect(java.util.stream.Collectors.toSet());
+        Map<Long, AiConversation> convMap = conversationMapper.selectBatchIds(convIdSet).stream()
+                .collect(java.util.stream.Collectors.toMap(AiConversation::getId, c -> c));
+        for (AiMessage card : cards) {
+            String runId = extractRunId(card.getContent());
+            if (!StringUtils.hasText(runId)) {
+                continue;
+            }
+            Map<String, Object> row = new java.util.LinkedHashMap<>();
+            row.put("runId", runId);
+            row.put("messageId", card.getId());
+            row.put("delegatedAt", card.getCreateTime());
+            AiConversation conv = convMap.get(card.getConversationId());
+            row.put("conversationId", card.getConversationId());
+            row.put("conversationTitle", conv == null ? null : conv.getTitle());
+            row.put("delegatorId", conv == null ? null : conv.getUserId());
+            row.put("delegator", conv == null ? null : conv.getUserId());
+            // 事件终态（hermes_run_event）
+            List<HermesRunEvent> evts = runEventMapper.selectList(new LambdaQueryWrapper<HermesRunEvent>()
+                    .eq(HermesRunEvent::getRunId, runId)
+                    .orderByAsc(HermesRunEvent::getSeq).last("LIMIT 200"));
+            String status = "RUNNING";
+            String resultPreview = null;
+            for (HermesRunEvent ev : evts) {
+                if (ev.getEventType().startsWith("run.")) {
+                    status = ev.getEventType().substring(4).toUpperCase();
+                    resultPreview = ev.getPreview();
+                }
+            }
+            row.put("status", status);
+            row.put("eventCount", evts.size());
+            // 结果消息（msg_type=text 同 runId 标记，B2 回写）
+            AiMessage resultMsg = messageMapper.selectOne(new LambdaQueryWrapper<AiMessage>()
+                    .likeRight(AiMessage::getContent, RUN_MARKER_PREFIX + runId + RUN_MARKER_SUFFIX)
+                    .eq(AiMessage::getMsgType, "text")
+                    .orderByDesc(AiMessage::getId).last("LIMIT 1"));
+            if (resultMsg != null) {
+                String body = resultMsg.getContent().replace(RUN_MARKER_PREFIX + runId + RUN_MARKER_SUFFIX, "").trim();
+                row.put("resultPreview", body.length() > 200 ? body.substring(0, 200) + "…" : body);
+                // B2 早期委托无事件记录：从回写消息推断终态（事件缺失兜底）
+                if ("RUNNING".equals(status)) {
+                    if (body.contains("执行完成")) {
+                        row.put("status", "COMPLETED");
+                    } else if (body.contains("执行失败")) {
+                        row.put("status", "FAILED");
+                    }
+                }
+            } else {
+                row.put("resultPreview", resultPreview);
+            }
+            // 关联审批建议（HERMES_APPROVAL）
+            com.dept.mgmt.agent.collab.entity.AgentDecisionAdvice advice =
+                    adviceService.findPendingHermesApproval(runId);
+            row.put("adviceId", advice == null ? null : advice.getId());
+            row.put("adviceStatus", advice == null ? null : advice.getStatus());
+            out.add(row);
+        }
+        return out;
+    }
+
+    /** 从消息 content 提取 runId 内嵌标记 */
+    private static String extractRunId(String content) {
+        if (content == null) {
+            return null;
+        }
+        java.util.regex.Matcher m = java.util.regex.Pattern
+                .compile(java.util.regex.Pattern.quote(RUN_MARKER_PREFIX) + "([a-zA-Z0-9_-]+)"
+                        + java.util.regex.Pattern.quote(RUN_MARKER_SUFFIX))
+                .matcher(content);
+        return m.find() ? m.group(1) : null;
+    }
+
+    /**
      * 后台轮询至终态并回写结果消息（B5 增强）：轮询中检测 waiting_for_approval——
      * 从 run 状态 approval 字段提取 requestId/摘要，经 DecisionAdviceService 生成
      * HERMES_APPROVAL 建议（幂等，同 requestId 只生成一次）；委托人采纳/驳回后

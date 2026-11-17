@@ -284,6 +284,16 @@ public class DecisionAdviceService {
         return created.getId();
     }
 
+    /** 按 runId 查最新 PENDING Hermes 审批建议（C2 委托面板关联展示用） */
+    public AgentDecisionAdvice findPendingHermesApproval(String runId) {
+        LambdaQueryWrapper<AgentDecisionAdvice> qw = new LambdaQueryWrapper<>();
+        qw.eq(AgentDecisionAdvice::getScene, SCENE_HERMES_APPROVAL)
+                .eq(AgentDecisionAdvice::getStatus, ST_PENDING)
+                .like(AgentDecisionAdvice::getApprovalParamsJson, runId)
+                .orderByDesc(AgentDecisionAdvice::getId).last("LIMIT 1");
+        return adviceMapper.selectOne(qw);
+    }
+
 
     /**
      * 工具审批请求（A5 公开入口，供 B4 MCP 写工具 / B5 Hermes auth-required 中断映射调用）：
