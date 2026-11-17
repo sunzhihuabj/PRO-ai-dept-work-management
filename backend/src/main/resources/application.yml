@@ -87,6 +87,14 @@ dingtalk:
 app:
   cors:
     allowed-origins: http://localhost:5173,http://127.0.0.1:5173
+  # 阶段一多 Agent 协同：MCP Server（Dify/Hermes 接入点）鉴权密钥，生产通过环境变量注入
+  mcp:
+    api-key: ${MCP_API_KEY:dept-mcp-2026r2-dev-key}
+    # MCP 系统委托身份（A3 只读工具执行用；A4 升级为 X-Acting-User-Id 逐调用透传）
+    acting-user-id: ${MCP_ACTING_USER_ID:1}
+  # 决策建议审批参数 HMAC 密钥（HITL 护栏：审批执行前重算比对防篡改）
+  advice:
+    hmac-secret: ${ADVICE_HMAC_SECRET:dept-advice-hmac-2026r2-dev}
 
 # AI 服务配置（T-105：统一经 ai-gateway 8090 调模型，任何业务代码不得直连模型 API）
 ai:

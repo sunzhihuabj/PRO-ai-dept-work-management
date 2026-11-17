@@ -150,6 +150,19 @@ public class TaskExecutor {
      */
     private void execute(AgentTask task, String executedBy) {
         try {
+            // 阶段一预算护栏：预算耗尽的任务不再执行（DDL 09 已预留字段；
+            // 精确 LLM 调用记账依赖网关调用日志关联，阶段二随 A2A 编排落地）
+            int used = task.getBudgetUsed() == null ? 0 : task.getBudgetUsed();
+            int limit = task.getBudgetLimit() == null ? 35 : task.getBudgetLimit();
+            if (used >= limit) {
+                task.setStatus(TaskStatus.FAILED.getCode());
+                task.setErrorMsg("LLM 调用预算已耗尽（" + used + "/" + limit + "），任务终止转人工");
+                task.setFinishedAt(LocalDateTime.now());
+                taskMapper.updateById(task);
+                masterAgentService.transition(task.getId(), TaskStatus.RUNNING.getCode(),
+                        TaskStatus.FAILED.getCode(), executedBy, "预算护栏拦截");
+                return;
+            }
             CapabilityHandler handler = handlers.get(task.getCapabilityCode());
             if (handler == null) {
                 // 该能力点尚无自动执行实现：进入待确认（建议级语义）

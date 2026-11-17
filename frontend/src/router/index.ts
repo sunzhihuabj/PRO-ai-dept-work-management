@@ -98,6 +98,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: 'AI 助手', icon: 'MagicStick' }
       },
       {
+        path: 'ai/advice',
+        name: 'AgentAdviceCenter',
+        component: () => import('@/views/ai/AgentAdviceCenter.vue'),
+        meta: { title: '决策建议', icon: 'Opportunity' }
+      },
+      {
         path: 'message',
         name: 'MessageCenter',
         component: () => import('@/views/message/MessageCenter.vue'),

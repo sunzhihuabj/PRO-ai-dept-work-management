@@ -63,4 +63,22 @@ public class AgentTask extends BaseEntity {
 
     /** 结束时间 */
     private LocalDateTime finishedAt;
+
+    /** A2A v1.0 Task ID（阶段二跨 Agent 委派时回填） */
+    private String a2aTaskId;
+
+    /** 子任务步骤数（阶段二 A2A fan-out） */
+    private Integer stepCount;
+
+    /** 已用 LLM 调用次数（阶段一预留，精确记账为阶段二） */
+    private Integer budgetUsed;
+
+    /** LLM 调用预算上限（对齐全局 35 次/分限流） */
+    private Integer budgetLimit;
+
+    /** 结果置信度（0-1） */
+    private Double confidence;
+
+    /** 结果风险等级（LOW/MEDIUM/HIGH） */
+    private String riskLevel;
 }

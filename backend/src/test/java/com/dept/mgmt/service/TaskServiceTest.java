@@ -32,6 +32,11 @@ class TaskServiceTest {
     private TaskLogMapper taskLogMapper;
     @Mock
     private WorkHourMapper workHourMapper;
+    /** 阶段一新增字段：状态流转/任务创建会发布事件，测试用 Mock 注入（@InjectMocks 按类型装配） */
+    @Mock
+    private com.dept.mgmt.event.bus.EventBusService eventBusService;
+    @Mock
+    private com.dept.mgmt.service.support.ProjectScopeResolver projectScopeResolver;
     @InjectMocks
     private TaskService taskService;
 

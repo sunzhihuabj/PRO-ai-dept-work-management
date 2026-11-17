@@ -42,6 +42,13 @@ public class ApiKeyFilter extends OncePerRequestFilter {
             return;
         }
         String apiKey = request.getHeader(API_KEY_HEADER);
+        // 阶段一：OpenAI 兼容门面放行 Authorization: Bearer（Hermes/Dify 等外部 Agent 惯用头）
+        if (!StringUtils.hasText(apiKey)) {
+            String auth = request.getHeader("Authorization");
+            if (StringUtils.hasText(auth) && auth.startsWith("Bearer ")) {
+                apiKey = auth.substring(7).trim();
+            }
+        }
         // L2 整改：恒时比较（MessageDigest.isEqual），防计时侧信道逐字节探测密钥
         boolean valid = apiKey != null && !apiKey.isBlank()
                 && java.security.MessageDigest.isEqual(

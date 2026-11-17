@@ -58,7 +58,9 @@ public class SecurityConfig {
             "/swagger-resources/**",
             "/webjars/**",
             "/favicon.ico",
-            "/error"
+            "/error",
+            // 阶段一多 Agent 协同：MCP Server 端点自鉴权（API Key，外部 Agent 无 JWT 登录态）
+            "/mcp/**"
     };
 
     @Bean

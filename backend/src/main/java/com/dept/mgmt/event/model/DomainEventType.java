@@ -51,7 +51,16 @@ public enum DomainEventType {
     CONTRACT_CLOSED("contract.closed"),
 
     /** 项目关键进度（T-406 项目域阶段/里程碑完成 → 反馈关联合同侧） */
-    PROJECT_PROGRESS_UPDATED("project.progress.updated");
+    PROJECT_PROGRESS_UPDATED("project.progress.updated"),
+
+    /** 项目创建（阶段一多 Agent 协同 → 立项预审建议，AgentAdviceEventHandler 消费） */
+    PROJECT_CREATED("project.created"),
+
+    /** 任务创建（阶段一 → 拆解/指派建议） */
+    TASK_CREATED("task.created"),
+
+    /** 任务状态流转（阶段一 → 执行偏差/验收预审/截止预警建议） */
+    TASK_STATUS_CHANGED("task.status.changed");
 
     private final String code;
 

@@ -41,6 +41,8 @@ public class TaskService {
     private final TaskLogMapper taskLogMapper;
     private final WorkHourMapper workHourMapper;
     private final ProjectScopeResolver projectScopeResolver;
+    /** 阶段一多 Agent 协同：任务生命周期事件发布（EventBusService 无反向依赖本服务，可直注） */
+    private final com.dept.mgmt.event.bus.EventBusService eventBusService;
 
     /**
      * 任务列表分页
@@ -103,6 +105,18 @@ public class TaskService {
         recordLog(task.getId(), "CREATE", "创建任务: " + task.getTaskName(),
                 loginUser != null ? loginUser.getUsername() : "system", null, task.getTaskName());
 
+        // 阶段一多 Agent 协同：任务创建事件 → 指派/拆解建议（TaskCreatedAdviceHandler 消费）
+        Map<String, Object> createdPayload = new HashMap<>();
+        createdPayload.put("taskId", task.getId());
+        createdPayload.put("taskName", task.getTaskName());
+        createdPayload.put("projectId", task.getProjectId());
+        createdPayload.put("assigneeId", task.getAssigneeId());
+        createdPayload.put("priority", task.getPriority());
+        createdPayload.put("deadline", task.getDeadline() == null ? null : String.valueOf(task.getDeadline()));
+        createdPayload.put("actorUserId", loginUser != null ? loginUser.getUserId() : null);
+        eventBusService.publish(com.dept.mgmt.event.model.DomainEventType.TASK_CREATED, createdPayload,
+                "task:" + task.getId());
+
         log.info("创建任务成功: id={}, name={}", task.getId(), task.getTaskName());
         return task.getId();
     }
@@ -155,6 +169,29 @@ public class TaskService {
     }
 
     /**
+     * 指派任务（阶段一 Agent 建议审批通过后调用：AUTO_ASSIGN_TASK 动作执行点）
+     *
+     * @param operator 操作人（审计日志用）
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public void assign(Long id, Long assigneeId, String operator) {
+        Task task = taskMapper.selectById(id);
+        if (task == null) {
+            throw new BusinessException(404, "任务不存在");
+        }
+        if (task.getStatus() == 3 || task.getStatus() == 4) {
+            throw new BusinessException(409, "已完成或已关闭的任务不可重新指派");
+        }
+        Task update = new Task();
+        update.setId(id);
+        update.setAssigneeId(assigneeId);
+        taskMapper.updateById(update);
+        recordLog(id, "ASSIGN", "Agent 建议审批通过，任务指派给用户 " + assigneeId,
+                operator, null, task.getTaskName());
+        log.info("任务已指派: id={}, assigneeId={}, operator={}", id, assigneeId, operator);
+    }
+
+    /**
      * 任务状态流转
      * 0待办→1进行中→2待审核→3已完成→4已关闭
      */
@@ -196,6 +233,20 @@ public class TaskService {
                         + (StringUtils.hasText(comment) ? " | " + comment : ""),
                 loginUser != null ? loginUser.getUsername() : "system",
                 oldVal.toString(), newVal.toString());
+
+        // 阶段一多 Agent 协同：状态流转事件 → 截止预警/验收预审/后续动作建议
+        // 幂等键含状态对：同一任务的重复合法流转（如 0→1→0→1）需各自触发建议，不按 taskId 幂等
+        Map<String, Object> statusPayload = new HashMap<>();
+        statusPayload.put("taskId", id);
+        statusPayload.put("taskName", task.getTaskName());
+        statusPayload.put("projectId", task.getProjectId());
+        statusPayload.put("fromStatus", currentStatus);
+        statusPayload.put("toStatus", targetStatus);
+        statusPayload.put("assigneeId", task.getAssigneeId());
+        statusPayload.put("deadline", task.getDeadline() == null ? null : String.valueOf(task.getDeadline()));
+        statusPayload.put("actorUserId", loginUser != null ? loginUser.getUserId() : null);
+        eventBusService.publish(com.dept.mgmt.event.model.DomainEventType.TASK_STATUS_CHANGED, statusPayload,
+                "task:" + id + ":" + currentStatus + ":" + targetStatus);
 
         log.info("任务状态流转: id={}, {} → {}", id, statusName(currentStatus), statusName(targetStatus));
     }

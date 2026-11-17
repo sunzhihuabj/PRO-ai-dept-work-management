@@ -121,6 +121,16 @@ public class ProjectService {
 
         generatePhases(project);
 
+        // 阶段一多 Agent 协同：项目创建事件 → 立项预审建议（AgentAdviceEventHandler 消费）
+        Map<String, Object> createdPayload = new java.util.HashMap<>();
+        createdPayload.put("projectId", project.getId());
+        createdPayload.put("projectCode", project.getProjectCode());
+        createdPayload.put("projectName", project.getProjectName());
+        createdPayload.put("projectLeader", project.getProjectLeader() == null ? "" : project.getProjectLeader());
+        createdPayload.put("creatorUserId", loginUser != null ? loginUser.getUserId() : null);
+        eventBusProvider.getObject().publish(DomainEventType.PROJECT_CREATED, createdPayload,
+                "project:" + project.getId());
+
         return project.getId();
     }
 
