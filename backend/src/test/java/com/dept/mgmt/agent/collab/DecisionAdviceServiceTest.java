@@ -1,6 +1,7 @@
 package com.dept.mgmt.agent.collab;
 
 import com.dept.mgmt.agent.collab.service.DecisionAdviceService;
+import com.dept.mgmt.agent.collab.support.ApprovalActionRegistry;
 import com.dept.mgmt.agent.collab.support.HmacUtils;
 import com.dept.mgmt.common.exception.BusinessException;
 import com.dept.mgmt.mapper.AgentDecisionAdviceMapper;
@@ -11,12 +12,16 @@ import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 import org.springframework.beans.factory.ObjectProvider;
 
+import java.util.LinkedHashMap;
+import java.util.Map;
+
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 /**
- * 决策建议服务单元测试（阶段一：HMAC 护栏 + 审批动作执行）
+ * 决策建议服务单元测试（阶段一：HMAC 护栏 + 审批动作执行 + A5 OPS 动作注册表）
  *
  * @author dept-mgmt
  */
@@ -26,6 +31,9 @@ class DecisionAdviceServiceTest {
 
     private AgentDecisionAdviceMapper adviceMapper;
     private com.dept.mgmt.service.TaskService taskService;
+    private com.dept.mgmt.aiworkspace.ops.SystemOpsService systemOpsService;
+    private ApprovalActionRegistry actionRegistry;
+    private com.dept.mgmt.mapper.SysUserMapper userMapper;
     private DecisionAdviceService service;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -34,10 +42,18 @@ class DecisionAdviceServiceTest {
     void setUp() {
         adviceMapper = mock(AgentDecisionAdviceMapper.class);
         taskService = mock(com.dept.mgmt.service.TaskService.class);
+        systemOpsService = mock(com.dept.mgmt.aiworkspace.ops.SystemOpsService.class);
+        actionRegistry = mock(ApprovalActionRegistry.class);
+        userMapper = mock(com.dept.mgmt.mapper.SysUserMapper.class);
         NotificationService notificationService = mock(NotificationService.class);
+        when(notificationService.send(any())).thenReturn(
+                Mockito.mock(com.dept.mgmt.platform.notify.dto.NotificationSendResult.class));
         ObjectProvider<com.dept.mgmt.service.TaskService> provider = mock(ObjectProvider.class);
         when(provider.getObject()).thenReturn(taskService);
-        service = new DecisionAdviceService(adviceMapper, provider, notificationService, objectMapper, SECRET);
+        ObjectProvider<com.dept.mgmt.aiworkspace.ops.SystemOpsService> opsProvider = mock(ObjectProvider.class);
+        when(opsProvider.getObject()).thenReturn(systemOpsService);
+        service = new DecisionAdviceService(adviceMapper, provider, opsProvider,
+                actionRegistry, userMapper, notificationService, objectMapper, SECRET);
     }
 
     @Test
@@ -121,5 +137,159 @@ class DecisionAdviceServiceTest {
         assertEquals(DecisionAdviceService.ST_PENDING, a.getStatus());
         assertEquals(1, a.getRequiresApproval());
         assertEquals(DecisionAdviceService.ACTION_AUTO_ASSIGN_TASK, a.getApprovalAction());
+    }
+
+    // ==================== A5：审批动作注册表 ====================
+
+    private com.dept.mgmt.entity.SysUser sysUser(long id, String roleCodes) {
+        var u = new com.dept.mgmt.entity.SysUser();
+        u.setId(id);
+        u.setUsername("user" + id);
+        u.setRoleCodes(roleCodes);
+        u.setStatus(1);
+        return u;
+    }
+
+    @Test
+    void requestToolApprovalRejectsNonWhitelistedTool() {
+        when(actionRegistry.actionOf("ecn.approve")).thenReturn(null);
+
+        BusinessException e = assertThrows(BusinessException.class,
+                () -> service.requestToolApproval("ecn.approve", Map.of(), 7L, "测试"));
+        assertTrue(e.getMessage().contains("白名单外"));
+    }
+
+    @Test
+    void requestToolApprovalRejectsInvalidActingUser() {
+        when(actionRegistry.actionOf("task.create")).thenReturn("OPS_TASK_CREATE");
+        when(actionRegistry.toolOf("OPS_TASK_CREATE"))
+                .thenReturn(com.dept.mgmt.aiworkspace.ops.OpsTool.builder()
+                        .name("task.create").title("创建任务").readOnly(false)
+                        .params(java.util.List.of()).build());
+        when(userMapper.selectById(99L)).thenReturn(null);
+
+        BusinessException e = assertThrows(BusinessException.class,
+                () -> service.requestToolApproval("task.create", Map.of(), 99L, "测试"));
+        assertEquals(401, e.getCode());
+    }
+
+    @Test
+    void requestToolApprovalRejectsInsufficientPermission() {
+        when(actionRegistry.actionOf("cost.settle")).thenReturn("OPS_COST_SETTLE");
+        when(actionRegistry.toolOf("OPS_COST_SETTLE"))
+                .thenReturn(com.dept.mgmt.aiworkspace.ops.OpsTool.builder()
+                        .name("cost.settle").title("完工成本核算").readOnly(false)
+                        .params(java.util.List.of()).build());
+        when(userMapper.selectById(7L)).thenReturn(sysUser(7L, "ROLE_WORKER"));
+        when(systemOpsService.checkPermission(any(), any())).thenReturn("「完工成本核算」需要部门领导权限");
+
+        BusinessException e = assertThrows(BusinessException.class,
+                () -> service.requestToolApproval("cost.settle", Map.of(), 7L, "测试"));
+        assertEquals(403, e.getCode());
+    }
+
+    @Test
+    void approveExecutesOpsToolAction() {
+        String paramsJson = "{\"actingUserId\":7,\"toolName\":\"task.create\","
+                + "\"params\":{\"projectName\":\"测试项目\",\"taskName\":\"AI 委托建的任务\"}}";
+        var a = advice("OPS_TASK_CREATE", paramsJson);
+        a.setEvidenceJson("[]");
+        when(adviceMapper.selectById(1L)).thenReturn(a);
+        when(actionRegistry.actionOf("task.create")).thenReturn("OPS_TASK_CREATE");
+        when(actionRegistry.toolOf("OPS_TASK_CREATE")).thenReturn(
+                com.dept.mgmt.aiworkspace.ops.OpsTool.builder()
+                        .name("task.create").title("创建任务").readOnly(false)
+                        .params(java.util.List.of()).build());
+        when(userMapper.selectById(7L)).thenReturn(sysUser(7L, "ROLE_WORKER"));
+        when(systemOpsService.checkPermission(any(), any())).thenReturn(null);
+        when(actionRegistry.execute(eq("OPS_TASK_CREATE"), any(), any())).thenReturn("任务创建成功：AI 委托建的任务");
+
+        var result = service.approve(1L, "同意执行");
+
+        assertEquals(DecisionAdviceService.ST_APPROVED, result.getStatus());
+        verify(actionRegistry).execute(eq("OPS_TASK_CREATE"), any(), any());
+        // 执行结果回写 evidence_json
+        assertTrue(result.getEvidenceJson().contains("任务创建成功"));
+        assertTrue(result.getEvidenceJson().contains("user7"));
+    }
+
+    @Test
+    void approveOpsActionRejectsToolActionMismatch() {
+        // 审批间隙被篡改：toolName 与登记动作不一致（HMAC 虽重算一致，但一致性校验拦截伪造编码）
+        String paramsJson = "{\"actingUserId\":7,\"toolName\":\"ecn.approve\",\"params\":{}}";
+        var a = advice("OPS_ECN_APPROVE", paramsJson);
+        when(adviceMapper.selectById(1L)).thenReturn(a);
+        when(actionRegistry.actionOf("ecn.approve")).thenReturn(null);
+
+        BusinessException e = assertThrows(BusinessException.class, () -> service.approve(1L, null));
+        assertTrue(e.getMessage().contains("不一致"));
+    }
+
+    @Test
+    void approveOpsActionRechecksPermission() {
+        String paramsJson = "{\"actingUserId\":7,\"toolName\":\"task.create\",\"params\":{}}";
+        var a = advice("OPS_TASK_CREATE", paramsJson);
+        when(adviceMapper.selectById(1L)).thenReturn(a);
+        when(actionRegistry.actionOf("task.create")).thenReturn("OPS_TASK_CREATE");
+        when(actionRegistry.toolOf("OPS_TASK_CREATE")).thenReturn(
+                com.dept.mgmt.aiworkspace.ops.OpsTool.builder()
+                        .name("task.create").title("创建任务").readOnly(false)
+                        .params(java.util.List.of()).build());
+        when(userMapper.selectById(7L)).thenReturn(sysUser(7L, "ROLE_WORKER"));
+        // 待确认期间委托人权限被收回 → 拦截
+        when(systemOpsService.checkPermission(any(), any())).thenReturn("当前账号无权执行该操作。");
+
+        BusinessException e = assertThrows(BusinessException.class, () -> service.approve(1L, null));
+        assertEquals(403, e.getCode());
+        verify(actionRegistry, never()).execute(any(), any(), any());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void registryRoundtripPreservesCamelCase() {
+        com.dept.mgmt.aiworkspace.ops.OpsToolRegistry registry = mock(com.dept.mgmt.aiworkspace.ops.OpsToolRegistry.class);
+        when(registry.find(any())).thenReturn(com.dept.mgmt.aiworkspace.ops.OpsTool.builder()
+                .name("task.changeStatus").title("任务状态流转").readOnly(false)
+                .params(java.util.List.of()).build());
+        ApprovalActionRegistry real = new ApprovalActionRegistry(providerOf(registry));
+        // 驼峰段不产生额外下划线（changeStatus → CHANGESTATUS）
+        assertEquals("OPS_TASK_CHANGESTATUS", real.actionOf("task.changeStatus"));
+        assertEquals("OPS_TENDER_UPDATESTATUS", real.actionOf("tender.updateStatus"));
+        assertEquals("OPS_ARCHIVE_BORROW", real.actionOf("archive.borrow"));
+        // 驼峰还原（大写编码经双向映射，非字符串还原）
+        assertNotNull(real.toolOf("OPS_TASK_CHANGESTATUS"));
+        assertEquals("task.changeStatus", real.toolOf("OPS_TASK_CHANGESTATUS").getName());
+        // 白名单外（审批本身）不可登记/还原
+        assertNull(real.actionOf("ecn.approve"));
+        assertNull(real.toolOf("OPS_ECN_APPROVE"));
+        assertTrue(real.allowedActions().contains("OPS_ARCHIVE_BORROW"));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void registryExecuteRunsPrecheckFirst() {
+        var tool = com.dept.mgmt.aiworkspace.ops.OpsTool.builder()
+                .name("archive.borrow").title("档案借阅").readOnly(false)
+                .precheck((p, u) -> "档案 9 已借出，不可重复借出")
+                .params(java.util.List.of())
+                .executor((p, u) -> "should-not-run")
+                .build();
+        com.dept.mgmt.aiworkspace.ops.OpsToolRegistry registry = mock(com.dept.mgmt.aiworkspace.ops.OpsToolRegistry.class);
+        when(registry.find("archive.borrow")).thenReturn(tool);
+        ApprovalActionRegistry real = new ApprovalActionRegistry(providerOf(registry));
+
+        BusinessException e = assertThrows(BusinessException.class,
+                () -> real.execute("OPS_ARCHIVE_BORROW", new LinkedHashMap<>(Map.of("archiveId", 9)),
+                        new com.dept.mgmt.security.LoginUser(7L, "user7", "ROLE_WORKER", null)));
+        assertTrue(e.getMessage().contains("前置校验未通过"));
+        assertEquals(409, e.getCode());
+    }
+
+    /** ObjectProvider 测试桩（getObject 返回给定实例） */
+    @SuppressWarnings("unchecked")
+    private static <T> org.springframework.beans.factory.ObjectProvider<T> providerOf(T instance) {
+        org.springframework.beans.factory.ObjectProvider<T> p = mock(org.springframework.beans.factory.ObjectProvider.class);
+        when(p.getObject()).thenReturn(instance);
+        return p;
     }
 }

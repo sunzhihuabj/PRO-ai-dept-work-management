@@ -49,9 +49,11 @@ public class DecisionAdviceService {
     public static final String SCENE_TASK_CREATED = "TASK_CREATED";
     public static final String SCENE_TASK_STATUS_CHANGED = "TASK_STATUS_CHANGED";
     public static final String SCENE_PROJECT_PROGRESS = "PROJECT_PROGRESS";
+    public static final String SCENE_TOOL_APPROVAL = "TOOL_APPROVAL";
 
-    /** 审批动作（阶段一仅支持指派任务；其余动作阶段二随 A2A 扩展） */
+    /** 审批动作：AUTO_ASSIGN_TASK = 内置指派；OPS_* = 审批动作注册表（A5，Ops 写工具动作化） */
     public static final String ACTION_AUTO_ASSIGN_TASK = "AUTO_ASSIGN_TASK";
+    public static final String ACTION_OPS_PREFIX = "OPS_";
 
     /** 状态 */
     public static final String ST_PENDING = "PENDING";
@@ -63,17 +65,26 @@ public class DecisionAdviceService {
 
     private final AgentDecisionAdviceMapper adviceMapper;
     private final ObjectProvider<com.dept.mgmt.service.TaskService> taskServiceProvider;
+    private final ObjectProvider<com.dept.mgmt.aiworkspace.ops.SystemOpsService> systemOpsServiceProvider;
+    private final com.dept.mgmt.agent.collab.support.ApprovalActionRegistry actionRegistry;
+    private final com.dept.mgmt.mapper.SysUserMapper userMapper;
     private final NotificationService notificationService;
     private final ObjectMapper objectMapper;
     private final String hmacSecret;
 
     public DecisionAdviceService(AgentDecisionAdviceMapper adviceMapper,
                                  ObjectProvider<com.dept.mgmt.service.TaskService> taskServiceProvider,
+                                 ObjectProvider<com.dept.mgmt.aiworkspace.ops.SystemOpsService> systemOpsServiceProvider,
+                                 com.dept.mgmt.agent.collab.support.ApprovalActionRegistry actionRegistry,
+                                 com.dept.mgmt.mapper.SysUserMapper userMapper,
                                  NotificationService notificationService,
                                  ObjectMapper objectMapper,
                                  @Value("${app.advice.hmac-secret:dept-advice-hmac-2026r2-dev}") String hmacSecret) {
         this.adviceMapper = adviceMapper;
         this.taskServiceProvider = taskServiceProvider;
+        this.systemOpsServiceProvider = systemOpsServiceProvider;
+        this.actionRegistry = actionRegistry;
+        this.userMapper = userMapper;
         this.notificationService = notificationService;
         this.objectMapper = objectMapper;
         this.hmacSecret = hmacSecret;
@@ -217,6 +228,92 @@ public class DecisionAdviceService {
 
     // ==================== 查询与审批 ====================
 
+    /**
+     * 工具审批请求（A5 公开入口，供 B4 MCP 写工具 / B5 Hermes auth-required 中断映射调用）：
+     * 白名单校验 → 委托人权限预校验 → 生成 requires_approval 建议（approval_params_json 含
+     * actingUserId/toolName/params，HMAC-SHA256 锁定）→ 返回建议（含 ID，供回调关联）。
+     *
+     * @param toolName      Ops 写工具名（须在 ApprovalActionRegistry 白名单）
+     * @param toolParams    工具执行参数（与 OpsParam 声明对齐）
+     * @param actingUserId  委托发起人（执行身份，HMAC 锁定防篡改）
+     * @param reason        委托理由（进入建议正文）
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public AgentDecisionAdvice requestToolApproval(String toolName, Map<String, Object> toolParams,
+                                                   Long actingUserId, String reason) {
+        String action = actionRegistry.actionOf(toolName);
+        if (action == null) {
+            throw new BusinessException(400, "工具未登记审批动作（白名单外或不存在）: " + toolName);
+        }
+        com.dept.mgmt.aiworkspace.ops.OpsTool tool = actionRegistry.toolOf(action);
+        if (tool == null) {
+            throw new BusinessException(400, "审批动作对应的工具不存在: " + action);
+        }
+        // 委托人生成时预校验（审批执行时二次校验，防待确认期间权限变化）
+        com.dept.mgmt.security.LoginUser actingUser = mustActingUser(actingUserId);
+        String denied = systemOpsServiceProvider.getObject().checkPermission(tool, actingUser);
+        if (denied != null) {
+            throw new BusinessException(403, denied);
+        }
+        // 审批参数锁定（HMAC）
+        LinkedHashMap<String, Object> actionParams = new LinkedHashMap<>();
+        actionParams.put("actingUserId", actingUserId);
+        actionParams.put("toolName", toolName);
+        actionParams.put("params", toolParams == null ? Map.of() : toolParams);
+        String preview = describeToolParams(tool, toolParams);
+        LinkedHashMap<String, Object> structured = new LinkedHashMap<>();
+        structured.put("toolName", toolName);
+        structured.put("action", action);
+        structured.put("actingUser", actingUser.getUsername());
+        structured.put("params", toolParams == null ? Map.of() : toolParams);
+        advice(SCENE_TOOL_APPROVAL, "OPS_TOOL", null, toolName,
+                "写操作待确认：" + tool.getTitle(),
+                "REQUEST",
+                "AI 委托执行「" + tool.getTitle() + "」" + preview
+                        + "（委托人：" + actingUser.getUsername()
+                        + (StringUtils.hasText(reason) ? "；理由：" + reason : "") + "）。请审批后执行。",
+                structured, 1.00, "MEDIUM", true, action, actionParams,
+                List.of(Map.of("source", "OPS_TOOL", "ref", toolName)),
+                actingUserId, 24);
+        // 取回刚生成的建议（advice() 内部 insert；同事务内最新一条同场景 PENDING）
+        LambdaQueryWrapper<AgentDecisionAdvice> qw = new LambdaQueryWrapper<>();
+        qw.eq(AgentDecisionAdvice::getScene, SCENE_TOOL_APPROVAL)
+                .eq(AgentDecisionAdvice::getStatus, ST_PENDING)
+                .orderByDesc(AgentDecisionAdvice::getId).last("LIMIT 1");
+        AgentDecisionAdvice created = adviceMapper.selectOne(qw);
+        if (created == null) {
+            throw new BusinessException(500, "审批建议落库失败");
+        }
+        return created;
+    }
+
+    /** 工具参数摘要（进入建议正文） */
+    private String describeToolParams(com.dept.mgmt.aiworkspace.ops.OpsTool tool, Map<String, Object> toolParams) {
+        if (toolParams == null || toolParams.isEmpty()) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder("，参数：");
+        for (com.dept.mgmt.aiworkspace.ops.OpsParam p : tool.getParams()) {
+            Object v = toolParams.get(p.getName());
+            if (v != null) {
+                sb.append(p.getDesc()).append("=").append(v).append("；");
+            }
+        }
+        return sb.toString();
+    }
+
+    /** 委托人身份解析（存在且未禁用） */
+    private com.dept.mgmt.security.LoginUser mustActingUser(Long actingUserId) {
+        if (actingUserId == null) {
+            throw new BusinessException(400, "缺少委托发起人 actingUserId");
+        }
+        com.dept.mgmt.entity.SysUser su = userMapper.selectById(actingUserId);
+        if (su == null || (su.getStatus() != null && su.getStatus() == 0)) {
+            throw new BusinessException(401, "委托发起人无效或已禁用: " + actingUserId);
+        }
+        return new com.dept.mgmt.security.LoginUser(su.getId(), su.getUsername(), su.getRoleCodes(), List.of());
+    }
+
     /** 分页查询（数据范围：全部登录用户可读——建议为辅助信息，写操作另行鉴权） */
     public PageResult<AgentDecisionAdvice> page(String status, String scene, Integer pageNum, Integer pageSize) {
         Page<AgentDecisionAdvice> page = new Page<>(pageNum == null ? 1 : pageNum, pageSize == null ? 10 : pageSize);
@@ -337,7 +434,7 @@ public class DecisionAdviceService {
         advice.setApproverComment(approverComment);
         advice.setApprovedAt(LocalDateTime.now());
         adviceMapper.updateById(advice);
-        // 3) 动作执行（阶段一：AUTO_ASSIGN_TASK）
+        // 3) 动作执行：AUTO_ASSIGN_TASK（内置指派） / OPS_*（A5 审批动作注册表）
         if (ACTION_AUTO_ASSIGN_TASK.equals(advice.getApprovalAction())) {
             Map<String, Object> params;
             try {
@@ -354,7 +451,59 @@ public class DecisionAdviceService {
                     "agent-advice:" + advice.getId());
             log.info("建议动作已执行: adviceId={}, action={}, taskId={}, assigneeId={}",
                     advice.getId(), advice.getApprovalAction(), taskId, assigneeId);
+        } else if (advice.getApprovalAction() != null
+                && advice.getApprovalAction().startsWith(ACTION_OPS_PREFIX)) {
+            executeOpsToolAction(advice);
         }
+    }
+
+    /**
+     * A5：OPS_* 审批动作执行——解析锁定的 actingUserId/toolName/params，
+     * 二次校验（动作一致性 + 委托人有效 + 权限复核）后经注册表执行（precheck 复核 + executor）。
+     */
+    @SuppressWarnings("unchecked")
+    private void executeOpsToolAction(AgentDecisionAdvice advice) {
+        Map<String, Object> actionParams;
+        try {
+            actionParams = objectMapper.readValue(advice.getApprovalParamsJson(), Map.class);
+        } catch (Exception e) {
+            throw new BusinessException(500, "审批参数解析失败");
+        }
+        Long actingUserId = longVal(actionParams.get("actingUserId"));
+        String toolName = str(actionParams.get("toolName"));
+        Map<String, Object> toolParams = actionParams.get("params") instanceof Map<?, ?> m
+                ? (Map<String, Object>) m : Map.of();
+        // 一致性防错配/防伪造：工具名必须还原出与建议登记完全一致的动作编码
+        if (!advice.getApprovalAction().equals(actionRegistry.actionOf(toolName))) {
+            throw new BusinessException(409, "审批动作与工具不一致（可能被篡改），已拦截");
+        }
+        com.dept.mgmt.aiworkspace.ops.OpsTool tool = actionRegistry.toolOf(advice.getApprovalAction());
+        if (tool == null) {
+            throw new BusinessException(400, "审批动作未登记或不可执行: " + advice.getApprovalAction());
+        }
+        com.dept.mgmt.security.LoginUser actingUser = mustActingUser(actingUserId);
+        // 执行前权限复核（H2：待确认期间权限可能已变化）
+        String denied = systemOpsServiceProvider.getObject().checkPermission(tool, actingUser);
+        if (denied != null) {
+            throw new BusinessException(403, denied);
+        }
+        Object result = actionRegistry.execute(advice.getApprovalAction(), toolParams, actingUser);
+        String resultText = result == null ? "执行完成" : String.valueOf(result);
+        // 执行结果回写建议（evidence_json 追加，保持原 List<Map> 结构可追溯）
+        try {
+            List<Object> evidence = StringUtils.hasText(advice.getEvidenceJson())
+                    ? objectMapper.readValue(advice.getEvidenceJson(), List.class)
+                    : new java.util.ArrayList<>();
+            evidence.add(Map.of("executedAt", LocalDateTime.now().toString(),
+                    "executedAs", actingUser.getUsername(),
+                    "resultPreview", resultText.length() > 200 ? resultText.substring(0, 200) + "…" : resultText));
+            advice.setEvidenceJson(objectMapper.writeValueAsString(evidence));
+            adviceMapper.updateById(advice);
+        } catch (Exception e) {
+            log.warn("审批执行结果回写失败（不影响执行）: adviceId={}, err={}", advice.getId(), e.getMessage());
+        }
+        log.info("OPS 审批动作已执行: adviceId={}, action={}, tool={}, actingUser={}",
+                advice.getId(), advice.getApprovalAction(), toolName, actingUser.getUsername());
     }
 
     private AgentDecisionAdvice mustPending(Long id) {
