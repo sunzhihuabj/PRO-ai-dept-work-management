@@ -207,12 +207,14 @@ const evidence = (row: AgentDecisionAdvice): Array<{ source: string; ref: string
 function sceneName(s: string) {
   return ({
     PROJECT_CREATED: '立项预审', TASK_CREATED: '任务创建',
-    TASK_STATUS_CHANGED: '状态流转', PROJECT_PROGRESS: '阶段完成'
+    TASK_STATUS_CHANGED: '状态流转', PROJECT_PROGRESS: '阶段完成',
+    TOOL_APPROVAL: '写操作确认', HERMES_APPROVAL: 'Hermes 执行授权'
   } as Record<string, string>)[s] || s
 }
 function sceneTag(s: string) {
   return ({ PROJECT_CREATED: 'primary', TASK_CREATED: 'success',
-    TASK_STATUS_CHANGED: 'warning', PROJECT_PROGRESS: 'primary' } as Record<string, any>)[s] || 'info'
+    TASK_STATUS_CHANGED: 'warning', PROJECT_PROGRESS: 'primary',
+    TOOL_APPROVAL: 'danger', HERMES_APPROVAL: 'danger' } as Record<string, any>)[s] || 'info'
 }
 function contentTag(row: AgentDecisionAdvice) {
   const t = parse(row).type

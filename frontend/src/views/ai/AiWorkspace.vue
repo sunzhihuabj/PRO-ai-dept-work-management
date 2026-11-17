@@ -161,6 +161,9 @@
                   <div v-if="m.role === 'user'" class="bubble user-bubble">{{ m.content }}</div>
                   <template v-else>
                     <div v-if="m.msgType === 'text'" class="bubble ai-bubble markdown-body" v-html="renderMd(m.content)"></div>
+                    <div v-else-if="m.msgType === 'hermes'" class="bubble ai-bubble no-pad">
+                      <HermesCard :content="m.content" />
+                    </div>
                     <div v-else-if="m.msgType === 'task' && m.refTaskId" class="bubble ai-bubble no-pad">
                       <TaskCard :task-id="m.refTaskId" />
                     </div>
@@ -260,6 +263,7 @@ import {
 } from '@element-plus/icons-vue'
 import { renderMarkdown } from '@/utils/sanitize'
 import TaskCard from './components/TaskCard.vue'
+import HermesCard from './components/HermesCard.vue'
 import WorkflowPanel from './components/WorkflowPanel.vue'
 import {
   chatApi, createConversationApi, deleteConversationApi, listConversationsApi,

@@ -17,7 +17,7 @@ export interface AiMessage {
   conversationId: number
   role: 'user' | 'assistant'
   content: string
-  msgType: 'text' | 'task' | 'workflow'
+  msgType: 'text' | 'task' | 'workflow' | 'hermes'
   refTaskId?: number
   refWorkflowId?: number
   /** 用户评分（1赞/-1踩/NULL未评，T-409） */
@@ -134,6 +134,28 @@ export function pinConversationApi(id: number, pinned: boolean) {
 export function rateMessageApi(id: number, rating: 1 | -1 | 0) {
   return post<void>(`/v1/ai/ws/messages/${id}/rating`, { rating })
 }
+
+// ==================== Hermes 委托（B2/B3） ====================
+
+/** Hermes run 执行过程事件（B3 过程回写） */
+export interface HermesRunEvent {
+  id: number
+  runId: string
+  seq: number
+  /** tool.started / tool.completed / approval.request / message.interim / run.* 等 */
+  eventType: string
+  tool?: string
+  preview?: string
+  durationMs?: number
+  isError: number
+  createTime?: string
+}
+
+/** Hermes 委托执行事件时间线（B3，仅本人会话的委托任务） */
+export function hermesRunEventsApi(runId: string) {
+  return get<HermesRunEvent[]>(`/v1/ai/ws/hermes/runs/${runId}/events`)
+}
+
 
 // ==================== 流程定义 ====================
 

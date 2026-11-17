@@ -56,7 +56,7 @@
 
 | # | 任务节点 | 说明 | 交付物 |
 | --- | --- | --- | --- |
-| C1 | 前端对话增强 | 助手消息流支持「Hermes 执行中」卡片（步骤时间线/取消按钮/审批入口）；ai_message 增 runId 关联 | 对话 UI 改造 |
+| C1 | 前端对话增强 | ✅ 2026-11-17 完成：新增 HermesCard.vue 组件（解析 msgType=hermes 消息 content 头部 `<!-- hermes-run:xxx -->` 标记提取 runId；正文 Markdown 渲染去除标记；轮询 B3 事件时间线 2s/次、终态事件即停、10 分钟兜底；折叠面板展示 tool 调用/耗时/授权请求等事件，is_error 红色标注）；AiWorkspace.vue 挂 hermes 分支；api/aiws.ts 增 hermesRunEventsApi + AiMessage.msgType 联合类型扩展 'hermes'；AgentAdviceCenter.vue 场景映射补 TOOL_APPROVAL（写操作确认）/HERMES_APPROVAL（Hermes 执行授权）红色标签；vite build 通过；浏览器视觉验证被环境阻塞（TRAE Chrome 未运行），留待 C3 联调补验 | 对话 UI 改造 |
 | C2 | AI Agent 员工面板 | 委托任务列表（委托人/任务书/状态/结果/采纳率）；复用 /ai/advice 审批交互 | 委托面板页 |
 | C3 | 三场景端到端联调 | 查询/办理/审核各 5 条黄金指令回归 | 联调报告 |
 | C4 | 治理与压测 | 预算护栏计数接线（网关调用日志关联 agent_task）、并发 ≤5、降级演练 | 压测报告 |
