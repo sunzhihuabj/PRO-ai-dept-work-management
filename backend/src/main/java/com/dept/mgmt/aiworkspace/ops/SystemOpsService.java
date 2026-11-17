@@ -110,6 +110,18 @@ public class SystemOpsService {
                             "识别到写入类操作意图，但未能确定具体操作与参数。请用更明确的表述，例如「创建任务：项目「X」任务名称「Y」」或「查一下任务」先核对信息。");
                 }
             }
+            // 工具名纠错重判定（C3 联调修复）：模型编造目录外工具名时（如 task.count），
+            // 带无效名提示重判一次，仍无效才走兜底文案——避免把可正常路由的查询打成"暂不支持"
+            if (decision != null && "tool".equals(decision.action())
+                    && registry.find(decision.tool()) == null) {
+                log.info("工具名不在目录（{}），纠错重判定: conv={}", decision.tool(), conv.getId());
+                decision = decide(conv, content, false, decision.tool());
+                if (decision == null || !"tool".equals(decision.action())
+                        || registry.find(decision.tool()) == null) {
+                    return saveMessage(conv.getId(),
+                            "该操作暂不支持对话执行。你可以让我查询任务/项目/合同/标讯/档案等，或创建任务、推进状态、录入工时等。");
+                }
+            }
         } catch (Exception e) {
             log.warn("系统操作意图判定失败，转通用对话: conv={}", conv.getId(), e);
             return null;
@@ -279,6 +291,11 @@ public class SystemOpsService {
     // ==================== LLM 意图判定（渐进披露 P0-1 + 记忆注入 P0-3） ====================
 
     private LlmDecision decide(AiConversation conv, String content, boolean forceTool) {
+        return decide(conv, content, forceTool, null);
+    }
+
+    /** invalidTool 非空时注入纠错提示（C3 联调修复：模型编造目录外工具名的重判定） */
+    private LlmDecision decide(AiConversation conv, String content, boolean forceTool, String invalidTool) {
         StringBuilder prompt = new StringBuilder();
         prompt.append("今天是 ").append(LocalDate.now().format(DateTimeFormatter.ISO_DATE))
                 .append("。你是部门工作管理平台的 AI 操作助手，负责判定用户意图并抽取系统操作参数。\n\n");
@@ -324,6 +341,12 @@ public class SystemOpsService {
         if (forceTool) {
             prompt.append("""
                 【强制要求】该消息包含明确的写入类操作意图（创建/登记/审批/借阅等），上一轮被误判。你必须从目录中选出最匹配的工具，输出 {"action":"tool","tool":"...","params":{...}}；参数只填用户已提供的，缺项留空由系统追问。禁止输出 chat/agent。只输出 JSON 本身。
+                """);
+        }
+        if (StringUtils.hasText(invalidTool)) {
+            prompt.append("【纠错要求】上一轮输出的工具名「").append(invalidTool)
+                    .append("""
+                不在目录中。你必须从【可执行操作目录】里原样选择一个真实存在的工具名，输出 {"action":"tool","tool":"目录中的工具名","params":{...}}；若目录确实没有匹配工具才允许输出 chat。禁止编造工具名。只输出 JSON 本身。
                 """);
         }
         prompt.append("""

@@ -31,7 +31,7 @@ import java.util.Map;
 public class OpenAiCompatProvider implements AiProvider {
 
     private static final int CONNECT_TIMEOUT_MS = 5_000;
-    private static final int READ_TIMEOUT_MS = 60_000;
+    private static final int READ_TIMEOUT_MS = 180_000; // F5: glm-5.3-flash Ops 判定实测 55s+，60s 边缘超时会 failover 落 MOCK（与 backend AiGatewayClient 180s 对齐）
 
     @Override
     public String type() {

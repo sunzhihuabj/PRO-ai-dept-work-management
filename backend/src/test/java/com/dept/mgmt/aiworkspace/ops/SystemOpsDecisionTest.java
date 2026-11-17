@@ -13,6 +13,7 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
@@ -270,5 +271,57 @@ class SystemOpsDecisionTest {
         OpsToolRegistry.EntityMatch<Project> match = h.registry.matchProject("不存在的东西");
         assertNull(match.entity());
         assertTrue(match.candidates().isEmpty());
+    }
+
+    // ==================== tryOps 工具名纠错重判定（C3 联调修复） ====================
+
+    private com.dept.mgmt.aiworkspace.entity.AiConversation newConv() {
+        com.dept.mgmt.aiworkspace.entity.AiConversation conv = new com.dept.mgmt.aiworkspace.entity.AiConversation();
+        conv.setId(9L);
+        conv.setUserId(1L);
+        conv.setTitle("测试会话");
+        return conv;
+    }
+
+    private void withSecurityContext(OpsTestHarness h) {
+        org.springframework.security.core.context.SecurityContextHolder.getContext().setAuthentication(
+                new org.springframework.security.authentication.UsernamePasswordAuthenticationToken(
+                        h.user, null, h.user.getAuthorities()));
+    }
+
+    @org.junit.jupiter.api.AfterEach
+    void clearSecurityContext() {
+        org.springframework.security.core.context.SecurityContextHolder.clearContext();
+    }
+
+    @Test
+    void tryOps工具名编造时纠错重判定后正常执行() {
+        OpsTestHarness h = harness("ROLE_USER");
+        withSecurityContext(h);
+        // 第一次判定编造目录外工具名 task.count，纠错重判定返回合法 task.myTodo
+        when(h.gateway.chat(any(), any(), any(), any()))
+                .thenReturn("{\"action\":\"tool\",\"tool\":\"task.count\",\"params\":{}}",
+                        "{\"action\":\"tool\",\"tool\":\"task.myTodo\",\"params\":{}}");
+        when(h.messageMapper.selectList(any())).thenReturn(List.of());
+        when(h.messageMapper.insert(any(com.dept.mgmt.aiworkspace.entity.AiMessage.class))).thenReturn(1);
+        when(h.taskService.myTodoTasks(any())).thenReturn(List.of());
+        com.dept.mgmt.aiworkspace.entity.AiMessage reply = h.service.tryOps(newConv(), "帮我查一下现在有多少个进行中的任务", h.user);
+        assertNotNull(reply);
+        assertFalse(reply.getContent().contains("暂不支持"), "纠错成功后不应落入兜底文案");
+        verify(h.taskService).myTodoTasks(any());
+    }
+
+    @Test
+    void tryOps纠错后仍编造工具名落兜底文案() {
+        OpsTestHarness h = harness("ROLE_USER");
+        withSecurityContext(h);
+        when(h.gateway.chat(any(), any(), any(), any()))
+                .thenReturn("{\"action\":\"tool\",\"tool\":\"task.count\",\"params\":{}}",
+                        "{\"action\":\"tool\",\"tool\":\"task.stats\",\"params\":{}}");
+        when(h.messageMapper.selectList(any())).thenReturn(List.of());
+        when(h.messageMapper.insert(any(com.dept.mgmt.aiworkspace.entity.AiMessage.class))).thenReturn(1);
+        com.dept.mgmt.aiworkspace.entity.AiMessage reply = h.service.tryOps(newConv(), "统计一下任务数量", h.user);
+        assertNotNull(reply);
+        assertTrue(reply.getContent().contains("暂不支持"), "两次编造工具名应兜底引导");
     }
 }

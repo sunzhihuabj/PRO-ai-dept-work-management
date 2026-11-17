@@ -31,12 +31,12 @@ public class AiGatewayClient {
                            @Value("${ai.gateway.api-key:dept-gw-internal-2026r2-fA9kQ2xV}") String apiKey) {
         this.baseUrl = baseUrl;
         this.apiKey = apiKey;
-        // M3 超时治理：连接 3s / 读取 60s（LLM 对话响应慢，对齐网关 OpenAiCompatProvider 读超时），
-        // 防止网关不可达时线程挂起拖垮 Tomcat 线程池
+        // M3 超时治理（C3 联调 F2 修正）：连接 3s / 读取 180s——网关侧单通道读超时 60s 且失败重试一次
+        // （最长约 121s+），backend 读超时必须大于网关最长处理时长，否则网关仍在重试而 backend 先断连
         org.springframework.http.client.SimpleClientHttpRequestFactory factory =
                 new org.springframework.http.client.SimpleClientHttpRequestFactory();
         factory.setConnectTimeout(java.time.Duration.ofMillis(3_000));
-        factory.setReadTimeout(java.time.Duration.ofMillis(60_000));
+        factory.setReadTimeout(java.time.Duration.ofMillis(180_000));
         this.client = RestClient.builder()
                 .baseUrl(baseUrl)
                 .requestFactory(factory)
