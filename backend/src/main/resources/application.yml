@@ -92,6 +92,13 @@ app:
     api-key: ${MCP_API_KEY:dept-mcp-2026r2-dev-key}
     # MCP 系统委托身份（A3 只读工具执行用；A4 升级为 X-Acting-User-Id 逐调用透传）
     acting-user-id: ${MCP_ACTING_USER_ID:1}
+  # Hermes 主 Agent API Server（B1：/v1/runs 投递；enabled=false 时第四级路由永久降级）
+  hermes:
+    base-url: ${HERMES_BASE_URL:http://127.0.0.1:8642}
+    api-key: ${HERMES_API_KEY:dept-hermes-api-2026r2-K7mR4pXwL9cT2vBn}
+    enabled: ${HERMES_ENABLED:true}
+    poll-interval-ms: 2000
+    await-timeout-ms: 600000
   # 决策建议审批参数 HMAC 密钥（HITL 护栏：审批执行前重算比对防篡改）
   advice:
     hmac-secret: ${ADVICE_HMAC_SECRET:dept-advice-hmac-2026r2-dev}
