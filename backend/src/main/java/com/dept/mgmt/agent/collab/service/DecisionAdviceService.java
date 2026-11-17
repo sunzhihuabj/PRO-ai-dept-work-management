@@ -50,10 +50,13 @@ public class DecisionAdviceService {
     public static final String SCENE_TASK_STATUS_CHANGED = "TASK_STATUS_CHANGED";
     public static final String SCENE_PROJECT_PROGRESS = "PROJECT_PROGRESS";
     public static final String SCENE_TOOL_APPROVAL = "TOOL_APPROVAL";
+    /** B5：Hermes run 审批中断（waiting_for_approval）映射建议 */
+    public static final String SCENE_HERMES_APPROVAL = "HERMES_APPROVAL";
 
-    /** 审批动作：AUTO_ASSIGN_TASK = 内置指派；OPS_* = 审批动作注册表（A5，Ops 写工具动作化） */
+    /** 审批动作：AUTO_ASSIGN_TASK = 内置指派；OPS_* = 审批动作注册表（A5）；HERMES_RESOLVE = Hermes 审批回调（B5） */
     public static final String ACTION_AUTO_ASSIGN_TASK = "AUTO_ASSIGN_TASK";
     public static final String ACTION_OPS_PREFIX = "OPS_";
+    public static final String ACTION_HERMES_RESOLVE = "HERMES_RESOLVE";
 
     /** 状态 */
     public static final String ST_PENDING = "PENDING";
@@ -71,6 +74,7 @@ public class DecisionAdviceService {
     private final NotificationService notificationService;
     private final ObjectMapper objectMapper;
     private final String hmacSecret;
+    private final com.dept.mgmt.common.client.HermesService hermesService;
 
     public DecisionAdviceService(AgentDecisionAdviceMapper adviceMapper,
                                  ObjectProvider<com.dept.mgmt.service.TaskService> taskServiceProvider,
@@ -79,6 +83,7 @@ public class DecisionAdviceService {
                                  com.dept.mgmt.mapper.SysUserMapper userMapper,
                                  NotificationService notificationService,
                                  ObjectMapper objectMapper,
+                                 com.dept.mgmt.common.client.HermesService hermesService,
                                  @Value("${app.advice.hmac-secret:dept-advice-hmac-2026r2-dev}") String hmacSecret) {
         this.adviceMapper = adviceMapper;
         this.taskServiceProvider = taskServiceProvider;
@@ -87,6 +92,7 @@ public class DecisionAdviceService {
         this.userMapper = userMapper;
         this.notificationService = notificationService;
         this.objectMapper = objectMapper;
+        this.hermesService = hermesService;
         this.hmacSecret = hmacSecret;
     }
 
@@ -229,6 +235,57 @@ public class DecisionAdviceService {
     // ==================== 查询与审批 ====================
 
     /**
+     * B5：Hermes run 审批中断映射建议（幂等）——run 轮询检测到 waiting_for_approval 时调用：
+     * 以 (runId, requestId) 查重，未生成过才落 HERMES_APPROVAL 场景 PENDING 建议
+     * （approvalAction=HERMES_RESOLVE，params={runId, requestId, actingUserId}，HMAC 锁定）。
+     * 采纳 → resolveApproval(runId, requestId, true)；驳回 → deny（见 approve/reject 分支）。
+     *
+     * @return 建议 ID；已存在（幂等跳过）返回已有一条的 ID
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public Long createHermesApproval(String runId, String requestId, String summary, Long actingUserId) {
+        LambdaQueryWrapper<AgentDecisionAdvice> dup = new LambdaQueryWrapper<>();
+        dup.eq(AgentDecisionAdvice::getScene, SCENE_HERMES_APPROVAL)
+                .eq(AgentDecisionAdvice::getStatus, ST_PENDING)
+                .like(AgentDecisionAdvice::getApprovalParamsJson, requestId)
+                .orderByDesc(AgentDecisionAdvice::getId).last("LIMIT 1");
+        AgentDecisionAdvice existing = adviceMapper.selectOne(dup);
+        if (existing != null) {
+            log.debug("Hermes 审批建议已存在（幂等跳过）: runId={}, requestId={}, adviceId={}",
+                    runId, requestId, existing.getId());
+            return existing.getId();
+        }
+        LinkedHashMap<String, Object> actionParams = new LinkedHashMap<>();
+        actionParams.put("runId", runId);
+        actionParams.put("requestId", requestId);
+        actionParams.put("actingUserId", actingUserId);
+        LinkedHashMap<String, Object> structured = new LinkedHashMap<>();
+        structured.put("runId", runId);
+        structured.put("requestId", requestId);
+        structured.put("summary", summary == null ? "" : summary);
+        advice(SCENE_HERMES_APPROVAL, "HERMES_RUN", 0L, runId,
+                "AI Agent 员工执行请求授权",
+                "REQUEST",
+                "Hermes run（" + runId + "）执行中请求敏感操作授权："
+                        + (summary == null ? "（无摘要）" : summary)
+                        + "。采纳=放行一次（once），驳回=拒绝执行（deny）；处理后回调 Hermes 恢复/终止该 run。",
+                structured, 1.00, "HIGH", true, ACTION_HERMES_RESOLVE, actionParams,
+                List.of(Map.of("source", "HERMES_RUN", "ref", runId + "/" + requestId)),
+                actingUserId, 24);
+        LambdaQueryWrapper<AgentDecisionAdvice> qw = new LambdaQueryWrapper<>();
+        qw.eq(AgentDecisionAdvice::getScene, SCENE_HERMES_APPROVAL)
+                .eq(AgentDecisionAdvice::getStatus, ST_PENDING)
+                .orderByDesc(AgentDecisionAdvice::getId).last("LIMIT 1");
+        AgentDecisionAdvice created = adviceMapper.selectOne(qw);
+        if (created == null) {
+            throw new BusinessException(500, "Hermes 审批建议落库失败");
+        }
+        log.info("Hermes 审批建议已生成: adviceId={}, runId={}, requestId={}", created.getId(), runId, requestId);
+        return created.getId();
+    }
+
+
+    /**
      * 工具审批请求（A5 公开入口，供 B4 MCP 写工具 / B5 Hermes auth-required 中断映射调用）：
      * 白名单校验 → 委托人权限预校验 → 生成 requires_approval 建议（approval_params_json 含
      * actingUserId/toolName/params，HMAC-SHA256 锁定）→ 返回建议（含 ID，供回调关联）。
@@ -335,7 +392,7 @@ public class DecisionAdviceService {
         return advice;
     }
 
-    /** 审批驳回：仅状态流转，不执行动作 */
+    /** 审批驳回：仅状态流转，不执行动作；HERMES_RESOLVE 动作例外——驳回即回调 Hermes deny 终止 run（B5 双向闭环） */
     @Transactional(rollbackFor = Exception.class)
     public AgentDecisionAdvice reject(Long id, String approverComment) {
         AgentDecisionAdvice advice = mustPending(id);
@@ -344,6 +401,9 @@ public class DecisionAdviceService {
         advice.setApproverId(currentUserId());
         advice.setApprovedAt(LocalDateTime.now());
         adviceMapper.updateById(advice);
+        if (ACTION_HERMES_RESOLVE.equals(advice.getApprovalAction())) {
+            resolveHermesRun(advice, false);
+        }
         log.info("Agent 建议已驳回: id={}, by={}", id, advice.getApproverId());
         return advice;
     }
@@ -434,7 +494,7 @@ public class DecisionAdviceService {
         advice.setApproverComment(approverComment);
         advice.setApprovedAt(LocalDateTime.now());
         adviceMapper.updateById(advice);
-        // 3) 动作执行：AUTO_ASSIGN_TASK（内置指派） / OPS_*（A5 审批动作注册表）
+        // 3) 动作执行：AUTO_ASSIGN_TASK（内置指派） / OPS_*（A5 审批动作注册表） / HERMES_RESOLVE（B5 回调）
         if (ACTION_AUTO_ASSIGN_TASK.equals(advice.getApprovalAction())) {
             Map<String, Object> params;
             try {
@@ -451,10 +511,37 @@ public class DecisionAdviceService {
                     "agent-advice:" + advice.getId());
             log.info("建议动作已执行: adviceId={}, action={}, taskId={}, assigneeId={}",
                     advice.getId(), advice.getApprovalAction(), taskId, assigneeId);
+        } else if (ACTION_HERMES_RESOLVE.equals(advice.getApprovalAction())) {
+            resolveHermesRun(advice, true);
         } else if (advice.getApprovalAction() != null
                 && advice.getApprovalAction().startsWith(ACTION_OPS_PREFIX)) {
             executeOpsToolAction(advice);
         }
+    }
+
+    /**
+     * B5：HERMES_RESOLVE 动作执行——解析锁定的 runId/requestId（HMAC 已在 executeApproval 统一校验）
+     * 回调 Hermes POST /v1/runs/{id}/approval 恢复（allow=true → once）/终止（false → deny）该 run。
+     * 回调失败抛出异常回滚审批状态（建议保持 PENDING 可重试）。
+     */
+    private void resolveHermesRun(AgentDecisionAdvice advice, boolean allow) {
+        Map<String, Object> params;
+        try {
+            params = objectMapper.readValue(advice.getApprovalParamsJson(), Map.class);
+        } catch (Exception e) {
+            throw new BusinessException(500, "审批参数解析失败");
+        }
+        String runId = str(params.get("runId"));
+        String requestId = str(params.get("requestId"));
+        if (!StringUtils.hasText(runId) || !StringUtils.hasText(requestId)) {
+            throw new BusinessException(400, "审批动作参数缺失（runId/requestId）");
+        }
+        if (!hermesService.resolveApproval(runId, requestId, allow)) {
+            // 回调失败 → 异常回滚审批状态流转，建议保持 PENDING 可重试
+            throw new BusinessException(503, "Hermes 审批回调失败，请稍后重试");
+        }
+        log.info("Hermes 审批回调完成: adviceId={}, runId={}, requestId={}, allow={}",
+                advice.getId(), runId, requestId, allow);
     }
 
     /**

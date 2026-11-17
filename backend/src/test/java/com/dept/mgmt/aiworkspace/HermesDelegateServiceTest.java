@@ -24,6 +24,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -43,13 +44,19 @@ class HermesDelegateServiceTest {
     private AiConversationMapper conversationMapper;
     @Mock
     private HermesRunEventMapper runEventMapper;
+    @Mock
+    private com.dept.mgmt.agent.collab.service.DecisionAdviceService adviceService;
 
     private HermesDelegateService service;
 
     @BeforeEach
     @SuppressWarnings("unchecked")
     void setUp() {
-        service = new HermesDelegateService(hermesService, messageMapper, conversationMapper, runEventMapper);
+        service = new HermesDelegateService(hermesService, messageMapper, conversationMapper,
+                runEventMapper, adviceService);
+        // B5：轮询节奏/等待上限（@Value 在单测中手动注入）
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "pollIntervalMs", 10L);
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "awaitTimeoutMs", 3000L);
         // 消息插入回填 ID（模拟自增）
         lenient().when(messageMapper.insert(any(AiMessage.class))).thenAnswer(inv -> {
             inv.getArgument(0, AiMessage.class).setId(100L);
@@ -160,8 +167,9 @@ class HermesDelegateServiceTest {
     void pollBackShouldAppendResultMessageOnSuccess() throws Exception {
         when(hermesService.available()).thenReturn(true);
         when(hermesService.submitRun(any())).thenReturn("run_ok1");
-        // awaitRun 立即返回终态（isTerminal/isSuccessful 为 HermesService 静态语义，无需 stub）
-        when(hermesService.awaitRun("run_ok1")).thenReturn(
+        // B5：轮询走 getRun（首次 running，二次 completed 终态；isTerminal/isSuccessful 为静态语义）
+        when(hermesService.getRun("run_ok1")).thenReturn(
+                Map.of("status", "running"),
                 Map.of("status", "completed", "output", "汇总完成：3 个项目正常，1 个滞后"));
 
         AiMessage card = service.tryDelegate(conv(), "委托AI Agent员工整理项目进度", 7L, "u");
@@ -174,6 +182,54 @@ class HermesDelegateServiceTest {
                         && m.getContent().contains("执行完成")
                         && m.getContent().contains("hermes-run:run_ok1")
                         && m.getContent().contains("汇总完成")));
+    }
+
+    // ==================== B5：审批中断检测与回调闭环 ====================
+
+    @Test
+    void pollDetectsWaitingForApprovalAndCreatesAdvice() throws Exception {
+        when(hermesService.available()).thenReturn(true);
+        when(hermesService.submitRun(any())).thenReturn("run_ap9");
+        // 首次 running → 二次 waiting_for_approval（带 approval.request_id）→ 采纳后 completed
+        when(hermesService.getRun("run_ap9")).thenReturn(
+                Map.of("status", "running"),
+                Map.of("status", "waiting_for_approval",
+                        "approval", Map.of("request_id", "req_1", "description", "执行 shell 命令（脱敏摘要）")),
+                Map.of("status", "completed", "output", "敏感操作完成"));
+        when(adviceService.createHermesApproval(eq("run_ap9"), eq("req_1"), any(), eq(7L))).thenReturn(66L);
+
+        AiMessage card = service.tryDelegate(conv(), "委托AI Agent员工处理复杂任务", 7L, "u");
+        assertNotNull(card);
+        Thread.sleep(400);
+        // 审批中断 → HERMES_APPROVAL 建议生成（幂等在 advice 服务侧，此处至少触发一次）
+        verify(adviceService, org.mockito.Mockito.atLeastOnce())
+                .createHermesApproval(eq("run_ap9"), eq("req_1"), any(), eq(7L));
+        // 建议生成后 run 恢复并完成 → 结果回写
+        ArgumentCaptor<AiMessage> msgCaptor = ArgumentCaptor.forClass(AiMessage.class);
+        verify(messageMapper, org.mockito.Mockito.atLeastOnce()).insert(msgCaptor.capture());
+        assertTrue(msgCaptor.getAllValues().stream()
+                .anyMatch(m -> "text".equals(m.getMsgType()) && m.getContent().contains("执行完成")));
+    }
+
+    @Test
+    void approvalAdviceFailureDoesNotBlockPolling() throws Exception {
+        when(hermesService.available()).thenReturn(true);
+        when(hermesService.submitRun(any())).thenReturn("run_ap10");
+        when(hermesService.getRun("run_ap10")).thenReturn(
+                Map.of("status", "waiting_for_approval",
+                        "approval", Map.of("request_id", "req_2", "command", "rm -rf（脱敏）")),
+                Map.of("status", "completed", "output", "done"));
+        // 建议生成抛异常（如落库失败）→ 轮询继续，终态回写不受影响
+        when(adviceService.createHermesApproval(any(), any(), any(), any()))
+                .thenThrow(new RuntimeException("db down"));
+
+        AiMessage card = service.tryDelegate(conv(), "委托AI Agent员工处理复杂任务", 7L, "u");
+        assertNotNull(card);
+        Thread.sleep(400);
+        ArgumentCaptor<AiMessage> msgCaptor = ArgumentCaptor.forClass(AiMessage.class);
+        verify(messageMapper, org.mockito.Mockito.atLeastOnce()).insert(msgCaptor.capture());
+        assertTrue(msgCaptor.getAllValues().stream()
+                .anyMatch(m -> "text".equals(m.getMsgType()) && m.getContent().contains("执行完成")));
     }
 
     // ==================== 过程事件时间线（B3） ====================

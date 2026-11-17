@@ -9,6 +9,7 @@ import com.dept.mgmt.mapper.HermesRunEventMapper;
 import com.dept.mgmt.common.client.HermesService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -75,6 +76,13 @@ public class HermesDelegateService {
     private final AiMessageMapper messageMapper;
     private final AiConversationMapper conversationMapper;
     private final HermesRunEventMapper runEventMapper;
+    private final com.dept.mgmt.agent.collab.service.DecisionAdviceService adviceService;
+
+    /** 轮询节奏与等待上限（与 app.hermes 对齐，B5 审批检测轮询复用） */
+    @Value("${app.hermes.poll-interval-ms:2000}")
+    private long pollIntervalMs;
+    @Value("${app.hermes.await-timeout-ms:600000}")
+    private long awaitTimeoutMs;
 
     /** 单线程后台执行器（daemon：JVM 退出不阻塞；并发上限由 Hermes 侧控制） */
     private final ExecutorService pollExecutor = Executors.newSingleThreadExecutor(r -> {
@@ -83,14 +91,23 @@ public class HermesDelegateService {
         return t;
     });
 
+    /** 事件流消费执行器（独立于轮询线程：B5 起 run 可长时间停在 waiting_for_approval，SSE 流保持打开不能阻塞轮询） */
+    private final ExecutorService eventsExecutor = Executors.newSingleThreadExecutor(r -> {
+        Thread t = new Thread(r, "hermes-delegate-events");
+        t.setDaemon(true);
+        return t;
+    });
+
     public HermesDelegateService(HermesService hermesService,
                                  AiMessageMapper messageMapper,
                                  AiConversationMapper conversationMapper,
-                                 HermesRunEventMapper runEventMapper) {
+                                 HermesRunEventMapper runEventMapper,
+                                 com.dept.mgmt.agent.collab.service.DecisionAdviceService adviceService) {
         this.hermesService = hermesService;
         this.messageMapper = messageMapper;
         this.conversationMapper = conversationMapper;
         this.runEventMapper = runEventMapper;
+        this.adviceService = adviceService;
     }
 
     /**
@@ -111,12 +128,11 @@ public class HermesDelegateService {
                         + abbreviate(runId, 18) + "…）。执行过程中如需敏感写操作会自动发起审批；"
                         + "结果完成后将自动回复在本会话中。",
                 "hermes");
-        // 后台轮询至终态并回写结果（不阻塞 chat HTTP 线程）
+        // 后台：事件流消费（独立线程）+ 轮询至终态并回写结果（不阻塞 chat HTTP 线程）
         Long convId = conv.getId();
-        pollExecutor.submit(() -> {
-            consumeAndStoreEvents(runId);
-            pollAndWriteBack(convId, runId, content);
-        });
+        Long uid = userId;
+        eventsExecutor.submit(() -> consumeAndStoreEvents(runId));
+        pollExecutor.submit(() -> pollAndWriteBack(convId, runId, uid));
         log.info("对话已委托 Hermes: conv={}, runId={}", convId, runId);
         return card;
     }
@@ -206,11 +222,16 @@ public class HermesDelegateService {
                 .last("LIMIT 200"));
     }
 
-    /** 后台轮询至终态并回写结果消息 */
+    /**
+     * 后台轮询至终态并回写结果消息（B5 增强）：轮询中检测 waiting_for_approval——
+     * 从 run 状态 approval 字段提取 requestId/摘要，经 DecisionAdviceService 生成
+     * HERMES_APPROVAL 建议（幂等，同 requestId 只生成一次）；委托人采纳/驳回后
+     * 回调 Hermes 恢复/终止 run，轮询继续至终态。超时兜底回写提示并 stopRun。
+     */
     @SuppressWarnings("unchecked")
-    private void pollAndWriteBack(Long convId, String runId, String instruction) {
+    private void pollAndWriteBack(Long convId, String runId, Long userId) {
         try {
-            Map<String, Object> result = hermesService.awaitRun(runId);
+            Map<String, Object> result = pollDetectingApproval(runId, userId);
             if (!HermesService.isTerminal(result)) {
                 saveMessage(convId, "assistant",
                         "AI Agent 员工执行超时（runId=" + abbreviate(runId, 18)
@@ -245,6 +266,57 @@ public class HermesDelegateService {
                     convId, runId, result == null ? "null" : result.get("status"));
         } catch (Exception e) {
             log.warn("Hermes 委托结果回写异常: conv={}, runId={}, err={}", convId, runId, e.getMessage(), e);
+        }
+    }
+
+    /**
+     * 轮询等待终态（B5：审批中断检测）——status=waiting_for_approval 且 approval.request_id
+     * 存在时生成 HERMES_APPROVAL 建议（幂等），委托人处理后 run 恢复执行；返回最后已知状态。
+     */
+    private Map<String, Object> pollDetectingApproval(String runId, Long userId) {
+        long deadline = System.currentTimeMillis() + awaitTimeoutMs;
+        Map<String, Object> last = null;
+        while (System.currentTimeMillis() < deadline) {
+            Map<String, Object> status = hermesService.getRun(runId);
+            if (status != null) {
+                last = status;
+                String st = String.valueOf(status.get("status"));
+                if (HermesService.isTerminal(status)) {
+                    return status;
+                }
+                if ("waiting_for_approval".equals(st)) {
+                    detectApprovalRequest(runId, status, userId);
+                }
+            }
+            try {
+                Thread.sleep(pollIntervalMs);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return last;
+            }
+        }
+        log.warn("Hermes 委托轮询超时: runId={}, timeoutMs={}", runId, awaitTimeoutMs);
+        return last;
+    }
+
+    /** 从 run 状态提取审批请求并生成建议（异常静默：建议失败不影响轮询） */
+    @SuppressWarnings("unchecked")
+    private void detectApprovalRequest(String runId, Map<String, Object> status, Long userId) {
+        try {
+            Object approval = status.get("approval");
+            if (!(approval instanceof Map<?, ?> ap)) {
+                return;
+            }
+            Object requestId = ((Map<String, Object>) ap).get("request_id");
+            if (requestId == null || String.valueOf(requestId).isBlank()) {
+                return;
+            }
+            String summary = String.valueOf(((Map<String, Object>) ap).getOrDefault(
+                    "description", ((Map<String, Object>) ap).getOrDefault("command", "")));
+            adviceService.createHermesApproval(runId, String.valueOf(requestId),
+                    abbreviate(summary, 200), userId);
+        } catch (Exception e) {
+            log.warn("Hermes 审批建议生成失败（继续轮询）: runId={}, err={}", runId, e.getMessage());
         }
     }
 

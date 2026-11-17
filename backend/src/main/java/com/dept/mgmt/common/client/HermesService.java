@@ -207,10 +207,11 @@ public class HermesService {
      *
      * @param requestId Hermes 审批请求 ID（run 状态 pending_approval 事件中获取）
      * @param allow     true=once（放行一次）；false=deny（拒绝）
+     * @return 是否回调成功（false=失败，调用方可回滚审批状态重试）
      */
-    public void resolveApproval(String runId, String requestId, boolean allow) {
+    public boolean resolveApproval(String runId, String requestId, boolean allow) {
         if (!enabled || runId == null || runId.isBlank()) {
-            return;
+            return false;
         }
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("choice", allow ? "once" : "deny");
@@ -220,8 +221,11 @@ public class HermesService {
         try {
             client.post().uri("/v1/runs/{id}/approval", runId).body(body).retrieve().toBodilessEntity();
             log.info("Hermes 审批回调已发送: runId={}, requestId={}, allow={}", runId, requestId, allow);
+            return true;
         } catch (Exception e) {
-            log.warn("Hermes 审批回调失败: runId={}, err={}", runId, e.getMessage());
+            log.warn("Hermes 审批回调失败: runId={}, requestId={}, allow={}, err={}",
+                    runId, requestId, allow, e.getMessage());
+            return false;
         }
     }
 

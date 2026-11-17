@@ -34,6 +34,7 @@ class DecisionAdviceServiceTest {
     private com.dept.mgmt.aiworkspace.ops.SystemOpsService systemOpsService;
     private ApprovalActionRegistry actionRegistry;
     private com.dept.mgmt.mapper.SysUserMapper userMapper;
+    private com.dept.mgmt.common.client.HermesService hermesService;
     private DecisionAdviceService service;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -45,6 +46,7 @@ class DecisionAdviceServiceTest {
         systemOpsService = mock(com.dept.mgmt.aiworkspace.ops.SystemOpsService.class);
         actionRegistry = mock(ApprovalActionRegistry.class);
         userMapper = mock(com.dept.mgmt.mapper.SysUserMapper.class);
+        hermesService = mock(com.dept.mgmt.common.client.HermesService.class);
         NotificationService notificationService = mock(NotificationService.class);
         when(notificationService.send(any())).thenReturn(
                 Mockito.mock(com.dept.mgmt.platform.notify.dto.NotificationSendResult.class));
@@ -53,7 +55,7 @@ class DecisionAdviceServiceTest {
         ObjectProvider<com.dept.mgmt.aiworkspace.ops.SystemOpsService> opsProvider = mock(ObjectProvider.class);
         when(opsProvider.getObject()).thenReturn(systemOpsService);
         service = new DecisionAdviceService(adviceMapper, provider, opsProvider,
-                actionRegistry, userMapper, notificationService, objectMapper, SECRET);
+                actionRegistry, userMapper, notificationService, objectMapper, hermesService, SECRET);
     }
 
     @Test
@@ -283,6 +285,59 @@ class DecisionAdviceServiceTest {
                         new com.dept.mgmt.security.LoginUser(7L, "user7", "ROLE_WORKER", null)));
         assertTrue(e.getMessage().contains("前置校验未通过"));
         assertEquals(409, e.getCode());
+    }
+
+    // ==================== B5：Hermes 审批回调双向闭环 ====================
+
+    @Test
+    void approveHermesResolveSendsOnceCallback() {
+        String paramsJson = "{\"runId\":\"run_ap1\",\"requestId\":\"req_77\",\"actingUserId\":7}";
+        var a = advice(DecisionAdviceService.ACTION_HERMES_RESOLVE, paramsJson);
+        when(adviceMapper.selectById(1L)).thenReturn(a);
+        when(hermesService.resolveApproval("run_ap1", "req_77", true)).thenReturn(true);
+
+        var result = service.approve(1L, "放行一次");
+
+        assertEquals(DecisionAdviceService.ST_APPROVED, result.getStatus());
+        verify(hermesService).resolveApproval("run_ap1", "req_77", true);
+    }
+
+    @Test
+    void rejectHermesResolveSendsDenyCallback() {
+        String paramsJson = "{\"runId\":\"run_ap2\",\"requestId\":\"req_78\",\"actingUserId\":7}";
+        var a = advice(DecisionAdviceService.ACTION_HERMES_RESOLVE, paramsJson);
+        when(adviceMapper.selectById(1L)).thenReturn(a);
+        when(hermesService.resolveApproval("run_ap2", "req_78", false)).thenReturn(true);
+
+        var result = service.reject(1L, "不允许执行");
+
+        assertEquals(DecisionAdviceService.ST_REJECTED, result.getStatus());
+        verify(hermesService).resolveApproval("run_ap2", "req_78", false);
+    }
+
+    @Test
+    void approveHermesResolveRollsBackWhenCallbackFails() {
+        String paramsJson = "{\"runId\":\"run_ap3\",\"requestId\":\"req_79\",\"actingUserId\":7}";
+        var a = advice(DecisionAdviceService.ACTION_HERMES_RESOLVE, paramsJson);
+        when(adviceMapper.selectById(1L)).thenReturn(a);
+        when(hermesService.resolveApproval("run_ap3", "req_79", true)).thenReturn(false);
+
+        BusinessException e = assertThrows(BusinessException.class, () -> service.approve(1L, null));
+        assertTrue(e.getMessage().contains("回调失败"));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void createHermesApprovalIsIdempotentPerRequestId() {
+        // 已存在同 requestId 的 PENDING 建议 → 幂等跳过，不重复落库
+        var existing = new com.dept.mgmt.agent.collab.entity.AgentDecisionAdvice();
+        existing.setId(88L);
+        when(adviceMapper.selectOne(any())).thenReturn(existing);
+
+        Long adviceId = service.createHermesApproval("run_ap4", "req_80", "执行 shell 命令", 7L);
+
+        assertEquals(88L, adviceId);
+        verify(adviceMapper, never()).insert(any(com.dept.mgmt.agent.collab.entity.AgentDecisionAdvice.class));
     }
 
     /** ObjectProvider 测试桩（getObject 返回给定实例） */
