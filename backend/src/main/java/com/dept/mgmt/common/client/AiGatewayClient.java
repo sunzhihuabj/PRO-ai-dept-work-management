@@ -1,7 +1,9 @@
 package com.dept.mgmt.common.client;
 
+import com.dept.mgmt.aiworkspace.service.HermesAgentConfigService;
 import com.dept.mgmt.common.exception.BusinessException;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -17,6 +19,13 @@ import java.util.Map;
  * AI 网关客户端（backend → ai-gateway 8090，服务间 X-API-Key 认证）
  * 红线落地：backend 内任何业务代码不得直连模型 SDK/URL，一律经本客户端调网关
  *
+ * <p><b>AI 能力 Hermes 化迁移（M-2026-11-18）</b>：{@link #chat(String, String, Long, Map)}
+ * 出口已迁移至 <b>Hermes Agent 原生 run</b>（hermes_agent_config.migrate.chatViaHermes 总开关，
+ * 默认 true）——全部 18 处业务 chat 调用点（Ops 判定/Agent 能力点/记忆摘要/ChatBI/文档合规/
+ * 意图分类等）零改动迁移至 Hermes 原生能力；Hermes 不可用或迁移开关关闭时自动回落
+ * 网关直连通道（异常兜底，业务不断链）。embed/visionChat 为模型通道原语（Hermes 无
+ * embedding API、run 文本接口暂不收图片入参），保留网关直连，属已文档化的适配边界。
+ *
  * @author dept-mgmt
  */
 @Slf4j
@@ -26,6 +35,12 @@ public class AiGatewayClient {
     private final String baseUrl;
     private final String apiKey;
     private final RestClient client;
+
+    @Autowired
+    private HermesService hermesService;
+
+    @Autowired
+    private HermesAgentConfigService hermesConfig;
 
     public AiGatewayClient(@Value("${ai.gateway.base-url:http://localhost:8090}") String baseUrl,
                            @Value("${ai.gateway.api-key:dept-gw-internal-2026r2-fA9kQ2xV}") String apiKey) {
@@ -126,14 +141,55 @@ public class AiGatewayClient {
     /**
      * 调用网关对话能力
      *
+     * <p><b>Hermes 化迁移</b>：migrate.chatViaHermes=true（默认）时本方法经
+     * <b>Hermes Agent 原生 run</b> 执行——任务书 = 能力上下文 + prompt（含 JSON 契约声明），
+     * 同步等待终态取 output；Hermes 不可用/执行失败时自动回落下方网关直连通道（异常兜底）。
+     *
      * @param capabilityCode 能力点编码（AGT-XX/CAP_XXX）
      * @param prompt         提示词
      * @param userId         调用用户ID（审计用）
      * @param jsonSchema     输出契约（可 null）
      * @return 模型输出全文
      */
-    @SuppressWarnings("unchecked")
     public String chat(String capabilityCode, String prompt, Long userId, Map<String, Object> jsonSchema) {
+        // ---- Hermes 原生通道（迁移主链路） ----
+        if (hermesConfig.getBool("migrate.chatViaHermes") && hermesService.available()) {
+            try {
+                int timeoutSec = hermesConfig.getInt("migrate.syncTimeoutSec");
+                boolean autoStop = hermesConfig.getBool("run.autoStopOnTimeout");
+                return hermesService.runAndWaitForText(buildTaskBook(capabilityCode, prompt, jsonSchema), timeoutSec, autoStop);
+            } catch (BusinessException be) {
+                log.warn("Hermes chat 通道失败（回落网关直连）: capability={}, code={}, msg={}",
+                        capabilityCode, be.getCode(), be.getMessage());
+            } catch (Exception e) {
+                log.warn("Hermes chat 通道异常（回落网关直连）: capability={}, err={}", capabilityCode, e.getMessage());
+            }
+        }
+        // ---- 网关直连通道（兜底/开关关闭时） ----
+        return chatViaGateway(capabilityCode, prompt, userId, jsonSchema);
+    }
+
+    /** 组装 Hermes 任务书：能力上下文 + 输出契约声明 + 原提示词 */
+    private String buildTaskBook(String capabilityCode, String prompt, Map<String, Object> jsonSchema) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("【能力上下文】请在部门工作管理平台内完成以下 AI 能力调用，能力编码：")
+          .append(capabilityCode).append("。\n");
+        if (jsonSchema != null && !jsonSchema.isEmpty()) {
+            sb.append("【输出契约】你的最终回复必须是且仅是一个符合以下结构的 JSON 对象，")
+              .append("不要调用任何工具，不要输出 JSON 之外的任何文字：\n")
+              .append(jsonSchema).append("\n");
+        }
+        String lang = hermesConfig.get("output.language");
+        if (StringUtils.hasText(lang)) {
+            sb.append("【输出规则】使用").append(lang).append("输出。\n");
+        }
+        sb.append("\n【任务】\n").append(prompt);
+        return sb.toString();
+    }
+
+    /** 网关直连通道（迁移前原实现，作为 Hermes 不可用时的兜底） */
+    @SuppressWarnings("unchecked")
+    private String chatViaGateway(String capabilityCode, String prompt, Long userId, Map<String, Object> jsonSchema) {
         Map<String, Object> body = new java.util.HashMap<>();
         body.put("capabilityCode", capabilityCode);
         body.put("prompt", prompt);

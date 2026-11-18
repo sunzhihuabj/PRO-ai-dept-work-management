@@ -110,6 +110,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: 'AI Agent 员工', icon: 'Cpu' }
       },
       {
+        path: 'ai/hermes/config',
+        name: 'HermesConfig',
+        component: () => import('@/views/ai/HermesConfig.vue'),
+        meta: { title: 'Hermes 参数配置', hidden: true }
+      },
+      {
         path: 'message',
         name: 'MessageCenter',
         component: () => import('@/views/message/MessageCenter.vue'),

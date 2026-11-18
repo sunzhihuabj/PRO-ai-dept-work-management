@@ -234,6 +234,61 @@ public class HermesService {
         return runStatus != null && TERMINAL.contains(String.valueOf(runStatus.get("status")));
     }
 
+    /**
+     * 同步运行并取回文本输出（AI 能力 Hermes 化迁移 M-2026-11-18 核心原语）：
+     * 提交 run → 阻塞轮询至终态 → 成功取 output / 失败抛业务异常（含 error 摘要）。
+     *
+     * <p>等待超时按 {@code syncTimeoutSec} 控制（默认 180s，来自 hermes_agent_config）；
+     * 超时按 autoStopOnTimeout 决定是否自动 stopRun。
+     *
+     * @param taskBook      任务书（自然语言；判定类任务需在任务书中声明输出契约）
+     * @param syncTimeoutSec 同步等待超时（秒）；≤0 时用 awaitTimeoutMs 默认
+     * @param autoStopOnTimeout 超时是否自动 stopRun
+     * @return Hermes 输出全文
+     * @throws BusinessException 503 Hermes 不可用/提交失败；502 run 失败或超时
+     */
+    public String runAndWaitForText(String taskBook, int syncTimeoutSec, boolean autoStopOnTimeout) {
+        String runId = submitRun(taskBook);
+        if (runId == null) {
+            throw new com.dept.mgmt.common.exception.BusinessException(503, "Hermes Agent 服务不可用，请稍后重试或转人工处理");
+        }
+        long timeoutMs = syncTimeoutSec > 0 ? syncTimeoutSec * 1000L : awaitTimeoutMs;
+        long deadline = System.currentTimeMillis() + timeoutMs;
+        Map<String, Object> last = null;
+        while (System.currentTimeMillis() < deadline) {
+            last = getRun(runId);
+            if (isTerminal(last)) {
+                break;
+            }
+            try {
+                Thread.sleep(pollIntervalMs);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+        }
+        if (!isTerminal(last)) {
+            if (autoStopOnTimeout) {
+                stopRun(runId);
+            }
+            log.warn("Hermes 同步 run 等待超时: runId={}, timeoutMs={}", runId, timeoutMs);
+            throw new com.dept.mgmt.common.exception.BusinessException(502,
+                    "Hermes Agent 执行超时（" + (timeoutMs / 1000) + "s），请稍后重试或转人工处理");
+        }
+        if (!isSuccessful(last)) {
+            String err = String.valueOf(last == null ? null : last.get("error"));
+            log.warn("Hermes 同步 run 失败: runId={}, status={}, error={}",
+                    runId, last == null ? null : last.get("status"), err);
+            throw new com.dept.mgmt.common.exception.BusinessException(502,
+                    "Hermes Agent 执行失败：" + (err == null || "null".equals(err) ? "异常终止" : err));
+        }
+        String output = extractOutput(last);
+        if (output == null || output.isBlank()) {
+            throw new com.dept.mgmt.common.exception.BusinessException(502, "Hermes Agent 返回空内容");
+        }
+        return output;
+    }
+
     /** 运行是否成功完成（completed 且无 error） */
     public static boolean isSuccessful(Map<String, Object> runStatus) {
         return isTerminal(runStatus) && "completed".equals(runStatus.get("status"))

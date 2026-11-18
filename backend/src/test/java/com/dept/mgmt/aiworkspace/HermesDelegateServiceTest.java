@@ -50,6 +50,10 @@ class HermesDelegateServiceTest {
     private com.dept.mgmt.aiworkspace.service.HermesSseService sseService;
     @Mock
     private com.dept.mgmt.aiworkspace.service.SkillTemplateService skillTemplateService;
+    @Mock
+    private com.dept.mgmt.aiworkspace.service.AiMemoryService aiMemoryService;
+    @Mock
+    private com.dept.mgmt.aiworkspace.service.HermesAgentConfigService hermesAgentConfigService;
 
     private HermesDelegateService service;
 
@@ -57,7 +61,13 @@ class HermesDelegateServiceTest {
     @SuppressWarnings("unchecked")
     void setUp() {
         service = new HermesDelegateService(hermesService, messageMapper, conversationMapper,
-                runEventMapper, adviceService, sseService, skillTemplateService);
+                runEventMapper, adviceService, sseService, skillTemplateService, aiMemoryService, hermesAgentConfigService);
+        // recall 默认返回空（记忆注入静默降级不干扰既有用例）
+        lenient().when(aiMemoryService.recall(org.mockito.ArgumentMatchers.any())).thenReturn(java.util.List.of());
+        // 面板参数 mock：默认启用委托、无自定义触发词（走内置正则）、默认最短长度
+        lenient().when(hermesAgentConfigService.getBool(org.mockito.ArgumentMatchers.anyString())).thenReturn(true);
+        lenient().when(hermesAgentConfigService.get(org.mockito.ArgumentMatchers.anyString())).thenReturn("");
+        lenient().when(hermesAgentConfigService.getInt(org.mockito.ArgumentMatchers.anyString())).thenReturn(25);
         // B5：轮询节奏/等待上限（@Value 在单测中手动注入）
         org.springframework.test.util.ReflectionTestUtils.setField(service, "pollIntervalMs", 10L);
         org.springframework.test.util.ReflectionTestUtils.setField(service, "awaitTimeoutMs", 3000L);

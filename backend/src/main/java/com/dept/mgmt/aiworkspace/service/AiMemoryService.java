@@ -54,6 +54,9 @@ public class AiMemoryService {
     /** 长期记忆召回条数 */
     private static final int RECALL_LIMIT = 5;
 
+    /** V2.0 M9：记忆 TTL（天）——写入后 90 天过期不再召回 */
+    private static final int MEMORY_TTL_DAYS = 90;
+
     /** 摘要兜底长度（TEXT 列安全上限内） */
     private static final int SUMMARY_FALLBACK_MAX = 2000;
 
@@ -86,7 +89,7 @@ public class AiMemoryService {
         }
     }
 
-    /** 召回用户长期记忆（最近 RECALL_LIMIT 条；异常降级为空列表） */
+    /** 召回用户长期记忆（V2.0 M9：只取 APPROVED 且未过期的最近 RECALL_LIMIT 条；异常降级为空列表） */
     public List<String> recall(Long userId) {
         try {
             if (userId == null) {
@@ -94,6 +97,9 @@ public class AiMemoryService {
             }
             List<AiUserMemory> list = memoryMapper.selectList(new LambdaQueryWrapper<AiUserMemory>()
                     .eq(AiUserMemory::getUserId, userId)
+                    .eq(AiUserMemory::getStatus, "APPROVED")
+                    .and(w -> w.isNull(AiUserMemory::getExpireAt)
+                            .or().gt(AiUserMemory::getExpireAt, java.time.LocalDateTime.now()))
                     .orderByDesc(AiUserMemory::getId)
                     .last("LIMIT " + RECALL_LIMIT));
             return list.stream()
@@ -103,6 +109,81 @@ public class AiMemoryService {
         } catch (Exception e) {
             log.warn("用户长期记忆召回失败（降级为空）: userId={}", userId, e);
             return List.of();
+        }
+    }
+
+    // ==================== V2.0 M9：记忆管理（查看/确认/删除/TTL） ====================
+
+    /** 本人记忆列表（status 可选过滤；PROPOSED 待确认 / APPROVED 已生效） */
+    public List<AiUserMemory> listMemories(Long userId, String status) {
+        LambdaQueryWrapper<AiUserMemory> qw = new LambdaQueryWrapper<AiUserMemory>()
+                .eq(AiUserMemory::getUserId, userId)
+                .orderByDesc(AiUserMemory::getId);
+        if (StringUtils.hasText(status)) {
+            qw.eq(AiUserMemory::getStatus, status);
+        }
+        return memoryMapper.selectList(qw.last("LIMIT 100"));
+    }
+
+    /** 本人待确认记忆条数（前端角标用） */
+    public long pendingCount(Long userId) {
+        try {
+            return memoryMapper.selectCount(new LambdaQueryWrapper<AiUserMemory>()
+                    .eq(AiUserMemory::getUserId, userId)
+                    .eq(AiUserMemory::getStatus, "PROPOSED"));
+        } catch (Exception e) {
+            return 0;
+        }
+    }
+
+    /** 用户确认记忆（仅本人；PROPOSED → APPROVED，recall 即刻生效） */
+    public void approveMemory(Long id, Long userId) {
+        AiUserMemory m = memoryMapper.selectById(id);
+        if (m == null || !userId.equals(m.getUserId())) {
+            throw new com.dept.mgmt.common.exception.BusinessException(404, "记忆不存在");
+        }
+        m.setStatus("APPROVED");
+        memoryMapper.updateById(m);
+    }
+
+    /** 用户删除本人记忆（合规要求：删除后 recall 不再返回；@TableLogic 逻辑删） */
+    public void deleteMemory(Long id, Long userId) {
+        AiUserMemory m = memoryMapper.selectById(id);
+        if (m == null || !userId.equals(m.getUserId())) {
+            throw new com.dept.mgmt.common.exception.BusinessException(404, "记忆不存在");
+        }
+        memoryMapper.deleteById(id);
+    }
+
+    /** 用户手工新增记忆（USER 来源，直接 APPROVED——用户亲手写的无需再确认） */
+    public AiUserMemory addMemory(Long userId, String content) {
+        if (!StringUtils.hasText(content)) {
+            throw new com.dept.mgmt.common.exception.BusinessException(400, "记忆内容不能为空");
+        }
+        AiUserMemory m = new AiUserMemory();
+        m.setUserId(userId);
+        m.setKind("fact");
+        m.setContent(content.length() > 500 ? content.substring(0, 500) : content.trim());
+        m.setConfidence(1.0);
+        m.setStatus("APPROVED");
+        m.setSource("USER");
+        m.setExpireAt(java.time.LocalDateTime.now().plusDays(MEMORY_TTL_DAYS));
+        memoryMapper.insert(m);
+        return m;
+    }
+
+    /** TTL 清理 Job（每日 03:30）：过期记忆逻辑删除，不再召回。 */
+    @org.springframework.scheduling.annotation.Scheduled(cron = "0 30 3 * * *")
+    public void purgeExpired() {
+        try {
+            int removed = memoryMapper.delete(new LambdaQueryWrapper<AiUserMemory>()
+                    .isNotNull(AiUserMemory::getExpireAt)
+                    .lt(AiUserMemory::getExpireAt, java.time.LocalDateTime.now()));
+            if (removed > 0) {
+                log.info("长期记忆 TTL 清理完成: removed={}", removed);
+            }
+        } catch (Exception e) {
+            log.warn("长期记忆 TTL 清理失败: {}", e.getMessage());
         }
     }
 
@@ -203,7 +284,7 @@ public class AiMemoryService {
         }
     }
 
-    /** 事实沉淀：与既有记忆去重，最多 MAX_FACTS 条 */
+    /** 事实沉淀（V2.0 M9 建议化写入）：status=PROPOSED 待用户确认，确认后 APPROVED 才参与召回；与既有记忆去重，最多 MAX_FACTS 条 */
     private void persistFacts(AiConversation conv, List<String> facts) {
         if (facts == null || facts.isEmpty() || conv.getUserId() == null) {
             return;
@@ -228,6 +309,9 @@ public class AiMemoryService {
                 memory.setKind("fact");
                 memory.setContent(content);
                 memory.setConfidence(0.8);
+                memory.setStatus("PROPOSED");
+                memory.setSource("SUMMARY");
+                memory.setExpireAt(java.time.LocalDateTime.now().plusDays(MEMORY_TTL_DAYS));
                 memoryMapper.insert(memory);
                 existing.add(content);
                 inserted++;

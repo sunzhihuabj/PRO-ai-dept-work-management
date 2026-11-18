@@ -79,6 +79,8 @@ public class HermesDelegateService {
     private final com.dept.mgmt.agent.collab.service.DecisionAdviceService adviceService;
     private final HermesSseService sseService;
     private final SkillTemplateService skillTemplateService;
+    private final AiMemoryService aiMemoryService;
+    private final HermesAgentConfigService hermesAgentConfigService;
 
     /** SSE 实时推送白名单（V2.0 M4：异常/授权/完成三类即时提示） */
     private static final Set<String> SSE_PUSH_TYPES = Set.of(
@@ -110,7 +112,9 @@ public class HermesDelegateService {
                                  HermesRunEventMapper runEventMapper,
                                  com.dept.mgmt.agent.collab.service.DecisionAdviceService adviceService,
                                  HermesSseService sseService,
-                                 SkillTemplateService skillTemplateService) {
+                                 SkillTemplateService skillTemplateService,
+                                 AiMemoryService aiMemoryService,
+                                 HermesAgentConfigService hermesAgentConfigService) {
         this.hermesService = hermesService;
         this.messageMapper = messageMapper;
         this.conversationMapper = conversationMapper;
@@ -118,6 +122,8 @@ public class HermesDelegateService {
         this.adviceService = adviceService;
         this.sseService = sseService;
         this.skillTemplateService = skillTemplateService;
+        this.aiMemoryService = aiMemoryService;
+        this.hermesAgentConfigService = hermesAgentConfigService;
     }
 
     /**
@@ -163,11 +169,25 @@ public class HermesDelegateService {
         if (!StringUtils.hasText(content) || content.length() < 8) {
             return false;
         }
+        // 面板总开关（delegate.enabled）：关闭后四级路由的 Hermes 委托层级整体停用
+        if (!hermesAgentConfigService.getBool("delegate.enabled")) {
+            return false;
+        }
         if (PURE_QUERY.matcher(content).find() && content.length() < 30) {
             return false;
         }
+        // 面板触发词（逗号分隔）优先命中；未命中再回落内置正则 + 最短长度（delegate.minLength）
+        String triggerWords = hermesAgentConfigService.get("delegate.triggerWords");
+        if (StringUtils.hasText(triggerWords)) {
+            for (String w : triggerWords.split("[,，]")) {
+                if (StringUtils.hasText(w.trim()) && content.contains(w.trim())) {
+                    return true;
+                }
+            }
+        }
+        int minLen = hermesAgentConfigService.getInt("delegate.minLength");
         return DELEGATE_TRIGGER.matcher(content).find()
-                || (content.length() >= 25 && MULTI_STEP.matcher(content).find());
+                || (content.length() >= minLen && MULTI_STEP.matcher(content).find());
     }
 
     /** 任务书组装（系统约束 + 委托人身份 + 用户指令） */
@@ -177,8 +197,30 @@ public class HermesDelegateService {
                 + "（userId=" + userId + "，业务工具以该身份执行）\n"
                 + "【身份要求（铁律）】你调用的所有 MCP 业务工具必须携带 actingUserId=" + userId
                 + " 参数（与委托人一致），不得使用其他值或缺省——业务数据将以该用户身份访问，"
-                + "权限跟随当前用户（V2.0 铁律二）。\n\n"
-                + "【任务】\n" + content;
+                + "权限跟随当前用户（V2.0 铁律二）。\n"
+                + buildMemoryContext(userId)
+                + "\n【任务】\n" + content;
+    }
+
+    /**
+     * V2.0 M9：委托任务书自动携带委托人长期记忆（APPROVED 且未过期的稳定事实），
+     * 让 Agent 员工跨会话理解委托人背景；注入失败静默降级（不影响委托主流程）。
+     */
+    private String buildMemoryContext(Long userId) {
+        try {
+            java.util.List<String> facts = aiMemoryService.recall(userId);
+            if (facts == null || facts.isEmpty()) {
+                return "";
+            }
+            StringBuilder sb = new StringBuilder("【委托人已知背景（长期记忆，供理解上下文，勿直接复述）】\n");
+            for (String f : facts) {
+                sb.append("- ").append(abbreviate(f, 120)).append('\n');
+            }
+            return sb.toString() + "\n";
+        } catch (Exception e) {
+            log.debug("委托任务书记忆注入失败（忽略）: {}", e.getMessage());
+            return "";
+        }
     }
 
     /**
