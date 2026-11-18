@@ -46,6 +46,50 @@ public class AiGatewayClient {
     }
 
     /**
+     * 调用网关多模态对话（V2.0 E1 眼睛模块）：prompt + 图片（data URL 形状）。
+     * 网关按 OpenAI vision 形状转发至多模态通道；不支持视觉的通道走降级链。
+     *
+     * @param capabilityCode 能力点编码（如 CAP_VISION_DESCRIBE）
+     * @param prompt         提示词
+     * @param imageDataUrls  图片 data URL 列表（data:image/jpeg;base64,...），≤4 张
+     * @param userId         调用用户ID（审计用）
+     * @return 模型输出全文
+     */
+    @SuppressWarnings("unchecked")
+    public String visionChat(String capabilityCode, String prompt, List<String> imageDataUrls, Long userId) {
+        Map<String, Object> body = new java.util.HashMap<>();
+        body.put("capabilityCode", capabilityCode);
+        body.put("prompt", prompt);
+        body.put("callerType", "USER");
+        body.put("callerId", userId == null ? null : String.valueOf(userId));
+        body.put("images", imageDataUrls);
+        try {
+            Map<String, Object> resp = client.post()
+                    .uri("/v1/gateway/chat")
+                    .body(body)
+                    .retrieve()
+                    .body(Map.class);
+            if (resp == null || resp.get("content") == null) {
+                throw new BusinessException(503, "AI 服务返回空内容，请稍后重试或转人工处理");
+            }
+            if (Boolean.TRUE.equals(resp.get("degraded"))) {
+                log.warn("AI 网关降级: capability={}, requestId={}", capabilityCode, resp.get("requestId"));
+                throw new BusinessException(503, "AI 服务暂不可用，请转人工处理");
+            }
+            return resp.get("content").toString();
+        } catch (RestClientResponseException e) {
+            int status = e.getStatusCode().value();
+            log.warn("AI 网关视觉调用失败: capability={}, status={}", capabilityCode, status);
+            throw new BusinessException(503, "视觉识别服务暂不可用，请稍后重试或转人工处理");
+        } catch (BusinessException be) {
+            throw be;
+        } catch (Exception e) {
+            log.error("AI 网关连接失败: {}", baseUrl, e);
+            throw new BusinessException(503, "AI 服务连接失败，请稍后重试或转人工处理");
+        }
+    }
+
+    /**
      * 调用网关向量化（T-106 RAG）
      *
      * @param texts 文本列表

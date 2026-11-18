@@ -1,5 +1,6 @@
 package com.dept.mgmt.agent.collab.mcp;
 
+import com.dept.mgmt.common.exception.BusinessException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
@@ -29,10 +30,15 @@ public class McpProtocolService {
     private static final String DEFAULT_PROTOCOL_VERSION = "2025-06-18";
 
     private final McpToolRegistry registry;
+    private final McpIdentityResolver identityResolver;
+    private final HermesToolAuditService auditService;
     private final ObjectMapper objectMapper;
 
-    public McpProtocolService(McpToolRegistry registry, ObjectMapper objectMapper) {
+    public McpProtocolService(McpToolRegistry registry, McpIdentityResolver identityResolver,
+                              HermesToolAuditService auditService, ObjectMapper objectMapper) {
         this.registry = registry;
+        this.identityResolver = identityResolver;
+        this.auditService = auditService;
         this.objectMapper = objectMapper;
     }
 
@@ -103,18 +109,45 @@ public class McpProtocolService {
             throw new McpRpcException(-32602, "工具不存在: " + name);
         }
         Map<String, Object> arguments = asMap(params.get("arguments"));
+        // ---- V2.0 铁律二：统一身份解析（args.actingUserId → 头透传 → fail-closed） ----
+        Long userId;
+        String identitySrc;
+        try {
+            userId = resolveIdentitySource(arguments);
+            identitySrc = arguments != null && arguments.get(McpIdentityResolver.IDENTITY_PARAM) != null
+                    ? "ARGS" : "HEADER";
+        } catch (BusinessException e) {
+            // fail-closed：无身份拒绝执行，审计 INVALID
+            auditService.record(runIdOf(arguments), name, tool.requiresApproval() ? "write" : "readonly",
+                    null, null, "INVALID", e.getMessage(), arguments, 0);
+            throw new McpRpcException(-32001, e.getMessage());
+        }
+        long start = System.currentTimeMillis();
         try {
             Object out = tool.handler().apply(arguments);
             String text = out == null ? "null" : (out instanceof String s ? s
                     : objectMapper.writeValueAsString(out));
+            auditService.record(runIdOf(arguments), name, tool.requiresApproval() ? "write" : "readonly",
+                    userId, identitySrc, "SUCCESS", null, arguments, System.currentTimeMillis() - start);
             Map<String, Object> result = new LinkedHashMap<>();
             result.put("content", List.of(Map.of("type", "text", "text", text)));
             result.put("isError", false);
             return result;
         } catch (McpRpcException e) {
             throw e;
+        } catch (BusinessException e) {
+            // 权限/业务拒绝（403 等）——审计 DENIED 后按 MCP 规范转 isError 结果
+            auditService.record(runIdOf(arguments), name, tool.requiresApproval() ? "write" : "readonly",
+                    userId, identitySrc, "DENIED", e.getMessage(), arguments, System.currentTimeMillis() - start);
+            log.info("MCP 工具调用被拒绝: tool={}, userId={}, msg={}", name, userId, e.getMessage());
+            Map<String, Object> result = new LinkedHashMap<>();
+            result.put("content", List.of(Map.of("type", "text", "text", "工具调用被拒绝: " + e.getMessage())));
+            result.put("isError", true);
+            return result;
         } catch (Exception e) {
             // 工具执行错误按 MCP 规范返回 isError 结果（而非协议级 error），便于客户端提示重试
+            auditService.record(runIdOf(arguments), name, tool.requiresApproval() ? "write" : "readonly",
+                    userId, identitySrc, "FAILED", e.getMessage(), arguments, System.currentTimeMillis() - start);
             log.warn("MCP 工具执行失败: tool={}", name, e);
             Map<String, Object> result = new LinkedHashMap<>();
             result.put("content", List.of(Map.of("type", "text",
@@ -122,6 +155,23 @@ public class McpProtocolService {
             result.put("isError", true);
             return result;
         }
+    }
+
+    /** 身份解析：args.actingUserId → 头透传（McpCallContext）→ fail-closed 抛 401 */
+    private Long resolveIdentitySource(Map<String, Object> arguments) {
+        return identityResolver.resolveRequired(arguments);
+    }
+
+    /** runId 提取（Hermes 部分客户端经 _meta 传 runId；无则空） */
+    private String runIdOf(Map<String, Object> arguments) {
+        if (arguments == null) {
+            return null;
+        }
+        Object meta = arguments.get("_meta");
+        if (meta instanceof Map<?, ?> m && m.get("runId") != null) {
+            return String.valueOf(m.get("runId"));
+        }
+        return null;
     }
 
     @SuppressWarnings("unchecked")

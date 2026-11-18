@@ -58,10 +58,44 @@ public class McpToolRegistry {
         } catch (Exception e) {
             log.warn("Ops 工具桥接失败（仅核心 8 工具可用）: {}", e.getMessage());
         }
+        // V2.0 铁律二：全部工具 schema 统一注入 actingUserId 必填身份参数（含手写+桥接）
+        merged = injectIdentity(merged);
         this.tools = merged.stream()
                 .collect(Collectors.toMap(McpTool::name, t -> t, (a, b) -> a, LinkedHashMap::new));
         log.info("MCP 工具注册完成（核心 {} + Ops 桥接 {}）: {}",
                 buildTools().size(), merged.size() - buildTools().size(), tools.keySet());
+    }
+
+    /**
+     * 铁律二：统一给全部工具 inputSchema 注入 actingUserId（required）。
+     * Hermes 等外部 Agent 按 schema required 回填委托发起人身份；
+     * 身份真正生效在 McpProtocolService.toolsCall 统一解析（fail-closed）。
+     */
+    private static List<McpTool> injectIdentity(List<McpTool> tools) {
+        return tools.stream().map(t -> {
+            Map<String, Object> props = new LinkedHashMap<>(t.inputSchema().get("properties") == null
+                    ? Map.of() : castProps(t.inputSchema().get("properties")));
+            props.put(McpIdentityResolver.IDENTITY_PARAM, Map.of(
+                    "type", "integer", "description", McpIdentityResolver.IDENTITY_PARAM_DESC));
+            List<String> required = new ArrayList<>(
+                    t.inputSchema().get("required") == null ? List.of()
+                            : (List<String>) castStrList(t.inputSchema().get("required")));
+            if (!required.contains(McpIdentityResolver.IDENTITY_PARAM)) {
+                required.add(McpIdentityResolver.IDENTITY_PARAM);
+            }
+            Map<String, Object> schema = McpTool.objectSchema(props, required);
+            return new McpTool(t.name(), t.description(), schema, t.requiresApproval(), t.handler());
+        }).toList();
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> castProps(Object o) {
+        return (Map<String, Object>) o;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<String> castStrList(Object o) {
+        return (List<String>) o;
     }
 
     public List<McpTool> all() {
@@ -86,8 +120,8 @@ public class McpToolRegistry {
                                 null, longArg(args, "taskId"), strArg(args, "keyword"))),
                 new McpTool("task.my_todo", "查询指定用户的待办任务（未完成：待办/进行中/待审核）",
                         McpTool.objectSchema(Map.of(
-                                "userId", Map.of("type", "integer", "description", "用户ID")), List.of("userId")),
-                        args -> taskService.myTodoTasks(requireLong(args, "userId"))),
+                                "userId", Map.of("type", "integer", "description", "用户ID（缺省时取 actingUserId 调用身份）")), null),
+                        args -> taskService.myTodoTasks(identityOr(args))),
 
                 // ---- 项目域：只读 ----
                 new McpTool("project.query", "按条件查询项目列表（编号/名称/负责人/状态）",
@@ -108,10 +142,10 @@ public class McpToolRegistry {
                 new McpTool("tender.collect", "触发指定平台的标讯联网采集登记任务（异步入 Agent 队列执行，立即返回任务号）",
                         McpTool.objectSchema(Map.of(
                                 "platformId", Map.of("type", "integer", "description", "采集平台ID"),
-                                "userId", Map.of("type", "integer", "description", "任务归属用户ID")), List.of("platformId", "userId")),
+                                "userId", Map.of("type", "integer", "description", "任务归属用户ID（缺省时取 actingUserId）")), List.of("platformId")),
                         args -> {
                             long platformId = requireLong(args, "platformId");
-                            long userId = requireLong(args, "userId");
+                            long userId = identityOr(args);
                             return masterAgentService.submitAs("采集平台 platformId=" + platformId + " 的最新标讯",
                                     "AGT-27", Map.of("platformId", platformId), userId);
                         }),
@@ -122,14 +156,14 @@ public class McpToolRegistry {
                         args -> adviceService.page("PENDING", null, 1, 20)),
                 new McpTool("report.morning_brief", "生成指定用户的晨报摘要（指标/风险/重点事项）",
                         McpTool.objectSchema(Map.of(
-                                "userId", Map.of("type", "integer", "description", "用户ID")), List.of("userId")),
+                                "userId", Map.of("type", "integer", "description", "用户ID（缺省时取 actingUserId）")), null),
                         args -> {
                             CapabilityHandler h = handlers.get("AGT-26");
                             if (h == null) {
                                 throw new IllegalStateException("晨报能力点未注册（AGT-26）");
                             }
                             try {
-                                return h.execute("生成晨报", requireLong(args, "userId"), Map.of());
+                                return h.execute("生成晨报", identityOr(args), Map.of());
                             } catch (IllegalArgumentException | IllegalStateException e) {
                                 throw e;
                             } catch (Exception e) {
@@ -143,10 +177,9 @@ public class McpToolRegistry {
                         McpTool.objectSchema(Map.of(
                                 "capabilityCode", Map.of("type", "string", "description", "能力点编码（AGT-XX）"),
                                 "instruction", Map.of("type", "string", "description", "任务指令（自然语言）"),
-                                "userId", Map.of("type", "integer", "description", "任务归属用户ID"),
-                                "params", Map.of("type", "object", "description", "扩展参数（可选，对象）")), List.of("capabilityCode", "instruction", "userId")),
+                                "params", Map.of("type", "object", "description", "扩展参数（可选，对象）")), List.of("capabilityCode", "instruction")),
                         args -> masterAgentService.submitAs(strArg(args, "instruction"),
-                                strArg(args, "capabilityCode"), args.get("params"), requireLong(args, "userId"))));
+                                strArg(args, "capabilityCode"), args.get("params"), identityOr(args))));
     }
 
     private static long requireLong(Map<String, Object> args, String key) {
@@ -155,6 +188,19 @@ public class McpToolRegistry {
             throw new IllegalArgumentException("缺少必填参数: " + key);
         }
         return v;
+    }
+
+    /**
+     * 身份优先取值（铁律二）：actingUserId（调用身份）→ userId 参数回落 → 缺失抛错。
+     * 调用身份由 McpProtocolService.toolsCall 统一解析并已 fail-closed 校验，
+     * 此处回落保证手写工具对旧客户端的兼容。
+     */
+    private static long identityOr(Map<String, Object> args) {
+        Long acting = longArg(args, McpIdentityResolver.IDENTITY_PARAM);
+        if (acting != null && acting > 0) {
+            return acting;
+        }
+        return requireLong(args, "userId");
     }
 
     private static Long longArg(Map<String, Object> args, String key) {

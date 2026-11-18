@@ -28,6 +28,15 @@ public interface AiProvider {
     ProviderResult chat(AiProviderConfig config, String prompt, int maxTokens) throws Exception;
 
     /**
+     * 多模态对话（V2.0 E1 眼睛模块）：prompt + 图片部件（data URL 形状）。
+     * 默认实现：不支持视觉的通道抛 UnsupportedOperationException（网关降级链接管）。
+     */
+    default ProviderResult chat(AiProviderConfig config, String prompt, int maxTokens,
+                                List<String> imageDataUrls) throws Exception {
+        throw new UnsupportedOperationException("通道 " + type() + " 不支持多模态（vision）调用");
+    }
+
+    /**
      * 调用结果（全文 + Token 用量；用量拿不到时置 0）
      */
     record ProviderResult(String content, int totalTokens) {

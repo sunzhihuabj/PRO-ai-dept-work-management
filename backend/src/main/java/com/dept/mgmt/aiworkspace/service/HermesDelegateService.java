@@ -153,7 +153,10 @@ public class HermesDelegateService {
     public String buildTaskBook(String content, Long userId, String username) {
         return TASK_BOOK_HEADER
                 + "【委托人】" + (StringUtils.hasText(username) ? username : "user-" + userId)
-                + "（userId=" + userId + "，业务工具以该身份执行）\n\n"
+                + "（userId=" + userId + "，业务工具以该身份执行）\n"
+                + "【身份要求（铁律）】你调用的所有 MCP 业务工具必须携带 actingUserId=" + userId
+                + " 参数（与委托人一致），不得使用其他值或缺省——业务数据将以该用户身份访问，"
+                + "权限跟随当前用户（V2.0 铁律二）。\n\n"
                 + "【任务】\n" + content;
     }
 

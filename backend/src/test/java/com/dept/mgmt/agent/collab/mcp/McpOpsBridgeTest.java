@@ -14,7 +14,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -23,7 +22,6 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -35,7 +33,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * McpOpsBridge 单元测试（A3 只读桥接 + A4 身份透传与权限校验 + B4 写工具审批化桥接）
+ * McpOpsBridge 单元测试（A3 只读桥接 + B4 写工具审批化桥接 + V2.0 铁律二 fail-closed 身份）
  */
 @ExtendWith(MockitoExtension.class)
 class McpOpsBridgeTest {
@@ -51,13 +49,14 @@ class McpOpsBridgeTest {
     @Mock
     private com.dept.mgmt.agent.collab.service.DecisionAdviceService adviceService;
 
+    private McpIdentityResolver identityResolver;
     private McpOpsBridge bridge;
 
     @BeforeEach
     void setUp() {
-        bridge = new McpOpsBridge(opsRegistry, userMapper, systemOpsService,
-                approvalActionRegistry, adviceService);
-        ReflectionTestUtils.setField(bridge, "actingUserId", 1L);
+        identityResolver = new McpIdentityResolver(userMapper);
+        bridge = new McpOpsBridge(opsRegistry, systemOpsService,
+                approvalActionRegistry, adviceService, identityResolver);
         lenient().when(userMapper.selectById(anyLong())).thenAnswer(inv -> {
             long id = inv.getArgument(0);
             return sysUser(id);
@@ -151,7 +150,6 @@ class McpOpsBridgeTest {
         assertEquals(501L, result.get("adviceId"));
         assertTrue(String.valueOf(result.get("message")).contains("未直接写入"));
         verify(adviceService).requestToolApproval(eq("task.create"), any(), eq(7L), any());
-        // 不直接写入：写工具 executor 无触发路径（tool.handler 即审批桥，非原 executor）
     }
 
     @Test
@@ -170,41 +168,66 @@ class McpOpsBridgeTest {
     }
 
     @Test
-    void shouldGenerateSchemaFromOpsParams() {
+    @SuppressWarnings("unchecked")
+    void shouldGenerateSchemaWithIdentityParamRequired() {
         when(opsRegistry.all()).thenReturn(List.of(readTool("contract.detail", true)));
 
         Map<String, Object> schema = bridge.bridgeTools().get(0).inputSchema();
 
         assertEquals("object", schema.get("type"));
-        @SuppressWarnings("unchecked")
         Map<String, Object> props = (Map<String, Object>) schema.get("properties");
-        assertEquals(4, props.size());
-        assertEquals("string", ((Map<?, ?>) props.get("keyword")).get("type"));
+        assertEquals(5, props.size(), "4 业务参数 + actingUserId 身份参数");
         assertEquals("number", ((Map<?, ?>) props.get("projectId")).get("type"));
-        assertTrue(String.valueOf(((Map<?, ?>) props.get("deadline")).get("description")).contains("yyyy-MM-dd"));
-        assertEquals("boolean", ((Map<?, ?>) props.get("urgent")).get("type"));
-        assertEquals(List.of("projectId"), schema.get("required"));
+        assertEquals("integer", ((Map<?, ?>) props.get(McpIdentityResolver.IDENTITY_PARAM)).get("type"));
+        assertEquals(List.of("projectId", McpIdentityResolver.IDENTITY_PARAM), schema.get("required"));
     }
 
+    // ==================== 铁律二：fail-closed 身份 ====================
+
     @Test
-    void shouldFallBackToDelegateWhenNoContext() {
+    void shouldFailClosedWhenNoIdentity() {
         when(opsRegistry.all()).thenReturn(List.of(readTool("task.detail", true)));
 
         McpTool tool = bridge.bridgeTools().get(0);
-        Object out = tool.handler().apply(new LinkedHashMap<>(Map.of("projectId", 9)));
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> tool.handler().apply(new LinkedHashMap<>(Map.of("projectId", 9))));
 
-        // 无透传 → 系统委托身份（userId=1）
-        assertEquals("ok:task.detail:1", out);
+        // V2.0 铁律二：无透传/无参数 → 拒绝执行（不再回落系统委托身份）
+        assertEquals(401, ex.getCode());
+        assertTrue(ex.getMessage().contains("缺少调用身份"));
     }
 
     @Test
-    void shouldExecuteAsActingUserFromContext() {
+    void shouldExecuteAsActingUserFromArgs() {
+        when(opsRegistry.all()).thenReturn(List.of(readTool("task.detail_x", true)));
+
+        // args.actingUserId 优先（Hermes 按 schema required 回填）
+        Object out = bridge.bridgeTools().get(0).handler()
+                .apply(Map.of("projectId", 9, McpIdentityResolver.IDENTITY_PARAM, 15L));
+
+        assertEquals("ok:task.detail_x:15", out);
+    }
+
+    @Test
+    void shouldExecuteAsActingUserFromHeader() {
         when(opsRegistry.all()).thenReturn(List.of(readTool("task.my_todo_x", true)));
         McpCallContext.setActingUserId(7L);
 
         Object out = bridge.bridgeTools().get(0).handler().apply(Map.of("projectId", 9));
 
         assertEquals("ok:task.my_todo_x:7", out);
+    }
+
+    @Test
+    void shouldPreferArgsIdentityOverHeader() {
+        when(opsRegistry.all()).thenReturn(List.of(readTool("task.detail_x", true)));
+        McpCallContext.setActingUserId(7L);
+
+        Object out = bridge.bridgeTools().get(0).handler()
+                .apply(Map.of("projectId", 9, McpIdentityResolver.IDENTITY_PARAM, 15L));
+
+        assertEquals(15L, Long.parseLong(String.valueOf(out).substring(String.valueOf(out).lastIndexOf(':') + 1)),
+                "args 身份优先于头透传");
     }
 
     @Test
@@ -256,19 +279,6 @@ class McpOpsBridgeTest {
         bridge.bridgeTools().get(0).handler().apply(Map.of("projectId", 9));
 
         assertEquals(9L, checkedUser.get());
-    }
-
-    @Test
-    void shouldFallbackToMinimalDelegateWhenUserMissing() {
-        when(userMapper.selectById(1L)).thenReturn(null);
-        when(opsRegistry.all()).thenReturn(List.of(readTool("kb.search", true)));
-
-        Object out = bridge.bridgeTools().get(0).handler().apply(Map.of());
-
-        assertEquals("ok:kb.search:1", out);
-        LoginUser u = (LoginUser) ReflectionTestUtils.getField(bridge, "delegateUser");
-        assertNotNull(u);
-        assertEquals("mcp-delegate", u.getUsername());
     }
 
     @Test

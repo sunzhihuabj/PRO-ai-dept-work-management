@@ -131,14 +131,22 @@ public class GatewayService {
             AiProvider.ProviderResult result = null;
             String providerError = null;
             long callStart = System.currentTimeMillis();
+            List<String> images = request.getImages();
             for (int attempt = 1; attempt <= 2; attempt++) {
                 try {
-                    result = provider.chat(config, prompt, request.getMaxTokens() == null ? 0 : request.getMaxTokens());
+                    result = images != null && !images.isEmpty()
+                            ? provider.chat(config, prompt, request.getMaxTokens() == null ? 0 : request.getMaxTokens(), images)
+                            : provider.chat(config, prompt, request.getMaxTokens() == null ? 0 : request.getMaxTokens());
                     providerError = null;
                     break;
                 } catch (NonRetryableProviderException e) {
                     providerError = (attempt == 1 ? "调用失败（不可重试）: " : "调用失败: ") + e.getMessage();
                     log.warn("Provider 不可恢复错误: config={}, {}", config.getProviderCode(), e.getMessage());
+                    break;
+                } catch (UnsupportedOperationException e) {
+                    // V2.0 E1：通道不支持多模态（vision）——立即切下一通道，不重试
+                    providerError = "调用失败（通道不支持多模态）: " + e.getMessage();
+                    log.warn("Provider 不支持 vision: config={}", config.getProviderCode());
                     break;
                 } catch (Exception e) {
                     providerError = (attempt == 1 ? "调用失败（已自动重试）: " : "调用失败（重试后仍失败）: ") + e.getMessage();

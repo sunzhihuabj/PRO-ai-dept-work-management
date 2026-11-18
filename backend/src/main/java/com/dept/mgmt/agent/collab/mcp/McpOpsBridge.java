@@ -5,11 +5,8 @@ import com.dept.mgmt.aiworkspace.ops.OpsTool;
 import com.dept.mgmt.aiworkspace.ops.OpsToolRegistry;
 import com.dept.mgmt.aiworkspace.ops.SystemOpsService;
 import com.dept.mgmt.common.exception.BusinessException;
-import com.dept.mgmt.entity.SysUser;
-import com.dept.mgmt.mapper.SysUserMapper;
 import com.dept.mgmt.security.LoginUser;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
@@ -27,10 +24,10 @@ import java.util.Set;
  * 生成待确认审批建议（HMAC 锁定参数 + 委托人权限预校验），委托人采纳后才执行
  * （HITL 双保险：白名单 deny-by-default + 审批确认）。白名单外写工具不暴露。
  *
- * <p>身份与权限（A4）：MCP 调用携带 {@code X-Acting-User-Id}（委托发起人）→
- * {@link McpCallContext} 请求级透传 → 本桥逐调用按该用户查库校验（存在且未禁用），
- * 并复用 {@link SystemOpsService#checkPermission} 做 minRole/permCode 权限判定；
- * 无透传/无效用户回落系统委托身份 {@code app.mcp.acting-user-id}（默认 1）。
+ * <p>身份与权限（A4 → V2.0 铁律二）：调用身份经 {@link McpIdentityResolver} 统一解析
+ * （工具参数 actingUserId 必填 → X-Acting-User-Id 头透传 → 均无 fail-closed 拒绝），
+ * 并复用 {@link SystemOpsService#checkPermission} 做 minRole/permCode 权限判定——
+ * 权限完全跟随委托发起人，无系统委托身份回落。
  *
  * @author dept-mgmt
  */
@@ -46,26 +43,21 @@ public class McpOpsBridge {
     );
 
     private final OpsToolRegistry opsRegistry;
-    private final SysUserMapper userMapper;
     private final SystemOpsService systemOpsService;
     private final com.dept.mgmt.agent.collab.support.ApprovalActionRegistry approvalActionRegistry;
     private final com.dept.mgmt.agent.collab.service.DecisionAdviceService adviceService;
+    private final McpIdentityResolver identityResolver;
 
-    @Value("${app.mcp.acting-user-id:1}")
-    private long actingUserId;
-
-    /** 系统委托身份缓存（启动后首次调用时解析，失败回退最小身份） */
-    private volatile LoginUser delegateUser;
-
-    public McpOpsBridge(OpsToolRegistry opsRegistry, SysUserMapper userMapper,
+    public McpOpsBridge(OpsToolRegistry opsRegistry,
                         SystemOpsService systemOpsService,
                         com.dept.mgmt.agent.collab.support.ApprovalActionRegistry approvalActionRegistry,
-                        com.dept.mgmt.agent.collab.service.DecisionAdviceService adviceService) {
+                        com.dept.mgmt.agent.collab.service.DecisionAdviceService adviceService,
+                        McpIdentityResolver identityResolver) {
         this.opsRegistry = opsRegistry;
-        this.userMapper = userMapper;
         this.systemOpsService = systemOpsService;
         this.approvalActionRegistry = approvalActionRegistry;
         this.adviceService = adviceService;
+        this.identityResolver = identityResolver;
     }
 
     /** Ops 工具 → McpTool 列表（只读直连 + 白名单写工具审批化，保持注册顺序） */
@@ -88,12 +80,12 @@ public class McpOpsBridge {
             }
             // 白名单外写工具（如 ecn.approve / tender.collect）：不暴露
         }
-        log.info("MCP Ops 桥接注册完成: 只读 {} + 写工具(审批化) {}（A4 身份透传 + B4 审批桥接已启用）",
+        log.info("MCP Ops 桥接注册完成: 只读 {} + 写工具(审批化) {}（铁律二 fail-closed 身份 + B4 审批桥接已启用）",
                 out.size() - writeCount, writeCount);
         return out;
     }
 
-    /** OpsParam 声明 → JSON Schema（properties + required） */
+    /** OpsParam 声明 → JSON Schema（properties + required；统一注入 actingUserId 必填身份参数） */
     private Map<String, Object> toSchema(OpsTool t) {
         Map<String, Object> properties = new LinkedHashMap<>();
         List<String> required = new ArrayList<>();
@@ -108,6 +100,10 @@ public class McpOpsBridge {
                 required.add(p.getName());
             }
         }
+        // V2.0 铁律二：全部工具强制声明委托发起人身份（Hermes 按 required 回填）
+        properties.put(McpIdentityResolver.IDENTITY_PARAM,
+                Map.of("type", "integer", "description", McpIdentityResolver.IDENTITY_PARAM_DESC));
+        required.add(McpIdentityResolver.IDENTITY_PARAM);
         return McpTool.objectSchema(properties, required);
     }
 
@@ -121,11 +117,11 @@ public class McpOpsBridge {
     }
 
     /**
-     * 工具执行：解析生效身份（X-Acting-User-Id 透传优先 → 系统委托回落）
-     * → 逐调用权限校验（复用 SystemOpsService.checkPerm 语义）→ 以该身份执行。
+     * 工具执行：统一身份解析（V2.0 铁律二 fail-closed，args.actingUserId → 头透传 → 拒绝）
+     * → 逐调用权限校验（复用 SystemOpsService.checkPermission 语义）→ 以该身份执行。
      */
     private Object execute(OpsTool tool, Map<String, Object> args) {
-        LoginUser user = resolveActingUser();
+        LoginUser user = identityResolver.resolveUser(args);
         String denied = systemOpsService.checkPermission(tool, user);
         if (denied != null) {
             throw new BusinessException(403, denied);
@@ -134,12 +130,12 @@ public class McpOpsBridge {
     }
 
     /**
-     * 写工具执行（B4 审批化）：不直接写入——解析生效身份并权限校验通过后，
+     * 写工具执行（B4 审批化）：不直接写入——统一身份解析并权限校验通过后，
      * 经 requestToolApproval 生成待确认审批建议（HMAC 锁定参数，委托人采纳后执行）。
      * 白名单校验在 requestToolApproval 内部二次把关（deny-by-default）。
      */
     private Object executeWriteViaApproval(OpsTool tool, Map<String, Object> args) {
-        LoginUser user = resolveActingUser();
+        LoginUser user = identityResolver.resolveUser(args);
         String denied = systemOpsService.checkPermission(tool, user);
         if (denied != null) {
             throw new BusinessException(403, denied);
@@ -156,44 +152,5 @@ public class McpOpsBridge {
         log.info("MCP 写工具转审批: tool={}, adviceId={}, actingUser={}",
                 tool.getName(), advice.getId(), user.getUserId());
         return out;
-    }
-
-    /**
-     * 生效身份解析：透传用户（校验存在且未禁用，无效即 401 语义拒绝——
-     * 避免冒用他人身份静默降级到委托身份执行）→ 系统委托身份回落。
-     */
-    private LoginUser resolveActingUser() {
-        Long acting = McpCallContext.actingUserId();
-        if (acting != null) {
-            SysUser su = userMapper.selectById(acting);
-            if (su == null || (su.getStatus() != null && su.getStatus() == 0)) {
-                throw new BusinessException(401, "X-Acting-User-Id 对应用户无效或已禁用: " + acting);
-            }
-            return toLoginUser(su);
-        }
-        return delegateUser();
-    }
-
-    private LoginUser toLoginUser(SysUser su) {
-        return new LoginUser(su.getId(), su.getUsername(), su.getRoleCodes(), List.of());
-    }
-
-    /** 系统委托身份（懒加载：按 app.mcp.acting-user-id 查库；查不到回退最小身份） */
-    private LoginUser delegateUser() {
-        LoginUser u = delegateUser;
-        if (u != null) {
-            return u;
-        }
-        synchronized (this) {
-            if (delegateUser == null) {
-                SysUser su = userMapper.selectById(actingUserId);
-                delegateUser = su == null
-                        ? new LoginUser(actingUserId, "mcp-delegate", "", List.of())
-                        : toLoginUser(su);
-                log.info("MCP 系统委托身份就绪: userId={} username={}",
-                        delegateUser.getUserId(), delegateUser.getUsername());
-            }
-            return delegateUser;
-        }
     }
 }

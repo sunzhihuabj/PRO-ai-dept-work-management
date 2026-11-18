@@ -159,6 +159,8 @@ class HermesDelegateServiceTest {
         assertTrue(book.contains("lihailong"));
         assertTrue(book.contains("查询项目A并汇总风险"));
         assertTrue(book.contains("MCP 工具"));
+        // V2.0 铁律二：任务书强制声明 actingUserId 身份要求
+        assertTrue(book.contains("actingUserId=9"));
     }
 
     // ==================== 终态回写 ====================

@@ -96,9 +96,71 @@ public class OpenAiCompatProvider implements AiProvider {
     }
 
     /**
-     * OpenAI 兼容向量化：POST {endpoint}/embeddings  body: {model, input:[...]}
-     * 响应：data[i].embedding（与 input 顺序一致）
+     * 多模态对话（V2.0 E1 眼睛模块）：OpenAI vision 标准形状——
+     * messages[0].content 为部件数组 [{type:"text",text},{type:"image_url",image_url:{url:"data:..."}}]。
+     * LM Studio（gemma-4 视觉版）/任意 OpenAI vision 兼容端点均按此形状受理。
      */
+    @Override
+    @SuppressWarnings("unchecked")
+    public ProviderResult chat(AiProviderConfig config, String prompt, int maxTokens,
+                               List<String> imageDataUrls) throws Exception {
+        if (!StringUtils.hasText(config.getEndpoint())) {
+            throw new IllegalArgumentException("通道 endpoint 未配置");
+        }
+        String apiKey = config.resolveApiKey();
+        if (!StringUtils.hasText(apiKey)) {
+            throw new IllegalArgumentException("通道 API Key 未配置");
+        }
+        RestClient client = buildClient(config.getEndpoint(), apiKey);
+
+        List<Map<String, Object>> parts = new java.util.ArrayList<>();
+        parts.add(Map.of("type", "text", "text", prompt));
+        if (imageDataUrls != null) {
+            for (String dataUrl : imageDataUrls) {
+                if (!StringUtils.hasText(dataUrl)) {
+                    continue;
+                }
+                if (dataUrl.length() > 8_000_000) {
+                    throw new IllegalArgumentException("单张图片超过 5MB 上限");
+                }
+                parts.add(Map.of("type", "image_url",
+                        "image_url", Map.of("url", dataUrl)));
+            }
+        }
+        Map<String, Object> body = Map.of(
+                "model", config.getModel(),
+                "messages", List.of(Map.of("role", "user", "content", parts)),
+                "stream", false);
+
+        Map<String, Object> resp;
+        try {
+            resp = client.post()
+                    .uri("/chat/completions")
+                    .body(body)
+                    .retrieve()
+                    .body(Map.class);
+        } catch (Exception e) {
+            throw translate(e, config.getEndpoint());
+        }
+        if (resp == null) {
+            throw new IllegalStateException("上游返回空响应");
+        }
+        List<Map<String, Object>> choices = (List<Map<String, Object>>) resp.get("choices");
+        if (choices == null || choices.isEmpty()) {
+            throw new IllegalStateException("上游响应缺少 choices");
+        }
+        Map<String, Object> message = (Map<String, Object>) choices.get(0).get("message");
+        String content = message == null ? null : (String) message.get("content");
+        if (!StringUtils.hasText(content)) {
+            throw new IllegalStateException("上游返回空内容");
+        }
+        int tokens = 0;
+        Map<String, Object> usage = (Map<String, Object>) resp.get("usage");
+        if (usage != null && usage.get("total_tokens") instanceof Number n) {
+            tokens = n.intValue();
+        }
+        return new ProviderResult(content, tokens);
+    }
     @Override
     @SuppressWarnings("unchecked")
     public List<List<Double>> embed(AiProviderConfig config, List<String> texts) throws Exception {

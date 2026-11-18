@@ -4,6 +4,7 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
 
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -34,4 +35,11 @@ public class ChatRequest {
 
     /** 最大生成 Token 数（0=默认） */
     private Integer maxTokens = 0;
+
+    /**
+     * 图片列表（V2.0 E1 眼睛模块，可选）：data URL 形状（data:image/jpeg;base64,...），
+     * 最多 4 张，单张 base64 ≤5MB；仅支持多模态通道（如 LM Studio gemma-4 视觉版）
+     */
+    @Size(max = 4, message = "单次最多 4 张图片")
+    private List<String> images;
 }

@@ -1,4 +1,4 @@
-﻿$ErrorActionPreference = 'Continue'
+﻿﻿$ErrorActionPreference = 'Continue'
 [Console]::OutputEncoding = [Text.Encoding]::UTF8
 $login = Invoke-RestMethod -Uri 'http://127.0.0.1:8081/api/v1/auth/login' -Method Post -ContentType 'application/json' -Body '{"username":"sunzhihua","password":"123456"}'
 $token = $login.data.token
