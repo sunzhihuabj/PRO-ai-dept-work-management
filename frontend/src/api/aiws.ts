@@ -164,6 +164,58 @@ export function describeImageApi(data: { images: string[]; prompt?: string }) {
   return post<string>('/v1/ai/vision/describe', data)
 }
 
+// ==================== M6 文档工作台（V2.0） ====================
+
+export interface AiDocDraft {
+  id: number
+  docNo: string
+  title: string
+  contentMd?: string
+  version: number
+  status: 'DRAFT' | 'REVIEW' | 'APPROVED' | string
+  source: string
+  conversationId?: number | null
+  createBy?: string
+  updateBy?: string
+  createTime?: string
+  updateTime?: string
+}
+
+export function listDocsApi(status?: string) {
+  const params = new URLSearchParams()
+  if (status) params.set('status', status)
+  return get<AiDocDraft[]>(`/v1/ai/docs?${params.toString()}`)
+}
+
+export function getDocApi(id: number) {
+  return get<AiDocDraft>(`/v1/ai/docs/${id}`)
+}
+
+export function updateDocApi(id: number, data: { title?: string; contentMd?: string }) {
+  return put<AiDocDraft>(`/v1/ai/docs/${id}`, data)
+}
+
+export function submitDocReviewApi(id: number) {
+  return post<AiDocDraft>(`/v1/ai/docs/${id}/submit-review`)
+}
+
+export function approveDocApi(id: number) {
+  return post<AiDocDraft>(`/v1/ai/docs/${id}/approve`)
+}
+
+export interface DocRiskItem {
+  section: string
+  risk: string
+  basis: string
+  suggestion: string
+}
+
+export function complianceCheckApi(id: number) {
+  return post<{ docId: number; docNo: string; version: number; conclusion: string; items: DocRiskItem[]; kbBasisCount: number }>(
+    `/v1/ai/docs/${id}/compliance-check`
+  )
+}
+
 
 // ==================== 流程定义 ====================
 

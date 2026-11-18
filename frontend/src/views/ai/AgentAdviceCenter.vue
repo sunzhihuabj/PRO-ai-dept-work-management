@@ -211,13 +211,17 @@ function sceneName(s: string) {
   return ({
     PROJECT_CREATED: '立项预审', TASK_CREATED: '任务创建',
     TASK_STATUS_CHANGED: '状态流转', PROJECT_PROGRESS: '阶段完成',
-    TOOL_APPROVAL: '写操作确认', HERMES_APPROVAL: 'Hermes 执行授权'
+    TOOL_APPROVAL: '写操作确认', HERMES_APPROVAL: 'Hermes 执行授权',
+    TASK_OVERDUE_REMIND: '超期催办', PROCESS_SLA_WARNING: '流程健康度',
+    ADVISOR: '专业意见'
   } as Record<string, string>)[s] || s
 }
 function sceneTag(s: string) {
   return ({ PROJECT_CREATED: 'primary', TASK_CREATED: 'success',
     TASK_STATUS_CHANGED: 'warning', PROJECT_PROGRESS: 'primary',
-    TOOL_APPROVAL: 'danger', HERMES_APPROVAL: 'danger' } as Record<string, any>)[s] || 'info'
+    TOOL_APPROVAL: 'danger', HERMES_APPROVAL: 'danger',
+    TASK_OVERDUE_REMIND: 'warning', PROCESS_SLA_WARNING: 'danger',
+    ADVISOR: 'primary' } as Record<string, any>)[s] || 'info'
 }
 function contentTag(row: any) {
   const t = parse(row).type

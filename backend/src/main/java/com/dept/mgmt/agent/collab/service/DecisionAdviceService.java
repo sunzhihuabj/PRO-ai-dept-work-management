@@ -55,6 +55,8 @@ public class DecisionAdviceService {
     public static final String SCENE_TASK_OVERDUE_REMIND = "TASK_OVERDUE_REMIND";
     /** V2.0 M4：流程健康度巡检预警（工作日 SLA 巡检） */
     public static final String SCENE_PROCESS_SLA_WARNING = "PROCESS_SLA_WARNING";
+    /** V2.0 M7：专业意见（AGT-28 行业标准合规/优化建议，依据可回链 kb） */
+    public static final String SCENE_ADVISOR = "ADVISOR";
     /** B5：Hermes run 审批中断（waiting_for_approval）映射建议 */
     public static final String SCENE_HERMES_APPROVAL = "HERMES_APPROVAL";
 
@@ -435,6 +437,31 @@ public class DecisionAdviceService {
         advice(scene, sourceType, sourceId, null, title, "WARNING", body,
                 structured == null ? Map.of() : structured,
                 1.0, "MEDIUM", false, null, null, List.of(), targetUserId, 24);
+    }
+
+    /**
+     * 专业意见入口（V2.0 M7，AGT-28）：意见 + 依据引用（evidenceJson 可回链 kb 文档）落建议中心。
+     * 置信度 <0.85 requiresApproval=1 强制人工审核（V2.0 校验标准：低置信度意见 100% 进审核流）。
+     */
+    public void createAdvisorAdvice(String question, String opinion, double confidence,
+                                    List<Map<String, String>> citations, Long userId, boolean needReview) {
+        String q = question == null ? "" : question;
+        advice(SCENE_ADVISOR, "QUESTION",
+                Math.abs((long) q.hashCode()),
+                null,
+                "专业意见：" + abbreviate2(q, 60),
+                "INFO", opinion,
+                Map.of("question", q, "confidence", confidence),
+                confidence, needReview ? "HIGH" : "MEDIUM",
+                needReview, null, null,
+                citations, userId, 48);
+    }
+
+    private static String abbreviate2(String s, int max) {
+        if (s == null) {
+            return "";
+        }
+        return s.length() > max ? s.substring(0, max) + "…" : s;
     }
 
     /** 统一建议落库 + 站内信推送 */

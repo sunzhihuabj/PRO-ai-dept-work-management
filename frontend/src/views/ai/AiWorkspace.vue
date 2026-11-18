@@ -97,6 +97,11 @@
               <el-empty v-if="!agentTasks.length" description="暂无任务" :image-size="60" />
             </el-scrollbar>
           </el-tab-pane>
+
+          <!-- 文档工作台（V2.0 M6） -->
+          <el-tab-pane label="文档" name="doc" lazy>
+            <DocWorkbench ref="docWorkbenchRef" />
+          </el-tab-pane>
         </el-tabs>
       </template>
 
@@ -104,6 +109,7 @@
       <div v-else class="collapsed-rail">
         <el-tooltip content="对话" placement="right"><el-icon class="rail-icon" :class="{ on: sideTab === 'chat' }" @click="collapsed = false"><ChatDotRound /></el-icon></el-tooltip>
         <el-tooltip content="能力广场" placement="right"><el-icon class="rail-icon" :class="{ on: sideTab === 'capability' }" @click="collapsed = false; sideTab = 'capability'"><MagicStick /></el-icon></el-tooltip>
+        <el-tooltip content="文档工作台" placement="right"><el-icon class="rail-icon" :class="{ on: sideTab === 'doc' }" @click="collapsed = false; sideTab = 'doc'"><Document /></el-icon></el-tooltip>
         <el-tooltip content="流程" placement="right"><el-icon class="rail-icon" :class="{ on: sideTab === 'workflow' }" @click="collapsed = false; sideTab = 'workflow'"><SetUp /></el-icon></el-tooltip>
         <el-tooltip content="任务" placement="right"><el-icon class="rail-icon" :class="{ on: sideTab === 'task' }" @click="collapsed = false; sideTab = 'task'"><Cpu /></el-icon></el-tooltip>
       </div>
@@ -297,13 +303,14 @@
 import { computed, nextTick, onActivated, onDeactivated, onMounted, onUnmounted, ref } from 'vue'
 import { ElMessage, ElMessageBox, ElNotification } from 'element-plus'
 import {
-  Back, ChatDotRound, Close, Cpu, Delete, DocumentCopy, Download, Edit, Fold, Expand, MagicStick,
+  Back, ChatDotRound, Close, Cpu, Delete, Document, DocumentCopy, Download, Edit, Fold, Expand, MagicStick,
   Microphone, Operation, Paperclip, Picture, Plus, Promotion, RefreshRight, Search, Service,
   SetUp, Top, VideoPause, VideoPlay, View
 } from '@element-plus/icons-vue'
 import { renderMarkdown } from '@/utils/sanitize'
 import TaskCard from './components/TaskCard.vue'
 import HermesCard from './components/HermesCard.vue'
+import DocWorkbench from './components/DocWorkbench.vue'
 import WorkflowPanel from './components/WorkflowPanel.vue'
 import {
   chatApi, createConversationApi, deleteConversationApi, describeImageApi, listConversationsApi,
@@ -353,7 +360,7 @@ const LEVEL_TYPE: Record<string, TagType> = { '1': 'warning', '2': 'primary', '3
 // ==================== 状态 ====================
 const collapsed = ref(false)
 const searchKey = ref('')
-const sideTab = ref<'chat' | 'capability' | 'workflow' | 'task'>('chat')
+const sideTab = ref<'chat' | 'capability' | 'workflow' | 'task' | 'doc'>('chat')
 const mainView = ref<'chat' | 'workflow'>('chat')
 const conversations = ref<AiConversation[]>([])
 const workflows = ref<WfWorkflow[]>([])
@@ -368,6 +375,7 @@ const chatScrollRef = ref()
 const taskDrawer = ref(false)
 const drawerTaskId = ref<number | null>(null)
 const workflowPanelRef = ref()
+const docWorkbenchRef = ref<InstanceType<typeof DocWorkbench>>()
 const docInputRef = ref<HTMLInputElement>()
 const uploadingDoc = ref(false)
 // E1 眼睛：图片识别 + 读屏

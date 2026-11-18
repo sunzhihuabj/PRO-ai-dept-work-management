@@ -35,6 +35,8 @@ public class McpToolRegistry {
     private final McpOpsBridge opsBridge;
     private final com.dept.mgmt.aiworkspace.service.WebSearchService webSearchService;
     private final com.dept.mgmt.aiworkspace.service.ProcessGovernanceService governanceService;
+    private final com.dept.mgmt.aiworkspace.service.DocDraftService docDraftService;
+    private final com.dept.mgmt.aiworkspace.service.DocComplianceService docComplianceService;
     private final Map<String, CapabilityHandler> handlers;
 
     private final Map<String, McpTool> tools;
@@ -46,6 +48,8 @@ public class McpToolRegistry {
                            McpOpsBridge opsBridge,
                            com.dept.mgmt.aiworkspace.service.WebSearchService webSearchService,
                            com.dept.mgmt.aiworkspace.service.ProcessGovernanceService governanceService,
+                           com.dept.mgmt.aiworkspace.service.DocDraftService docDraftService,
+                           com.dept.mgmt.aiworkspace.service.DocComplianceService docComplianceService,
                            List<CapabilityHandler> handlerBeans) {
         this.taskService = taskService;
         this.projectService = projectService;
@@ -55,6 +59,8 @@ public class McpToolRegistry {
         this.opsBridge = opsBridge;
         this.webSearchService = webSearchService;
         this.governanceService = governanceService;
+        this.docDraftService = docDraftService;
+        this.docComplianceService = docComplianceService;
         this.handlers = handlerBeans.stream()
                 .collect(Collectors.toMap(CapabilityHandler::capabilityCode, Function.identity()));
         // A3：手写核心 8 工具 + Ops 只读工具自动桥接（McpOpsBridge 内部已去重）
@@ -202,7 +208,28 @@ public class McpToolRegistry {
                 new McpTool("process.sla.report",
                         "流程健康度报告（超期任务统计 + 在途审批超 72h SLA 统计 + 明细 top20；工作日巡检同源数据）",
                         McpTool.objectSchema(Map.of(), null),
-                        args -> governanceService.slaReport()));
+                        args -> governanceService.slaReport()),
+
+                // ---- V2.0 M6 文档工作台（起草落库写经审批 + 只读） ----
+                new McpTool("doc.draft.list",
+                        "查询 AI 文档草稿清单（状态过滤：DRAFT/REVIEW/APPROVED）",
+                        McpTool.objectSchema(Map.of(
+                                "status", Map.of("type", "string", "description", "状态过滤（可空=全部）")), null),
+                        args -> docDraftService.list(strArg(args, "status"), 20)),
+                new McpTool("doc.draft.create",
+                        "创建 AI 文档草稿落库（标题+Markdown 正文；写入操作，触发审批确认后生效；V2.0 M6 起草端到端入口）",
+                        McpTool.objectSchema(Map.of(
+                                "title", Map.of("type", "string", "description", "文档标题"),
+                                "contentMd", Map.of("type", "string", "description", "正文（Markdown）"),
+                                "source", Map.of("type", "string", "description", "来源（HERMES/AGENT，缺省 AGENT）")), List.of("title", "contentMd")),
+                        true,
+                        args -> docDraftService.create(strArg(args, "title"), strArg(args, "contentMd"),
+                                strArg(args, "source") == null ? "AGENT" : strArg(args, "source"), null, String.valueOf(identityOr(args)))),
+                new McpTool("doc.compliance.check",
+                        "文档合规审核（kb 行业规范依据 + LLM 逐节比对 → 结构化风险清单：章节/风险项/依据/建议改法；只读）",
+                        McpTool.objectSchema(Map.of(
+                                "docId", Map.of("type", "integer", "description", "文档ID")), List.of("docId")),
+                        args -> docComplianceService.check(requireLong(args, "docId"), identityOr(args))));
     }
 
     private static long requireLong(Map<String, Object> args, String key) {

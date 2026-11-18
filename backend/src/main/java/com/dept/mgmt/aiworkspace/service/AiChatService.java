@@ -55,6 +55,10 @@ public class AiChatService {
             Pattern.compile("联网(检索|搜索|查询|查一下|查查)|网上(搜索|查询|找一下|查一下)|搜索一下|搜一下|websearch",
                     Pattern.CASE_INSENSITIVE);
 
+    /** 专业意见意图（V2.0 M7：显式触发词；行业/合规语义类问题由 LLM 意图捞回层补判） */
+    private static final Pattern ADVISOR_PATTERN =
+            Pattern.compile("专业意见|合规意见|行业标准(要求|怎么说|是什么)|应该符合(什么|哪些)(标准|规范)");
+
     private final AiConversationMapper conversationMapper;
     private final AiMessageMapper messageMapper;
     private final MasterAgentService masterAgentService;
@@ -169,6 +173,12 @@ public class AiChatService {
                 return m;
             }
         }
+        if (ADVISOR_PATTERN.matcher(content).find()) {
+            AiMessage m = tryAdvisor(conv, content, userId);
+            if (m != null) {
+                return m;
+            }
+        }
         if (WF_CREATE_PATTERN.matcher(content).find()) {
             return handleWorkflowIntent(conv, content);
         }
@@ -249,12 +259,32 @@ public class AiChatService {
             case "WORKFLOW" -> handleWorkflowIntent(conv, content);
             case "OPS" -> systemOpsService.tryOps(conv, content, current());
             case "AGENT_TASK" -> tryAgentTask(conv, content, userId);
+            case "ADVISOR" -> tryAdvisor(conv, content, userId);
             case "DELEGATE" -> {
                 LoginUser u = current();
                 yield hermesDelegateService.delegate(conv, content, u.getUserId(), u.getUsername());
             }
             default -> null;
         };
+    }
+
+    /**
+     * M7 专业意见（AGT-28）：kb 依据检索 + LLM 专业推理 → 意见落「决策建议中心」，
+     * 置信度 <0.85 强制人工审核；回复任务卡片。
+     */
+    private AiMessage tryAdvisor(AiConversation conv, String content, Long userId) {
+        try {
+            AgentTask task = masterAgentService.submitAs(content, "AGT-28", null, userId);
+            AiMessage msg = saveMessage(conv.getId(), "assistant",
+                    "已受理为专业意见任务 **" + task.getTaskNo() + "**（AGT-28，kb 依据检索 + 专业推理）。"
+                            + "意见与依据引用完成后回写本卡片；置信度低于 0.85 的意见将自动进入人工审核流（决策建议中心）。",
+                    "task", task.getId(), null);
+            log.info("对话路由至专业意见: conv={}, taskNo={}", conv.getConvNo(), task.getTaskNo());
+            return msg;
+        } catch (BusinessException e) {
+            log.debug("专业意见受理未命中，降级: {}", e.getMessage());
+            return null;
+        }
     }
 
     /**

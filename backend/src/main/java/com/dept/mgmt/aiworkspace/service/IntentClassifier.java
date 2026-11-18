@@ -27,7 +27,7 @@ public class IntentClassifier {
 
     /** 支持的意图标签（与路由 handler 一一对应） */
     public static final List<String> INTENTS =
-            List.of("WORKFLOW", "OPS", "AGENT_TASK", "DELEGATE", "QUERY", "CHAT");
+            List.of("WORKFLOW", "OPS", "AGENT_TASK", "DELEGATE", "ADVISOR", "QUERY", "CHAT");
 
     /** 直接路由的最低置信度 */
     static final double MIN_CONFIDENCE = 0.75;
@@ -40,6 +40,7 @@ public class IntentClassifier {
             - OPS：要求执行系统内单步操作（改状态、建任务、查数据等，可明确对应系统功能）
             - AGENT_TASK：适合后台 Agent 能力点批量执行的分析/生成/采集类任务
             - DELEGATE：复杂多步/跨模块的综合任务，需要 AI Agent 员工全程处理
+            - ADVISOR：行业/专业/合规类问题（标准要求、规范意见、合规怎么做、是否符合某标准）
             - QUERY：咨询问题、需要解释或知识问答
             - CHAT：闲聊、寒暄、与系统无关
             置信度 confidence 取 0~1。示例：
