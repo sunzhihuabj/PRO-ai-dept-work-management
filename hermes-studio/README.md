@@ -28,6 +28,16 @@ Hermes Agent → 工具：部门 backend :8081 /api/mcp（MCP + 审批化写工�
 | 模型与技能 | `/models` | /v1/models、/api/model/options（含未配置/强制刷新）、/v1/toolsets、/v1/skills |
 | 设置 | `/settings` | 连接拓扑、服务端配置（key 脱敏）、运行要点备忘 |
 
+## 三感能力（2026-11-18 [HS2]）
+
+| 感官 | 实现 | 说明 |
+|---|---|---|
+| 👁 眼睛 | 聊天框上传/粘贴/拖拽图片 → canvas 降采样（≤1568px）→ Hermes 多模态部件 `{type:"image_url",image_url:{url:"data:image/..."}}` | 形状为 Hermes 原生 OpenAI vision 契约（api_server.py:_normalize_image_part）；E2E T11 实证 agent 收图后自动调用 terminal 工具分析 |
+| 👂 耳朵 | 麦克风按钮 → Web Speech API（webkitSpeechRecognition，zh-CN，连续+中间结果） | Chrome/Edge 可用；不支持时按钮自动禁用；麦克风权限需浏览器允许 |
+| 👄 嘴巴 | 每条回复 🔊 朗读按钮 + 全局"自动播报"开关（localStorage 持久化）→ SpeechSynthesis（zh-CN 声音优先，Markdown 剥离后朗读） | 无声音包环境自动降级提示；朗读中再点即停 |
+
+注：模型"真视觉"取决于通道模型能力（当前 Qwen3.5-122B 走文字路径，图片经 Hermes 存档并触发工具分析）；切换 VL 模型通道后即获完整图像理解。
+
 ## 快速开始
 
 ```bash

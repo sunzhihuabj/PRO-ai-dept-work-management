@@ -63,9 +63,10 @@ export const lockSessionModel = (id: string, body: { model: string }) =>
   hermes<any>(`/api/sessions/${id}/model`, { method: 'POST', body })
 
 // 会话流式聊天：POST /api/sessions/{id}/chat/stream
+// message 支持 string 或多模态部件数组（{type:"text"|"image_url",...}，Hermes 原生 OpenAI vision 形状）
 export function chatStream(
   sessionId: string,
-  body: { message: string; system_message?: string; model?: string },
+  body: { message: string | any[]; system_message?: string; model?: string },
   onFrame: (f: SseFrame) => void,
   signal?: AbortSignal
 ): Promise<void> {

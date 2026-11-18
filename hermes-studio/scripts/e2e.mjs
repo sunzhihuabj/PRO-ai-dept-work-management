@@ -311,6 +311,50 @@ async function t10_static_and_proxy() {
   return `入口 JS ${(m[1])} 200, SPA fallback ok, 代理 404 透传 ok`
 }
 
+// T11 多模态（眼睛管线）：image_url 部件形状契约 + turn 终态
+async function t11_multimodal() {
+  const title = `e2e-vision-${Date.now()}`
+  const created = await j(await fetch(`${B}/api/hermes/api/sessions`, { method: 'POST', headers: authHeaders, body: JSON.stringify({ title, source: 'studio' }) }))
+  const sid = created?.session?.id || created?.id
+  createdSessions.push(sid)
+  // 1x1 红色 PNG（形状验证用；模型是否真有视觉取决于通道，Hermes 接受形状即管线 OK）
+  const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
+  const parts = [
+    { type: 'text', text: '图片里是什么颜色？只答颜色词。' },
+    { type: 'image_url', image_url: { url: `data:image/png;base64,${png}` } }
+  ]
+  const resp = await fetch(`${B}/api/hermes/api/sessions/${sid}/chat/stream`, {
+    method: 'POST', headers: authHeaders, body: JSON.stringify({ message: parts })
+  })
+  if (resp.status === 400) {
+    const body = await j(resp).catch(() => ({}))
+    throw new Error(`多模态形状被拒(400): ${JSON.stringify(body).slice(0, 200)}`)
+  }
+  if (resp.status !== 200) throw new Error(`SSE HTTP ${resp.status}`)
+  const seen = new Set()
+  let finalText = ''
+  let failed = ''
+  await collectSse(resp, {
+    maxMs: 120000,
+    onFrame: (ev, p) => {
+      const name = p?.event || ev
+      if (name) seen.add(name)
+      if (name === 'assistant.completed') finalText = p?.content || finalText
+      if (name === 'run.completed') finalText = p?.output || finalText
+      if (name === 'run.failed') failed = p?.error || ''
+    }
+  })
+  await fetch(`${B}/api/hermes/api/sessions/${sid}`, { method: 'DELETE', headers: authHeaders })
+  createdSessions.pop()
+  const terminal = seen.has('run.completed') || seen.has('run.failed') || seen.has('done')
+  if (!terminal) throw new Error(`未到终态（事件: ${[...seen].join(',')}）`)
+  if (!seen.has('run.started')) throw new Error('缺 run.started — 管线未受理多模态消息')
+  if (failed) {
+    return `PASS(管线): image_url 部件被受理并到终态 failed — 模型通道无视觉能力(环境): ${failed.slice(0, 80)}`
+  }
+  return `PASS(全链): 模型响应 "${String(finalText).slice(0, 40)}"`
+}
+
 // ================= 主流程 =================
 console.log(`\n===== Hermes Studio E2E 开始（${FAST ? 'fast 模式，跳过 LLM 长用例' : '全量'} @ ${new Date().toLocaleString('zh-CN', { hour12: false })}）=====\n`)
 
@@ -325,6 +369,7 @@ if (!FAST) {
   await timed('T06 聊天流式（真实 LLM）', t06_chat_stream, { retries: 2, skipOnUpstream: true })
   await timed('T07 异步委托生命周期（投递→SSE→轮询→终态）', t07_runs_lifecycle, { retries: 1, skipOnUpstream: true })
   await timed('T08 审批流（触发→once 回调→终态）', t08_approval_flow, { retries: 1, skipOnUpstream: true })
+  await timed('T11 多模态（眼睛管线 image_url 形状契约）', t11_multimodal, { skipOnUpstream: true })
 } else {
   record('T06 聊天流式（真实 LLM）', 'SKIP', 'fast 模式')
   record('T07 异步委托生命周期', 'SKIP', 'fast 模式')

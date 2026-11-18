@@ -8,6 +8,11 @@ import {
 import MarkdownView from '../components/MarkdownView.vue'
 import ApprovalCard from '../components/ApprovalCard.vue'
 import { useRuntimeStore } from '../stores/runtime'
+import {
+  PreparedImage, prepareImage, buildChatMessage,
+  speechRecognitionSupported, startRecognition, RecognitionHandle,
+  ttsSupported, speak, stopSpeaking, isSpeaking
+} from '../utils/media'
 
 const runtime = useRuntimeStore()
 const route = useRoute()
@@ -64,6 +69,7 @@ function fmtLast(ts?: number) {
 interface ChatMsg {
   role: 'user' | 'assistant'
   content: string
+  images?: string[] // dataURL 缩略展示（用户消息附带）
   tools: { name: string; status: 'running' | 'ok' | 'failed'; preview?: string }[]
   approval?: any
   usage?: any
@@ -79,6 +85,118 @@ const runId = ref('') // run.started 事件记录，供审批卡定位 run
 let aborter: AbortController | null = null
 const scrollBox = ref<HTMLElement>()
 
+// ---------- 眼睛：图片附件 ----------
+const attached = ref<PreparedImage[]>([])
+const fileInput = ref<HTMLInputElement>()
+const dragOver = ref(false)
+
+function pickImage() {
+  fileInput.value?.click()
+}
+
+async function onFilesChosen(ev: Event) {
+  const input_ = ev.target as HTMLInputElement
+  await absorbFiles(input_.files)
+  input_.value = ''
+}
+
+async function absorbFiles(files: FileList | File[] | null) {
+  if (!files?.length) return
+  for (const f of Array.from(files).slice(0, 4)) {
+    try {
+      attached.value.push(await prepareImage(f))
+    } catch (e: any) {
+      ElMessage.error(e?.message || '图片处理失败')
+    }
+  }
+}
+
+function removeImage(i: number) {
+  attached.value.splice(i, 1)
+}
+
+function onPaste(ev: ClipboardEvent) {
+  const items = ev.clipboardData?.items
+  if (!items) return
+  const imgs: File[] = []
+  for (const it of items) {
+    if (it.type.startsWith('image/')) {
+      const f = it.getAsFile()
+      if (f) imgs.push(f)
+    }
+  }
+  if (imgs.length) {
+    ev.preventDefault()
+    absorbFiles(imgs)
+  }
+}
+
+function onDrop(ev: DragEvent) {
+  dragOver.value = false
+  const files = ev.dataTransfer?.files
+  if (files?.length) absorbFiles(files)
+}
+
+// ---------- 耳朵：语音输入 ----------
+const listening = ref(false)
+const listeningInterim = ref('')
+let recHandle: RecognitionHandle | null = null
+
+const micSupported = speechRecognitionSupported()
+
+function toggleMic() {
+  if (listening.value) {
+    recHandle?.stop()
+    return
+  }
+  const base = input.value ? input.value + ' ' : ''
+  recHandle = startRecognition(
+    (finalText, interim) => {
+      input.value = base + finalText + interim
+      listeningInterim.value = interim
+    },
+    (err) => {
+      listening.value = false
+      listeningInterim.value = ''
+      if (err === 'not-allowed') ElMessage.error('麦克风权限被拒绝，请在浏览器地址栏允许麦克风')
+      else if (err && err !== 'aborted') ElMessage.warning(`语音识别中断：${err}`)
+    }
+  )
+  if (recHandle) {
+    listening.value = true
+    ElMessage.info('开始聆听…再点一次麦克风结束')
+  } else {
+    ElMessage.warning('当前浏览器不支持语音识别')
+  }
+}
+
+// ---------- 嘴巴：语音播报 ----------
+const autoSpeak = ref(localStorage.getItem('hs-auto-speak') === '1')
+const speakingKey = ref('')
+
+function toggleAutoSpeak() {
+  autoSpeak.value = !autoSpeak.value
+  localStorage.setItem('hs-auto-speak', autoSpeak.value ? '1' : '0')
+  if (!autoSpeak.value) {
+    stopSpeaking()
+    speakingKey.value = ''
+  }
+}
+
+function toggleSpeak(msg: ChatMsg, key: string) {
+  if (speakingKey.value === key && isSpeaking()) {
+    stopSpeaking()
+    speakingKey.value = ''
+    return
+  }
+  const ok = speak(msg.content, () => {
+    speakingKey.value = ''
+  })
+  if (ok) speakingKey.value = key
+  else ElMessage.warning('当前浏览器不支持语音合成')
+}
+
+// ---------- 会话加载/发送 ----------
 async function loadHistory() {
   if (!activeId.value) {
     history.value = []
@@ -109,12 +227,20 @@ function scrollBottom() {
 
 async function send() {
   const text = input.value.trim()
-  if (!text) return
+  const images = [...attached.value]
+  if (!text && !images.length) return
   if (!activeId.value) return ElMessage.warning('请先选择或新建会话')
   if (streaming.value) return ElMessage.warning('正在回复中')
 
-  history.value.push({ role: 'user', content: text, tools: [] })
+  history.value.push({
+    role: 'user',
+    content: text,
+    images: images.map((i) => i.dataUrl),
+    tools: []
+  })
   input.value = ''
+  attached.value = []
+  if (listening.value) recHandle?.stop()
   live.value = { role: 'assistant', content: '', tools: [] }
   streaming.value = true
   runId.value = ''
@@ -124,7 +250,7 @@ async function send() {
   try {
     await chatStream(
       activeId.value,
-      { message: text },
+      { message: buildChatMessage(text, images) },
       (frame) => {
         let payload: any = null
         try {
@@ -132,6 +258,7 @@ async function send() {
         } catch {
           payload = null
         }
+        // chat/stream 事件名在 SSE event: 行（data JSON 无 event 字段，与 /v1/runs 不同）
         const ev = payload?.event || frame.event || ''
         const liveMsg = live.value!
         switch (ev) {
@@ -205,6 +332,10 @@ async function send() {
   } finally {
     if (live.value && (live.value.content || live.value.error || live.value.tools.length)) {
       history.value.push(live.value)
+      // 嘴巴：自动播报本轮回复（静默失败）
+      if (autoSpeak.value && live.value.content && !live.value.error) {
+        speak(live.value.content)
+      }
     }
     live.value = null
     streaming.value = false
@@ -262,12 +393,29 @@ onMounted(async () => {
       </div>
     </aside>
 
-    <section class="chat-main">
+    <section class="chat-main" :class="{ 'drag-over': dragOver }" @dragover.prevent="dragOver = true" @dragleave="dragOver = false" @drop.prevent="onDrop">
       <template v-if="activeId">
+        <div class="chat-toolbar">
+          <el-button size="small" :type="autoSpeak ? 'primary' : 'default'" round @click="toggleAutoSpeak">
+            <el-icon><Bell /></el-icon>自动播报{{ autoSpeak ? '开' : '关' }}
+          </el-button>
+          <span class="muted">可拖拽/粘贴/上传图片（眼睛）· 麦克风语音输入（耳朵）· 朗读回复（嘴巴）</span>
+        </div>
+
         <div ref="scrollBox" class="chat-scroll" data-testid="chat-scroll">
           <div v-loading="loadingHistory">
             <div v-for="(m, i) in history" :key="i" class="chat-msg" :class="m.role">
               <div class="bubble">
+                <div v-if="m.images?.length" class="msg-images">
+                  <el-image
+                    v-for="(src, j) in m.images"
+                    :key="j"
+                    :src="src"
+                    :preview-src-list="m.images"
+                    fit="cover"
+                    class="msg-image-thumb"
+                  />
+                </div>
                 <MarkdownView v-if="m.role === 'assistant'" :content="m.content" />
                 <template v-else>{{ m.content }}</template>
                 <div v-if="m.tools?.length" style="margin-top: 8px; display: flex; flex-wrap: wrap; gap: 6px">
@@ -281,6 +429,13 @@ onMounted(async () => {
                   tokens：入 {{ m.usage.input_tokens ?? m.usage.prompt_tokens ?? '-' }} / 出 {{ m.usage.output_tokens ?? m.usage.completion_tokens ?? '-' }}
                 </div>
                 <el-alert v-if="m.error" :title="m.error" type="error" :closable="false" style="margin-top: 8px" />
+                <el-icon
+                  v-if="m.role === 'assistant' && m.content && ttsSupported()"
+                  class="speak-btn"
+                  :class="{ speaking: speakingKey === 'h' + i }"
+                  :title="speakingKey === 'h' + i ? '停止朗读' : '朗读这条回复'"
+                  @click="toggleSpeak(m, 'h' + i)"
+                ><component :is="speakingKey === 'h' + i ? 'VideoPause' : 'Service'" /></el-icon>
               </div>
             </div>
 
@@ -293,11 +448,7 @@ onMounted(async () => {
                     {{ t.name }}{{ t.status === 'running' ? ' …' : '' }}
                   </el-tag>
                 </div>
-                <ApprovalCard
-                  v-if="live.approval && runId"
-                  :run-id="runId"
-                  :payload="live.approval"
-                />
+                <ApprovalCard v-if="live.approval && runId" :run-id="runId" :payload="live.approval" />
                 <div v-if="live.usage" class="muted" style="margin-top: 6px">
                   tokens：入 {{ live.usage.input_tokens ?? '-' }} / 出 {{ live.usage.output_tokens ?? '-' }}
                 </div>
@@ -307,16 +458,38 @@ onMounted(async () => {
           </div>
         </div>
 
+        <div v-if="attached.length" class="attach-row">
+          <div v-for="(img, i) in attached" :key="i" class="attach-thumb">
+            <el-image :src="img.dataUrl" fit="cover" style="width: 44px; height: 44px; border-radius: 6px" />
+            <el-icon class="attach-del" @click="removeImage(i)"><CircleCloseFilled /></el-icon>
+            <span class="muted">{{ img.width }}×{{ img.height }}</span>
+          </div>
+        </div>
+
         <div class="chat-input-bar">
+          <div class="sense-btns">
+            <el-button size="small" circle title="上传图片（眼睛）" @click="pickImage"><el-icon><Picture /></el-icon></el-button>
+            <el-button
+              size="small"
+              circle
+              :type="listening ? 'danger' : 'default'"
+              :title="micSupported ? (listening ? '停止聆听' : '语音输入（耳朵）') : '当前浏览器不支持语音识别'"
+              :disabled="!micSupported"
+              @click="toggleMic"
+            >
+              <el-icon><Microphone /></el-icon>
+            </el-button>
+          </div>
           <el-input
             v-model="input"
             type="textarea"
             :rows="2"
             resize="none"
-            placeholder="输入消息，Enter 发送 / Shift+Enter 换行"
+            :placeholder="listening ? '聆听中…（说话即输入）' : '输入消息，Enter 发送 / Shift+Enter 换行；可粘贴或拖入图片'"
             data-testid="chat-input"
             :disabled="streaming"
             @keydown.enter.exact.prevent="send"
+            @paste="onPaste"
           />
           <div style="display: flex; flex-direction: column; gap: 8px">
             <el-button type="primary" :loading="streaming" data-testid="chat-send" @click="send">
@@ -325,6 +498,7 @@ onMounted(async () => {
             <el-button v-if="streaming" size="small" @click="stopStream">中断</el-button>
           </div>
         </div>
+        <input ref="fileInput" type="file" accept="image/*" multiple style="display: none" @change="onFilesChosen" />
       </template>
       <el-empty v-else description="从左侧选择会话，或新建一个开始与 Hermes Agent 对话" style="margin: auto" />
     </section>
@@ -340,4 +514,17 @@ onMounted(async () => {
 .session-del:hover { color: #f56c6c; }
 .rotating { animation: spin 1s linear infinite; }
 @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+.chat-toolbar { padding: 8px 16px 0; display: flex; align-items: center; gap: 12px; }
+.chat-main.drag-over { outline: 2px dashed var(--hs-primary); outline-offset: -4px; }
+.msg-images { display: flex; gap: 6px; margin-bottom: 6px; flex-wrap: wrap; }
+.msg-image-thumb { width: 72px; height: 72px; border-radius: 8px; }
+.attach-row { border-top: 1px solid var(--hs-border); padding: 8px 16px 0; display: flex; gap: 10px; }
+.attach-thumb { display: flex; align-items: center; gap: 4px; position: relative; padding-right: 40px; }
+.attach-del { position: absolute; right: 24px; top: -2px; color: #f56c6c; cursor: pointer; }
+.sense-btns { display: flex; flex-direction: column; gap: 6px; }
+.speak-btn { float: right; margin-left: 10px; color: #c0c4cc; cursor: pointer; }
+.speak-btn:hover { color: var(--hs-primary); }
+.speak-btn.speaking { color: var(--hs-primary); animation: pulse 1s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: 0.4; } }
 </style>
