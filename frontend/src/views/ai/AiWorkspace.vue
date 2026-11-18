@@ -177,10 +177,15 @@
                       </div>
                     </div>
 
-                    <!-- 消息操作栏（T-409 对齐豆包：复制/重新生成/赞/踩） -->
+                    <!-- 消息操作栏（T-409 对齐豆包：复制/朗读/重新生成/赞/踩） -->
                     <div v-if="m.msgType === 'text'" class="msg-ops">
                       <el-tooltip content="复制" placement="top">
                         <el-icon size="14" @click="copyText(m.content)"><DocumentCopy /></el-icon>
+                      </el-tooltip>
+                      <el-tooltip v-if="ttsOk" :content="speakingId === m.id ? '停止朗读' : '朗读'" placement="top">
+                        <el-icon size="14" :class="{ speaking: speakingId === m.id }" @click="toggleSpeak(m)">
+                          <VideoPause v-if="speakingId === m.id" /><VideoPlay v-else />
+                        </el-icon>
                       </el-tooltip>
                       <el-tooltip v-if="isLastAssistant(m)" content="重新生成" placement="top">
                         <el-icon size="14" @click="regenerate" :class="{ disabled: pending }"><RefreshRight /></el-icon>
@@ -229,6 +234,11 @@
                     <el-icon><View /></el-icon>
                   </el-button>
                 </el-tooltip>
+                <el-tooltip v-if="listenAvailable" :content="listening ? '停止语音输入' : '语音输入（说完停顿自动断句）'" placement="top">
+                  <el-button size="small" text :class="{ rec: listening }" @click="toggleListen">
+                    <el-icon><Microphone /></el-icon>
+                  </el-button>
+                </el-tooltip>
                 <el-dropdown trigger="click" @command="useQuickCommand">
                   <el-button size="small" text><el-icon><Operation /></el-icon><span class="quick-label">快捷指令</span></el-button>
                   <template #dropdown>
@@ -254,10 +264,16 @@
                 </div>
               </div>
               <el-input v-model="input" type="textarea" :rows="1" :autosize="{ minRows: 1, maxRows: 6 }"
-                        placeholder="输入消息，Enter 发送，Shift+Enter 换行"
+                        :placeholder="listening ? '正在聆听…' : '输入消息，Enter 发送，Shift+Enter 换行'"
                         @keydown="onInputKeydown" :disabled="pending" maxlength="4000" show-word-limit />
+              <div v-if="listening && interim" class="rec-hint">{{ interim }}</div>
               <div class="input-actions">
                 <span class="char-count" :class="{ warn: input.length > 3600 }">{{ input.length }}/4000</span>
+                <el-tooltip v-if="ttsOk" content="自动播报 AI 回复（E2 嘴巴）" placement="top">
+                  <el-button size="small" text :class="{ 'auto-on': autoSpeak }" @click="toggleAutoSpeak">
+                    <el-icon><Service /></el-icon>
+                  </el-button>
+                </el-tooltip>
                 <el-button type="primary" class="send-btn" :disabled="!input.trim() || pending" :loading="pending"
                            @click="send">
                   <el-icon v-if="!pending"><Promotion /></el-icon>
@@ -278,11 +294,12 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onActivated, ref } from 'vue'
+import { computed, nextTick, onActivated, onDeactivated, onUnmounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   Back, ChatDotRound, Close, Cpu, Delete, DocumentCopy, Download, Edit, Fold, Expand, MagicStick,
-  Operation, Paperclip, Picture, Plus, Promotion, RefreshRight, Search, SetUp, Top, View
+  Microphone, Operation, Paperclip, Picture, Plus, Promotion, RefreshRight, Search, Service,
+  SetUp, Top, VideoPause, VideoPlay, View
 } from '@element-plus/icons-vue'
 import { renderMarkdown } from '@/utils/sanitize'
 import TaskCard from './components/TaskCard.vue'
@@ -297,6 +314,9 @@ import { listWorkflowsApi, type WfWorkflow } from '@/api/aiws'
 import { getMyTasksApi, getAutonomyPoliciesApi, type AgentTask } from '@/api/agent'
 import { uploadContractDocApi } from '@/api/contract'
 import { collectScreenDigest } from '@/utils/screenReader'
+import {
+  createRecognizer, loadAutoSpeak, saveAutoSpeak, speak, stopSpeaking, ttsAvailable
+} from '@/utils/speech'
 
 const SUGGESTIONS = [
   '检索知识库：项目验收流程规定',
@@ -353,6 +373,52 @@ const imageInputRef = ref<HTMLInputElement>()
 const visionBusy = ref(false)
 const screenBusy = ref(false)
 const visionFiles = ref<{ name: string; dataUrl: string }[]>([])
+
+// E3 耳朵：语音输入（能力探测，不支持则隐藏麦克风）
+const listening = ref(false)
+const interim = ref('')
+const recognizer = createRecognizer(
+  (text) => {
+    input.value = (input.value ? input.value.replace(/\s+$/, '') + (input.value.endsWith('。') || input.value.endsWith('？') ? '\n' : '') : '') + text
+    interim.value = ''
+    focusInput()
+  },
+  (t) => { interim.value = t }
+)
+const listenAvailable = recognizer.available
+
+function toggleListen() {
+  if (listening.value) {
+    recognizer.stop()
+    listening.value = false
+  } else {
+    recognizer.start()
+    listening.value = true
+    ElMessage.info('语音输入已开启，再次点击麦克风结束')
+  }
+}
+
+// E2 嘴巴：朗读 + 自动播报（偏好持久化）
+const ttsOk = ttsAvailable
+const speakingId = ref<number | null>(null)
+const autoSpeak = ref(loadAutoSpeak())
+
+function toggleSpeak(m: AiMessage) {
+  if (speakingId.value === m.id) {
+    stopSpeaking()
+    speakingId.value = null
+    return
+  }
+  const ok = speak(m.content, () => { speakingId.value = null })
+  if (ok) speakingId.value = m.id
+}
+
+function toggleAutoSpeak() {
+  autoSpeak.value = !autoSpeak.value
+  saveAutoSpeak(autoSpeak.value)
+  if (!autoSpeak.value) { stopSpeaking(); speakingId.value = null }
+  ElMessage.success(autoSpeak.value ? '已开启自动播报' : '已关闭自动播报')
+}
 
 const activeTitle = computed(() => conversations.value.find(c => c.id === activeConvId.value)?.title || '新对话')
 
@@ -417,6 +483,16 @@ function refreshSide() {
 }
 
 onActivated(refreshSide)
+// 离开工作台：停止语音输入与朗读（E2/E3 外设收尾）
+onDeactivated(() => {
+  if (listening.value) { recognizer.stop(); listening.value = false }
+  stopSpeaking()
+  speakingId.value = null
+})
+onUnmounted(() => {
+  if (listening.value) { recognizer.stop(); listening.value = false }
+  stopSpeaking()
+})
 
 // ==================== 会话 ====================
 
@@ -501,6 +577,11 @@ async function send() {
     pending.value = false
     if (res.data?.userMessage && res.data?.assistantMessage) {
       messages.value.splice(messages.value.indexOf(tempUser), 1, res.data.userMessage, res.data.assistantMessage)
+      // E2 嘴巴：自动播报开启时朗读新回复（仅文本消息）
+      if (autoSpeak.value && res.data.assistantMessage.msgType === 'text') {
+        const ok = speak(res.data.assistantMessage.content, () => { speakingId.value = null })
+        if (ok) speakingId.value = res.data.assistantMessage.id
+      }
     }
     refreshSide()
   } catch (e) {
@@ -935,6 +1016,23 @@ function formatTime(t?: string): string {
   .vc-del { cursor: pointer; color: var(--el-text-color-secondary); &:hover { color: var(--el-color-danger); } }
 }
 .vc-run { border-radius: 8px; }
+
+// E3 耳朵：录音态脉冲 + 中间结果提示
+.el-button.rec { color: var(--el-color-danger); position: relative;
+  &::after {
+    content: ''; position: absolute; inset: 4px; border-radius: 50%;
+    border: 2px solid var(--el-color-danger); opacity: 0; animation: rec-pulse 1.4s infinite;
+  }
+}
+@keyframes rec-pulse { 0% { opacity: 0.9; transform: scale(0.6); } 100% { opacity: 0; transform: scale(1.5); } }
+.rec-hint {
+  font-size: 12px; color: var(--el-color-danger); padding: 2px 4px 0;
+  &::before { content: '●'; margin-right: 6px; animation: blink 1.2s infinite; }
+}
+
+// E2 嘴巴：自动播报开启态 + 朗读中高亮
+.el-button.auto-on { color: var(--el-color-primary); background: var(--el-color-primary-light-9); }
+.el-icon.speaking { color: var(--el-color-primary); animation: blink 1.2s infinite; }
 
 // 对话区 Markdown 基础排版
 .markdown-body {
