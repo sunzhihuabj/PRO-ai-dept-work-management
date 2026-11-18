@@ -1,7 +1,7 @@
 # ============================================================================
 # restore-services.ps1  Restore all services after system reboot (Phase-1 kit)
 # Usage: powershell -ExecutionPolicy Bypass -File restore-services.ps1
-# Order: MySQL(3307) -> ai-gateway(8090) -> backend(8081) -> vite(5173) -> Docker Desktop -> Hermes(8642) -> Hermes Studio(8650)
+# Order: MySQL(3307) -> ai-gateway(8090) -> backend(8081) -> vite(5173) -> Docker Desktop -> Hermes(8642)
 # ============================================================================
 $ErrorActionPreference = 'Continue'
 # Resolve repo root from script location (avoids non-ASCII literal path issues)
@@ -31,12 +31,8 @@ $hermesTrigger = New-ScheduledTaskTrigger -AtStartup
 Register-ScheduledTask -TaskName 'DepSvc-svc-hermes' -Action $hermesAction -Trigger $hermesTrigger -User $env:USERNAME -RunLevel Highest -Force | Out-Null
 Start-ScheduledTask -TaskName 'DepSvc-svc-hermes'
 
-# Hermes Studio BFF (web console on 127.0.0.1:8650) - scheduled task DepSvc-svc-studio
-Write-Host '[+ ] Registering/starting Hermes Studio task (DepSvc-svc-studio)...'
-$studioAction = New-ScheduledTaskAction -Execute "$root\deploy\svc-studio.cmd"
-$studioTrigger = New-ScheduledTaskTrigger -AtStartup
-Register-ScheduledTask -TaskName 'DepSvc-svc-studio' -Action $studioAction -Trigger $studioTrigger -User $env:USERNAME -RunLevel Highest -Force | Out-Null
-Start-ScheduledTask -TaskName 'DepSvc-svc-studio'
+# Hermes Studio 已剥离为独立项目（2026-11-18）：D:\2、开发源码\hermes-studio
+# 其服务化由自身 deploy/restore-services.ps1 负责（计划任务 DepSvc-svc-studio）
 
 Write-Host 'All services launched. Wait 60-90s, then verify:'
-Write-Host '  Get-NetTCPConnection -LocalPort 3307,8081,8090,5173,8642,8650 -State Listen'
+Write-Host '  Get-NetTCPConnection -LocalPort 3307,8081,8090,5173,8642 -State Listen'
