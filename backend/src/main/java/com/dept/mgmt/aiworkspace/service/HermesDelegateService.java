@@ -117,6 +117,17 @@ public class HermesDelegateService {
         if (!shouldDelegate(content) || !hermesService.available()) {
             return null;
         }
+        return delegate(conv, content, userId, username);
+    }
+
+    /**
+     * 直接委托入口（V2.0 M2：LLM 意图判别捞回路由用——跳过规则判定，
+     * 仍要求 Hermes 可用；提交失败返回 null 由调用方降级）。
+     */
+    public AiMessage delegate(AiConversation conv, String content, Long userId, String username) {
+        if (!hermesService.available()) {
+            return null;
+        }
         String runId = hermesService.submitRun(buildTaskBook(content, userId, username));
         if (!StringUtils.hasText(runId)) {
             hermesService.invalidateAvailability();

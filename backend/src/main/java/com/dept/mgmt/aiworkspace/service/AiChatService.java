@@ -50,6 +50,11 @@ public class AiChatService {
     private static final Pattern WF_CREATE_PATTERN =
             Pattern.compile("(创建|新建|搭建|生成|建)[^\\n]{0,30}流程|流程(编排|设计)");
 
+    /** 联网检索意图（V2.0 M5：显式触发词，检索词经脱敏 proxy 出网） */
+    private static final Pattern WEBSEARCH_PATTERN =
+            Pattern.compile("联网(检索|搜索|查询|查一下|查查)|网上(搜索|查询|找一下|查一下)|搜索一下|搜一下|websearch",
+                    Pattern.CASE_INSENSITIVE);
+
     private final AiConversationMapper conversationMapper;
     private final AiMessageMapper messageMapper;
     private final MasterAgentService masterAgentService;
@@ -58,6 +63,8 @@ public class AiChatService {
     private final WorkflowService workflowService;
     private final SystemOpsService systemOpsService;
     private final AiMemoryService aiMemoryService;
+    private final com.dept.mgmt.aiworkspace.service.WebSearchService webSearchService;
+    private final com.dept.mgmt.aiworkspace.service.IntentClassifier intentClassifier;
     private final com.dept.mgmt.aiworkspace.service.HermesDelegateService hermesDelegateService;
 
     // ==================== 会话管理 ====================
@@ -150,12 +157,18 @@ public class AiChatService {
     }
 
     /**
-     * 意图路由并生成助手回复（chat 与 regenerate 共用）：
-     * 流程创建意图 → 系统操作意图（T-411 对话驱动全系统操作，含工具执行/参数追问/闲聊回复，
-     * 判定为 AI 分析类能力时返回 null 转交 Agent）→ 任务意图 → Hermes 委托（B2 第四级：
-     * 复杂多步/跨模块指令委托 AI Agent 员工异步执行，Hermes 不可用自动跳过）→ 通用对话
+     * 意图路由并生成助手回复（chat 与 regenerate 共用，V2.0 M2/M5）：
+     * 联网检索意图（M5：脱敏 proxy 出网 + 结果 LLM 总结）→ 流程创建意图 →
+     * 系统操作意图（T-411）→ 任务意图 → Hermes 委托（B2）→ 【LLM 意图捞回（M2：
+     * 规则全部未命中时一次轻量判别，高置信度回头走对应 handler，fail-open）】→ 通用对话
      */
     private AiMessage routeAndReply(AiConversation conv, String content, Long userId) {
+        if (WEBSEARCH_PATTERN.matcher(content).find()) {
+            AiMessage m = handleWebSearch(conv, content);
+            if (m != null) {
+                return m;
+            }
+        }
         if (WF_CREATE_PATTERN.matcher(content).find()) {
             return handleWorkflowIntent(conv, content);
         }
@@ -168,9 +181,80 @@ public class AiChatService {
             assistantMsg = hermesDelegateService.tryDelegate(conv, content, u.getUserId(), u.getUsername());
         }
         if (assistantMsg == null) {
+            assistantMsg = intentRescue(conv, content, userId);
+        }
+        if (assistantMsg == null) {
             assistantMsg = generalChat(conv, content);
         }
         return assistantMsg;
+    }
+
+    /**
+     * M5 联网检索：提取检索词 → 脱敏出网检索 → 结果交 LLM 总结回复。
+     * 检索失败降级为通用对话（返回 null），绝不假造结果。
+     */
+    private AiMessage handleWebSearch(AiConversation conv, String content) {
+        try {
+            LoginUser u = current();
+            String query = content.replaceAll(
+                    "(联网(检索|搜索|查询|查一下|查查)|网上(搜索|查询|找一下|查一下)|搜索一下|搜一下|websearch)[：:，,]?\\s*", "")
+                    .trim();
+            if (query.isEmpty()) {
+                return null;
+            }
+            Map<String, Object> sr = webSearchService.search(query, u.getUserId());
+            @SuppressWarnings("unchecked")
+            List<Object> results = (List<Object>) sr.get("results");
+            StringBuilder sb = new StringBuilder("以下是联网检索到的资料（检索词已脱敏出网，命中类型: ")
+                    .append(sr.get("hitTypes").toString().isEmpty() ? "无" : sr.get("hitTypes")).append("）：\n");
+            int i = 1;
+            for (Object obj : results) {
+                if (obj instanceof WebSearchService.WebResult wr) {
+                    sb.append(i++).append(". ").append(wr.title()).append("\n   ")
+                            .append(wr.url()).append("\n   ").append(wr.snippet()).append("\n");
+                }
+            }
+            if (i == 1) {
+                return null;
+            }
+            String prompt = "基于以下联网检索结果回答用户问题「" + query + "」，"
+                    + "用中文 Markdown 简明总结（≤300字），标注信息来源编号，资料不足时明确说明：\n\n" + sb;
+            String answer;
+            try {
+                answer = aiGatewayClient.chat(CAP_GENERAL_CHAT, prompt, u.getUserId(), null);
+            } catch (Exception e) {
+                // 总结失败时直接返回检索结果列表（不假造）
+                answer = sb.toString();
+            }
+            return saveMessage(conv.getId(), "assistant", answer, "text", null, null);
+        } catch (Exception e) {
+            log.info("联网检索降级为通用对话: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * M2 LLM 意图捞回：规则路由全部未命中时一次轻量判别（可配置开关 ai.intent.llm-enabled），
+     * 高置信度回头走对应 handler；QUERY/CHAT/低置信度/判别失败落通用对话（fail-open）。
+     */
+    private AiMessage intentRescue(AiConversation conv, String content, Long userId) {
+        var intentOpt = intentClassifier.classify(content, userId);
+        if (intentOpt.isEmpty() || intentOpt.get().confidence() < IntentClassifier.MIN_CONFIDENCE) {
+            return null;
+        }
+        String label = intentOpt.get().label();
+        log.info("LLM 意图捞回命中: intent={}, confidence={}", label,
+                String.format("%.2f", intentOpt.get().confidence()));
+        return switch (label) {
+            case "WORKFLOW" -> handleWorkflowIntent(conv, content);
+            case "OPS" -> systemOpsService.tryOps(conv, content, current());
+            case "AGENT_TASK" -> tryAgentTask(conv, content, userId);
+            case "DELEGATE" -> {
+                LoginUser u = current();
+                yield hermesDelegateService.delegate(conv, content, u.getUserId(), u.getUsername());
+            }
+            default -> null;
+        };
     }
 
     /**

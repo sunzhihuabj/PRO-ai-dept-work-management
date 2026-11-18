@@ -328,6 +328,7 @@ const SUGGESTIONS = [
 /** 快捷指令（T-409 对齐豆包 "/" 指令） */
 const QUICK_COMMANDS = [
   '检索知识库：',
+  '联网检索：',
   '帮我生成今日日报摘要',
   '总结 documentId= 的文档内容',
   '创建一个「XX」流程'
@@ -772,6 +773,7 @@ async function runScreenRead() {
 // ==================== 输入 ====================
 
 function guessPendingText(content: string): string {
+  if (/联网|网上|搜一下|搜索一下|websearch/.test(content)) return '正在联网检索（脱敏出网）…'
   if (/创建|新建|搭建|生成/.test(content) && /流程/.test(content)) return '正在生成业务流程草稿…'
   if (/检索|查询|查一下|知识|规定|怎么办/.test(content)) return '正在调度 Agent 能力…'
   if (/总结|摘要|日报|周报|纪要/.test(content)) return '正在整理内容…'

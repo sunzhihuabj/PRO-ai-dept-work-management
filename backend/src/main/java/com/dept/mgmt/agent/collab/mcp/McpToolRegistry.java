@@ -33,6 +33,7 @@ public class McpToolRegistry {
     private final DecisionAdviceService adviceService;
     private final com.dept.mgmt.agent.service.MasterAgentService masterAgentService;
     private final McpOpsBridge opsBridge;
+    private final com.dept.mgmt.aiworkspace.service.WebSearchService webSearchService;
     private final Map<String, CapabilityHandler> handlers;
 
     private final Map<String, McpTool> tools;
@@ -42,6 +43,7 @@ public class McpToolRegistry {
                            DecisionAdviceService adviceService,
                            com.dept.mgmt.agent.service.MasterAgentService masterAgentService,
                            McpOpsBridge opsBridge,
+                           com.dept.mgmt.aiworkspace.service.WebSearchService webSearchService,
                            List<CapabilityHandler> handlerBeans) {
         this.taskService = taskService;
         this.projectService = projectService;
@@ -49,6 +51,7 @@ public class McpToolRegistry {
         this.adviceService = adviceService;
         this.masterAgentService = masterAgentService;
         this.opsBridge = opsBridge;
+        this.webSearchService = webSearchService;
         this.handlers = handlerBeans.stream()
                 .collect(Collectors.toMap(CapabilityHandler::capabilityCode, Function.identity()));
         // A3：手写核心 8 工具 + Ops 只读工具自动桥接（McpOpsBridge 内部已去重）
@@ -179,7 +182,14 @@ public class McpToolRegistry {
                                 "instruction", Map.of("type", "string", "description", "任务指令（自然语言）"),
                                 "params", Map.of("type", "object", "description", "扩展参数（可选，对象）")), List.of("capabilityCode", "instruction")),
                         args -> masterAgentService.submitAs(strArg(args, "instruction"),
-                                strArg(args, "capabilityCode"), args.get("params"), identityOr(args))));
+                                strArg(args, "capabilityCode"), args.get("params"), identityOr(args))),
+
+                // ---- V2.0 M5 联网检索（铁律四：脱敏 proxy 唯一出网口，服务端强制脱敏 + outbound_log 留痕） ----
+                new McpTool("web.search",
+                        "联网检索（V2.0 M5 脱敏出网）：返回 {query, sanitized, hitTypes, results[{title,url,snippet}]}；检索词含客户名/金额/证件号时服务端自动脱敏后才出网，全程留痕",
+                        McpTool.objectSchema(Map.of(
+                                "query", Map.of("type", "string", "description", "检索词（可含敏感信息，服务端强制脱敏后出网）")), List.of("query")),
+                        args -> webSearchService.search(requireStr(args, "query"), identityOr(args))));
     }
 
     private static long requireLong(Map<String, Object> args, String key) {
@@ -223,5 +233,13 @@ public class McpToolRegistry {
     private static String strArg(Map<String, Object> args, String key) {
         Object v = args.get(key);
         return v == null ? null : String.valueOf(v);
+    }
+
+    private static String requireStr(Map<String, Object> args, String key) {
+        String v = strArg(args, key);
+        if (v == null || v.isBlank()) {
+            throw new IllegalArgumentException("缺少必填参数: " + key);
+        }
+        return v;
     }
 }
