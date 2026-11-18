@@ -1,7 +1,7 @@
 <template>
   <div class="page-container">
     <!-- 数据概览卡片 -->
-    <el-row :gutter="16" class="stat-row">
+    <el-row :gutter="16" class="stat-row" data-ai-readable="工作台统计">
       <el-col :xs="12" :sm="6">
         <div class="stat-card">
           <div class="stat-icon stat-icon--primary"><el-icon><Document /></el-icon></div>

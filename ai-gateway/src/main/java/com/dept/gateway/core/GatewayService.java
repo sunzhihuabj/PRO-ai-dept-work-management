@@ -79,13 +79,19 @@ public class GatewayService {
             throw new GatewayException(400, "提示词超过 " + properties.getMaxPromptChars() + " 字符上限");
         }
 
-        // 3. 启用通道按优先级排序（降级链）
+        // 3. 启用通道按优先级排序（降级链）；vision 请求仅路由到声明 supports_vision=1 的通道
+        //    （实测纯文本通道会静默丢弃 image 部件并编造"看不到图片"的回复，必须前置过滤）
+        boolean visionMode = request.getImages() != null && !request.getImages().isEmpty();
         List<AiProviderConfig> chain = configMapper.selectList(new LambdaQueryWrapper<AiProviderConfig>()
                 .eq(AiProviderConfig::getEnabled, 1)
+                .eq(visionMode, AiProviderConfig::getSupportsVision, 1)
                 .orderByAsc(AiProviderConfig::getPriority));
         if (chain.isEmpty()) {
-            audit(requestId, request, null, null, 0, "DEGRADED", "无启用的 AI 通道", System.currentTimeMillis() - start);
-            return degraded(requestId, request, "未配置启用的 AI 通道");
+            String emptyMsg = visionMode
+                    ? "无启用的视觉通道（vision 请求仅路由到声明 supports_vision=1 的通道）"
+                    : "未配置启用的 AI 通道";
+            audit(requestId, request, null, null, 0, "DEGRADED", emptyMsg, System.currentTimeMillis() - start);
+            return degraded(requestId, request, emptyMsg);
         }
 
         // 4. 逐通道尝试（限流/配额/调用/契约）

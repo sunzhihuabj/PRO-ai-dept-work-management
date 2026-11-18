@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="page-container">
     <el-page-header style="margin-bottom: 16px;" @back="$router.back()">
       <template #content>
@@ -171,12 +171,15 @@ async function load() {
   }
 }
 
-function showDetail(row: AgentDecisionAdvice) {
+/** 表格行类型（element-plus slot 默认 DefaultRow，交叉索引签名兼容） */
+type Row = AgentDecisionAdvice & Record<string, any>
+
+function showDetail(row: any) {
   current.value = row
   detailVisible.value = true
 }
 
-async function approve(row: AgentDecisionAdvice) {
+async function approve(row: any) {
   try {
     await approveAdviceApi(row.id!)
     ElMessage.success('已采纳' + (row.approvalAction ? '，动作已执行' : ''))
@@ -186,7 +189,7 @@ async function approve(row: AgentDecisionAdvice) {
   }
 }
 
-async function reject(row: AgentDecisionAdvice) {
+async function reject(row: any) {
   try {
     await rejectAdviceApi(row.id!)
     ElMessage.success('已驳回')
@@ -196,11 +199,11 @@ async function reject(row: AgentDecisionAdvice) {
   }
 }
 
-const parse = (row: AgentDecisionAdvice) => parseAdviceContent(row)
-const lowConf = (row: AgentDecisionAdvice) => (row.confidence ?? 0) < threshold
-const fmtConf = (row: AgentDecisionAdvice) =>
+const parse = (row: any) => parseAdviceContent(row)
+const lowConf = (row: any) => (row.confidence ?? 0) < threshold
+const fmtConf = (row: any) =>
   row.confidence == null ? '-' : row.confidence.toFixed(2)
-const evidence = (row: AgentDecisionAdvice): Array<{ source: string; ref: string }> => {
+const evidence = (row: any): Array<{ source: string; ref: string }> => {
   try { return JSON.parse(row.evidenceJson || '[]') } catch { return [] }
 }
 
@@ -216,7 +219,7 @@ function sceneTag(s: string) {
     TASK_STATUS_CHANGED: 'warning', PROJECT_PROGRESS: 'primary',
     TOOL_APPROVAL: 'danger', HERMES_APPROVAL: 'danger' } as Record<string, any>)[s] || 'info'
 }
-function contentTag(row: AgentDecisionAdvice) {
+function contentTag(row: any) {
   const t = parse(row).type
   return ({ INFO: 'info', WARNING: 'warning', REQUEST: 'warning' } as Record<string, any>)[t] || 'info'
 }

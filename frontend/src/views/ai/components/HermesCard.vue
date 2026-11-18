@@ -10,9 +10,12 @@
     <!-- 正文（后端卡片文案 / 结果 Markdown，去除 runId 内嵌标记） -->
     <div class="hermes-body markdown-body" v-html="bodyHtml"></div>
 
-    <!-- 执行事件时间线（B3 过程回写，折叠展示） -->
-    <el-collapse v-if="events.length" class="hermes-timeline-collapse">
-      <el-collapse-item :title="`执行时间线（${events.length} 条事件）`">
+    <!-- 执行泳道图（V2.0：ECharts 时间轴泳道，工具时段块 + 流程事件标记） -->
+    <el-collapse v-if="events.length" class="hermes-timeline-collapse" @change="onCollapseChange">
+      <el-collapse-item name="lane" title="执行泳道图">
+        <HermesLaneChart v-if="laneVisible" ref="laneChartRef" :events="events" />
+      </el-collapse-item>
+      <el-collapse-item name="timeline" :title="`执行时间线（${events.length} 条事件）`">
         <div class="hermes-timeline">
           <div v-for="ev in events" :key="ev.id" class="tl-row" :class="{ err: ev.isError === 1 }">
             <el-icon :size="13" class="tl-icon"><component :is="eventIcon(ev.eventType)" /></el-icon>
@@ -32,8 +35,20 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { Cpu, Loading, CircleCheck, CircleClose, Lock, InfoFilled } from '@element-plus/icons-vue'
 import { hermesRunEventsApi, type HermesRunEvent } from '@/api/aiws'
 import { renderMarkdown } from '@/utils/sanitize'
+import HermesLaneChart from './HermesLaneChart.vue'
 
 const props = defineProps<{ content: string }>()
+
+// 泳道图懒渲染：collapse 展开时挂载（容器有尺寸后才 init ECharts）
+const laneVisible = ref(false)
+const laneChartRef = ref<InstanceType<typeof HermesLaneChart>>()
+function onCollapseChange(names: unknown) {
+  const arr = Array.isArray(names) ? names : [String(names)]
+  if (arr.map(String).includes('lane')) {
+    laneVisible.value = true
+    requestAnimationFrame(() => laneChartRef.value?.rerender?.())
+  }
+}
 
 /** 从消息 content 头部提取 runId 内嵌标记（<!-- hermes-run:xxx -->） */
 const RUN_MARKER = /^<!-- hermes-run:([a-zA-Z0-9_-]+) -->/

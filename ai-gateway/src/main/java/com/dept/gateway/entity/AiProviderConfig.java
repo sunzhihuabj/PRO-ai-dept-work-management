@@ -60,6 +60,9 @@ public class AiProviderConfig implements Serializable {
     /** 备注 */
     private String remark;
 
+    /** 支持视觉/多模态（V2.0 E1：vision 请求仅路由到 supports_vision=1 的通道，防止纯文本通道静默吞图编造回复） */
+    private Integer supportsVision;
+
     private LocalDateTime createTime;
     private LocalDateTime updateTime;
 

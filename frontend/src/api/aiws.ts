@@ -157,6 +157,14 @@ export function hermesRunEventsApi(runId: string) {
 }
 
 
+// ==================== E1 眼睛：视觉感知（V2.0） ====================
+
+/** 图片识别描述（V2.0 E1）：data URL 列表（≤4 张）→ 网关视觉通道描述文本 */
+export function describeImageApi(data: { images: string[]; prompt?: string }) {
+  return post<string>('/v1/ai/vision/describe', data)
+}
+
+
 // ==================== 流程定义 ====================
 
 export function createWorkflowApi(data: { name: string; description?: string; graph?: string }) {

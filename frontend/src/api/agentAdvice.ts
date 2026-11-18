@@ -15,6 +15,7 @@ export interface AgentDecisionAdvice {
   riskLevel?: 'LOW' | 'MEDIUM' | 'HIGH'
   requiresApproval?: number
   approvalAction?: string
+  approvalParamsJson?: string
   status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'EXPIRED'
   evidenceJson?: string
   targetUserId?: number

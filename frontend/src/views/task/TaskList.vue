@@ -35,6 +35,7 @@
       </div>
 
       <el-table v-loading="loading" :data="tableData" stripe
+                data-ai-readable="任务列表"
                 :empty-text="'暂无任务，点击「创建任务」或「从任务池领取」开始'"
                 @row-click="(row: any) => goDetail(row.id)">
         <el-table-column prop="id" label="ID" width="70" />

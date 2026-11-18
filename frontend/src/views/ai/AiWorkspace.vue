@@ -219,6 +219,16 @@
                     <el-icon><Paperclip /></el-icon>
                   </el-button>
                 </el-tooltip>
+                <el-tooltip content="图片识别（AI 看图，≤4 张）" placement="top">
+                  <el-button size="small" text :loading="visionBusy" @click="imageInputRef?.click()">
+                    <el-icon><Picture /></el-icon>
+                  </el-button>
+                </el-tooltip>
+                <el-tooltip content="读屏：让 AI 看见当前页面内容" placement="top">
+                  <el-button size="small" text :loading="screenBusy" @click="runScreenRead">
+                    <el-icon><View /></el-icon>
+                  </el-button>
+                </el-tooltip>
                 <el-dropdown trigger="click" @command="useQuickCommand">
                   <el-button size="small" text><el-icon><Operation /></el-icon><span class="quick-label">快捷指令</span></el-button>
                   <template #dropdown>
@@ -229,6 +239,19 @@
                 </el-dropdown>
                 <input ref="docInputRef" type="file" accept=".pdf,.doc,.docx,.txt" hidden
                        @change="onDocSelected" />
+                <input ref="imageInputRef" type="file" accept="image/jpeg,image/png,image/webp,image/gif" multiple hidden
+                       @change="onImagesSelected" />
+                <!-- 待识别图片预览（E1 眼睛） -->
+                <div v-if="visionFiles.length" class="vision-chips">
+                  <div v-for="(vf, i) in visionFiles" :key="i" class="vision-chip">
+                    <img :src="vf.dataUrl" alt="" />
+                    <span class="vc-name">{{ vf.name }}</span>
+                    <el-icon size="12" class="vc-del" @click="visionFiles.splice(i, 1)"><Close /></el-icon>
+                  </div>
+                  <el-button size="small" type="primary" plain class="vc-run" :loading="visionBusy" @click="runVision">
+                    开始识别
+                  </el-button>
+                </div>
               </div>
               <el-input v-model="input" type="textarea" :rows="1" :autosize="{ minRows: 1, maxRows: 6 }"
                         placeholder="输入消息，Enter 发送，Shift+Enter 换行"
@@ -258,21 +281,22 @@
 import { computed, nextTick, onActivated, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
-  Back, ChatDotRound, Cpu, Delete, DocumentCopy, Download, Edit, Fold, Expand, MagicStick,
-  Operation, Paperclip, Plus, Promotion, RefreshRight, Search, SetUp, Top
+  Back, ChatDotRound, Close, Cpu, Delete, DocumentCopy, Download, Edit, Fold, Expand, MagicStick,
+  Operation, Paperclip, Picture, Plus, Promotion, RefreshRight, Search, SetUp, Top, View
 } from '@element-plus/icons-vue'
 import { renderMarkdown } from '@/utils/sanitize'
 import TaskCard from './components/TaskCard.vue'
 import HermesCard from './components/HermesCard.vue'
 import WorkflowPanel from './components/WorkflowPanel.vue'
 import {
-  chatApi, createConversationApi, deleteConversationApi, listConversationsApi,
+  chatApi, createConversationApi, deleteConversationApi, describeImageApi, listConversationsApi,
   listMessagesApi, pinConversationApi, rateMessageApi, regenerateApi, renameConversationApi,
   type AiConversation, type AiMessage
 } from '@/api/aiws'
 import { listWorkflowsApi, type WfWorkflow } from '@/api/aiws'
 import { getMyTasksApi, getAutonomyPoliciesApi, type AgentTask } from '@/api/agent'
 import { uploadContractDocApi } from '@/api/contract'
+import { collectScreenDigest } from '@/utils/screenReader'
 
 const SUGGESTIONS = [
   '检索知识库：项目验收流程规定',
@@ -324,6 +348,11 @@ const drawerTaskId = ref<number | null>(null)
 const workflowPanelRef = ref()
 const docInputRef = ref<HTMLInputElement>()
 const uploadingDoc = ref(false)
+// E1 眼睛：图片识别 + 读屏
+const imageInputRef = ref<HTMLInputElement>()
+const visionBusy = ref(false)
+const screenBusy = ref(false)
+const visionFiles = ref<{ name: string; dataUrl: string }[]>([])
 
 const activeTitle = computed(() => conversations.value.find(c => c.id === activeConvId.value)?.title || '新对话')
 
@@ -575,6 +604,90 @@ function useQuickCommand(q: string) {
   focusInput()
 }
 
+// ==================== E1 眼睛：图片识别 + 读屏（V2.0） ====================
+
+/** 文件 → data URL（超大图 canvas 降采样到 ≤1568px，PNG 截图保真/JPEG 照片压缩） */
+function fileToDataUrl(file: File, maxDim = 1568): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onerror = () => reject(new Error('读取失败'))
+    reader.onload = () => {
+      const raw = String(reader.result)
+      const img = new Image()
+      img.onerror = () => resolve(raw)
+      img.onload = () => {
+        if (img.width <= maxDim && img.height <= maxDim) { resolve(raw); return }
+        const scale = maxDim / Math.max(img.width, img.height)
+        const canvas = document.createElement('canvas')
+        canvas.width = Math.round(img.width * scale)
+        canvas.height = Math.round(img.height * scale)
+        canvas.getContext('2d')?.drawImage(img, 0, 0, canvas.width, canvas.height)
+        const isPng = file.type === 'image/png'
+        resolve(canvas.toDataURL(isPng ? 'image/png' : 'image/jpeg', 0.85))
+      }
+      img.src = raw
+    }
+    reader.readAsDataURL(file)
+  })
+}
+
+async function onImagesSelected(ev: Event) {
+  const files = Array.from((ev.target as HTMLInputElement).files || [])
+  ;(ev.target as HTMLInputElement).value = ''
+  if (!files.length) return
+  if (visionFiles.value.length + files.length > 4) {
+    ElMessage.warning('单次最多 4 张图片')
+    return
+  }
+  for (const f of files) {
+    try {
+      visionFiles.value.push({ name: f.name, dataUrl: await fileToDataUrl(f) })
+    } catch {
+      ElMessage.error(`图片 ${f.name} 读取失败`)
+    }
+  }
+}
+
+/** 视觉识别：把待识别图片发给网关视觉通道，描述文本注入输入框 */
+async function runVision() {
+  if (!visionFiles.value.length || visionBusy.value) return
+  visionBusy.value = true
+  try {
+    const res = await describeImageApi({ images: visionFiles.value.map(v => v.dataUrl) })
+    const desc = res.data
+    visionFiles.value = []
+    if (desc) {
+      input.value = `【图片识别】${desc}\n\n请基于以上图片内容继续回答：`
+      focusInput()
+      ElMessage.success('图片识别完成，已注入输入框')
+    } else {
+      ElMessage.warning('未获得识别结果')
+    }
+  } catch {
+    ElMessage.error('图片识别失败（视觉通道未启用或服务异常）')
+  } finally {
+    visionBusy.value = false
+  }
+}
+
+/** 读屏：收集页面 [data-ai-readable] 区域摘要注入输入框 */
+async function runScreenRead() {
+  if (screenBusy.value) return
+  screenBusy.value = true
+  try {
+    const digest = collectScreenDigest()
+    if (!digest) {
+      ElMessage.warning('当前页面无可读区域（页面未标注 data-ai-readable）')
+      return
+    }
+    input.value = `【当前屏幕】${digest}\n\n请基于以上屏幕内容回答：`
+    focusInput()
+    ElMessage.success('已读取屏幕内容，请补充问题后发送')
+  } finally {
+    screenBusy.value = false
+  }
+}
+
 // ==================== 输入 ====================
 
 function guessPendingText(content: string): string {
@@ -811,6 +924,17 @@ function formatTime(t?: string): string {
 .char-count { font-size: 11px; color: var(--el-text-color-secondary); &.warn { color: var(--el-color-danger); } }
 .send-btn { height: 34px; width: 44px; border-radius: 10px; }
 .input-tip { font-size: 11px; color: var(--el-text-color-secondary); margin-top: 6px; text-align: center; }
+
+// E1 眼睛：待识别图片 chips
+.vision-chips { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 4px 2px; }
+.vision-chip {
+  display: flex; align-items: center; gap: 6px; padding: 3px 8px 3px 3px;
+  background: var(--el-fill-color); border: 1px solid var(--el-border-color-lighter); border-radius: 8px;
+  img { width: 30px; height: 30px; object-fit: cover; border-radius: 5px; }
+  .vc-name { font-size: 11px; color: var(--el-text-color-regular); max-width: 120px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .vc-del { cursor: pointer; color: var(--el-text-color-secondary); &:hover { color: var(--el-color-danger); } }
+}
+.vc-run { border-radius: 8px; }
 
 // 对话区 Markdown 基础排版
 .markdown-body {

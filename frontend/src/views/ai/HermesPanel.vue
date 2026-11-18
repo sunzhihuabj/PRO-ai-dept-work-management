@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="page hermes-panel">
     <div class="panel-head">
       <h2>AI Agent 员工</h2>
@@ -105,7 +105,10 @@ const timelineLoading = ref(false)
 const timeline = ref<HermesRunEvent[]>([])
 const currentRun = ref('')
 
-async function openTimeline(row: DelegationRow) {
+/** 表格行类型（element-plus slot 默认 DefaultRow，交叉索引签名兼容） */
+type Row = DelegationRow & Record<string, any>
+
+async function openTimeline(row: any) {
   currentRun.value = row.runId
   timelineVisible.value = true
   timelineLoading.value = true
@@ -117,7 +120,7 @@ async function openTimeline(row: DelegationRow) {
   }
 }
 
-function goConversation(row: DelegationRow) {
+function goConversation(row: any) {
   router.push({ path: '/ai', query: { conv: row.conversationId } })
 }
 
