@@ -80,6 +80,14 @@ public class SystemOpsService {
                     "reply", Map.of("type", "string")));
 
     /**
+     * V2.0 D7 回归集纯判定入口：本地技能卡触发词预筛（零 LLM 成本），
+     * 与 tryOps 的渐进披露预筛同一数据源——命中仅代表 OPS 路由的强信号。
+     */
+    public boolean hasOpsTrigger(String content) {
+        return !skillCards.match(content).isEmpty();
+    }
+
+    /**
      * 系统操作路由入口：命中则返回助手消息；返回 null 表示与系统操作无关（交由通用对话）。
      * 由 AiChatService.routeAndReply 在 Agent 意图之后调用。
      */

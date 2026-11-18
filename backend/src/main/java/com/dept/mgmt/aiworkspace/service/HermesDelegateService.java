@@ -78,6 +78,7 @@ public class HermesDelegateService {
     private final HermesRunEventMapper runEventMapper;
     private final com.dept.mgmt.agent.collab.service.DecisionAdviceService adviceService;
     private final HermesSseService sseService;
+    private final SkillTemplateService skillTemplateService;
 
     /** SSE 实时推送白名单（V2.0 M4：异常/授权/完成三类即时提示） */
     private static final Set<String> SSE_PUSH_TYPES = Set.of(
@@ -108,13 +109,15 @@ public class HermesDelegateService {
                                  AiConversationMapper conversationMapper,
                                  HermesRunEventMapper runEventMapper,
                                  com.dept.mgmt.agent.collab.service.DecisionAdviceService adviceService,
-                                 HermesSseService sseService) {
+                                 HermesSseService sseService,
+                                 SkillTemplateService skillTemplateService) {
         this.hermesService = hermesService;
         this.messageMapper = messageMapper;
         this.conversationMapper = conversationMapper;
         this.runEventMapper = runEventMapper;
         this.adviceService = adviceService;
         this.sseService = sseService;
+        this.skillTemplateService = skillTemplateService;
     }
 
     /**
@@ -150,7 +153,7 @@ public class HermesDelegateService {
         Long convId = conv.getId();
         Long uid = userId;
         eventsExecutor.submit(() -> consumeAndStoreEvents(runId, uid));
-        pollExecutor.submit(() -> pollAndWriteBack(convId, runId, uid));
+        pollExecutor.submit(() -> pollAndWriteBack(convId, runId, uid, content));
         log.info("对话已委托 Hermes: conv={}, runId={}", convId, runId);
         return card;
     }
@@ -363,7 +366,7 @@ public class HermesDelegateService {
      * 回调 Hermes 恢复/终止 run，轮询继续至终态。超时兜底回写提示并 stopRun。
      */
     @SuppressWarnings("unchecked")
-    private void pollAndWriteBack(Long convId, String runId, Long userId) {
+    private void pollAndWriteBack(Long convId, String runId, Long userId, String instruction) {
         try {
             Map<String, Object> result = pollDetectingApproval(runId, userId);
             if (!HermesService.isTerminal(result)) {
@@ -374,7 +377,10 @@ public class HermesDelegateService {
                 hermesService.stopRun(runId);
                 return;
             }
-            if (HermesService.isSuccessful(result)) {
+            boolean success = HermesService.isSuccessful(result);
+            // M8 Skill 沉淀：委托终态计数入模板库（指令前缀聚合使用统计与成功率）
+            skillTemplateService.recordUsage(instruction, success);
+            if (success) {
                 String output = HermesService.extractOutput(result);
                 saveMessage(convId, "assistant",
                         RUN_MARKER_PREFIX + runId + RUN_MARKER_SUFFIX

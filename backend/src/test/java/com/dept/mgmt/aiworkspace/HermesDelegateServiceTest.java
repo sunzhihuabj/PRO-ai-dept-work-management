@@ -48,6 +48,8 @@ class HermesDelegateServiceTest {
     private com.dept.mgmt.agent.collab.service.DecisionAdviceService adviceService;
     @Mock
     private com.dept.mgmt.aiworkspace.service.HermesSseService sseService;
+    @Mock
+    private com.dept.mgmt.aiworkspace.service.SkillTemplateService skillTemplateService;
 
     private HermesDelegateService service;
 
@@ -55,7 +57,7 @@ class HermesDelegateServiceTest {
     @SuppressWarnings("unchecked")
     void setUp() {
         service = new HermesDelegateService(hermesService, messageMapper, conversationMapper,
-                runEventMapper, adviceService, sseService);
+                runEventMapper, adviceService, sseService, skillTemplateService);
         // B5：轮询节奏/等待上限（@Value 在单测中手动注入）
         org.springframework.test.util.ReflectionTestUtils.setField(service, "pollIntervalMs", 10L);
         org.springframework.test.util.ReflectionTestUtils.setField(service, "awaitTimeoutMs", 3000L);

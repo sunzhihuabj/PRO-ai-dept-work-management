@@ -82,21 +82,24 @@ public class GlobalExceptionHandler {
     }
 
     /**
-     * 认证异常（未登录/Token失效）
+     * 认证异常（V2.0 验收修正：HTTP 层输出真实 401，供越权回归/网关/前端统一判定）
      */
     @ExceptionHandler(AuthenticationException.class)
-    public R<Void> handleAuthentication(AuthenticationException e, HttpServletRequest request) {
+    public org.springframework.http.ResponseEntity<R<Void>> handleAuthentication(AuthenticationException e, HttpServletRequest request) {
         log.warn("认证异常: {} | URI: {}", e.getMessage(), request.getRequestURI());
-        return R.fail(HttpStatus.UNAUTHORIZED.value(), "登录已过期，请重新登录");
+        return org.springframework.http.ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                .body(R.fail(HttpStatus.UNAUTHORIZED.value(), "登录已过期，请重新登录"));
     }
 
     /**
-     * 权限不足
+     * 权限不足（V2.0 验收修正：HTTP 层输出真实 403——此前 HTTP 200 + body 403 会让
+     * 越权拦截无法在 HTTP 语义层被外部系统/验收脚本识别）
      */
     @ExceptionHandler(AccessDeniedException.class)
-    public R<Void> handleAccessDenied(AccessDeniedException e, HttpServletRequest request) {
+    public org.springframework.http.ResponseEntity<R<Void>> handleAccessDenied(AccessDeniedException e, HttpServletRequest request) {
         log.warn("权限不足: {} | URI: {}", e.getMessage(), request.getRequestURI());
-        return R.fail(HttpStatus.FORBIDDEN.value(), "无访问权限");
+        return org.springframework.http.ResponseEntity.status(HttpStatus.FORBIDDEN)
+                .body(R.fail(HttpStatus.FORBIDDEN.value(), "无访问权限"));
     }
 
     /**

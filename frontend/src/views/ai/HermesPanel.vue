@@ -2,48 +2,56 @@
   <div class="page hermes-panel">
     <div class="panel-head">
       <h2>AI Agent 员工</h2>
-      <span class="sub">Hermes 委托任务列表（状态/结果/执行时间线）</span>
+      <span class="sub">Hermes 委托任务 / 自迭代闭环（V2.0 M8）</span>
       <el-button size="small" :loading="loading" @click="load" style="margin-left: auto">
         <el-icon><Refresh /></el-icon>&nbsp;刷新
       </el-button>
     </div>
 
-    <el-table :data="rows" v-loading="loading" size="default" class="panel-table">
-      <el-table-column label="Run" width="180">
-        <template #default="{ row }">
-          <span class="run-id" :title="row.runId">{{ String(row.runId).slice(0, 18) }}…</span>
-        </template>
-      </el-table-column>
-      <el-table-column prop="conversationTitle" label="来源会话" min-width="160" show-overflow-tooltip />
-      <el-table-column label="委托时间" width="160">
-        <template #default="{ row }">{{ fmtTime(row.delegatedAt) }}</template>
-      </el-table-column>
-      <el-table-column label="状态" width="110">
-        <template #default="{ row }">
-          <el-tag size="small" :type="statusTag(row.status)" effect="light" round>{{ statusName(row.status) }}</el-tag>
-        </template>
-      </el-table-column>
-      <el-table-column label="审批" width="120">
-        <template #default="{ row }">
-          <el-tag v-if="row.adviceId" size="small" :type="adviceTag(row.adviceStatus)" effect="plain">
-            {{ adviceName(row.adviceStatus) }} #{{ row.adviceId }}
-          </el-tag>
-          <span v-else class="dim">—</span>
-        </template>
-      </el-table-column>
-      <el-table-column label="结果摘要" min-width="260">
-        <template #default="{ row }">
-          <span class="result-preview">{{ row.resultPreview || (row.status === 'RUNNING' ? '执行中…' : '—') }}</span>
-        </template>
-      </el-table-column>
-      <el-table-column label="操作" width="170" fixed="right">
-        <template #default="{ row }">
-          <el-button size="small" text type="primary" @click="openTimeline(row)">执行时间线</el-button>
-          <el-button size="small" text @click="goConversation(row)">去会话</el-button>
-        </template>
-      </el-table-column>
-      <template #empty>暂无委托任务——在 AI 助手中发送「委托 AI Agent 员工…」类指令后在此查看</template>
-    </el-table>
+    <el-tabs v-model="activeTab" class="panel-tabs">
+      <el-tab-pane label="委托任务" name="delegation">
+        <el-table :data="rows" v-loading="loading" size="default" class="panel-table">
+          <el-table-column label="Run" width="180">
+            <template #default="{ row }">
+              <span class="run-id" :title="row.runId">{{ String(row.runId).slice(0, 18) }}…</span>
+            </template>
+          </el-table-column>
+          <el-table-column prop="conversationTitle" label="来源会话" min-width="160" show-overflow-tooltip />
+          <el-table-column label="委托时间" width="160">
+            <template #default="{ row }">{{ fmtTime(row.delegatedAt) }}</template>
+          </el-table-column>
+          <el-table-column label="状态" width="110">
+            <template #default="{ row }">
+              <el-tag size="small" :type="statusTag(row.status)" effect="light" round>{{ statusName(row.status) }}</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="审批" width="120">
+            <template #default="{ row }">
+              <el-tag v-if="row.adviceId" size="small" :type="adviceTag(row.adviceStatus)" effect="plain">
+                {{ adviceName(row.adviceStatus) }} #{{ row.adviceId }}
+              </el-tag>
+              <span v-else class="dim">—</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="结果摘要" min-width="220">
+            <template #default="{ row }">
+              <span class="result-preview">{{ row.resultPreview || (row.status === 'RUNNING' ? '执行中…' : '—') }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="操作" width="230" fixed="right">
+            <template #default="{ row }">
+              <el-button size="small" text type="primary" @click="openTimeline(row)">时间线</el-button>
+              <el-button size="small" text type="primary" @click="openAuditChain(row.runId)">审计链</el-button>
+              <el-button size="small" text @click="goConversation(row)">去会话</el-button>
+            </template>
+          </el-table-column>
+          <template #empty>暂无委托任务——在 AI 助手中发送「委托 AI Agent 员工…」类指令后在此查看</template>
+        </el-table>
+      </el-tab-pane>
+      <el-tab-pane label="自迭代" name="iteration" lazy>
+        <SelfIterationTab />
+      </el-tab-pane>
+    </el-tabs>
 
     <!-- 执行时间线抽屉（复用 B3 事件接口） -->
     <el-drawer v-model="timelineVisible" :title="`执行时间线 · ${currentRun.slice(0, 18)}…`" size="480px">
@@ -61,6 +69,28 @@
         </div>
       </div>
     </el-drawer>
+
+    <!-- 审计链抽屉（V2.0 铁律五：run_id 贯通四段联查） -->
+    <el-drawer v-model="auditVisible" :title="`审计链 · ${auditRun.slice(0, 18)}…`" size="560px">
+      <div class="audit-summary" v-if="auditRows.length">
+        共 {{ auditTotal }} 条记录（异常 {{ auditErrors }} 条）——
+        过程事件 → 工具审计 → 模型调用 → 出网留痕
+      </div>
+      <div v-if="auditLoading" class="tl-loading"><el-icon class="is-loading"><Loading /></el-icon> 加载中…</div>
+      <div v-else-if="!auditRows.length" class="tl-loading">该 run 暂无审计记录</div>
+      <div v-else class="tl-list">
+        <div v-for="(row, i) in auditRows" :key="i" class="tl-row audit-row" :class="{ err: row.isError === 1 }">
+          <div class="tl-head">
+            <el-tag size="small" effect="plain" :type="chainTag(row.chainType)">{{ chainName(row.chainType) }}</el-tag>
+            <span class="tl-type">{{ row.action }}</span>
+            <span class="tl-tool" v-if="row.detailKey">{{ row.detailKey }}</span>
+            <span class="tl-duration" v-if="row.durationMs != null">{{ row.durationMs }}ms</span>
+          </div>
+          <div class="tl-preview" v-if="row.detail">{{ row.detail }}</div>
+          <div class="tl-time">{{ fmtTime(row.createTime) }}</div>
+        </div>
+      </div>
+    </el-drawer>
   </div>
 </template>
 
@@ -68,8 +98,11 @@
 import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { Loading, Refresh } from '@element-plus/icons-vue'
-import { hermesRunEventsApi, type HermesRunEvent } from '@/api/aiws'
+import { hermesRunEventsApi, auditChainApi, type HermesRunEvent, type AuditChainRow } from '@/api/aiws'
 import { get } from '@/utils/request'
+import SelfIterationTab from './components/SelfIterationTab.vue'
+
+const activeTab = ref('delegation')
 
 interface DelegationRow {
   runId: string
@@ -120,6 +153,35 @@ async function openTimeline(row: any) {
   }
 }
 
+// ---- 审计链抽屉（V2.0 铁律五） ----
+const auditVisible = ref(false)
+const auditLoading = ref(false)
+const auditRun = ref('')
+const auditRows = ref<AuditChainRow[]>([])
+const auditTotal = ref(0)
+const auditErrors = ref(0)
+
+async function openAuditChain(runId: string) {
+  auditRun.value = runId
+  auditVisible.value = true
+  auditLoading.value = true
+  try {
+    const res = await auditChainApi(runId)
+    auditRows.value = res.data?.rows || []
+    auditTotal.value = res.data?.total || 0
+    auditErrors.value = res.data?.errorCount || 0
+  } finally {
+    auditLoading.value = false
+  }
+}
+
+function chainName(t: string) {
+  return ({ RUN_EVENT: '过程事件', TOOL_AUDIT: '工具审计', AI_CALL: '模型调用', OUTBOUND: '出网留痕' } as Record<string, string>)[t] || t
+}
+function chainTag(t: string) {
+  return ({ RUN_EVENT: 'primary', TOOL_AUDIT: 'warning', AI_CALL: 'success', OUTBOUND: 'danger' } as Record<string, any>)[t] || 'info'
+}
+
 function goConversation(row: any) {
   router.push({ path: '/ai', query: { conv: row.conversationId } })
 }
@@ -156,6 +218,8 @@ onMounted(load)
 .run-id { font-family: monospace; font-size: 12px; }
 .dim { color: var(--el-text-color-placeholder); }
 .result-preview { font-size: 12px; color: var(--el-text-color-regular); }
+.panel-tabs :deep(.el-tabs__content) { overflow: visible; }
+.audit-summary { font-size: 12px; color: var(--el-text-color-secondary); margin-bottom: 10px; }
 .tl-loading { color: var(--el-text-color-secondary); font-size: 13px; padding: 12px 0; }
 .tl-list { display: flex; flex-direction: column; gap: 10px; }
 .tl-row { border: 1px solid var(--el-border-color-lighter); border-radius: 8px; padding: 8px 10px; }

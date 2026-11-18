@@ -217,6 +217,135 @@ export function complianceCheckApi(id: number) {
 }
 
 
+// ==================== 自迭代闭环（V2.0 M8） ====================
+
+export interface AgentFeedback {
+  id: number
+  sourceType: string
+  sourceId: number
+  runId?: string
+  userId?: number
+  rating: number
+  dimension?: string
+  comment?: string
+  createTime?: string
+}
+
+export interface SoulPatchProposal {
+  id: number
+  period: string
+  category: string
+  rootCause: string
+  summary: string
+  suggestion: string
+  evidenceJson?: string
+  status: string
+  adoptNote?: string
+  soulVersion?: string
+  adoptedAt?: string
+  createTime?: string
+}
+
+export interface SoulChangeLog {
+  id: number
+  version: string
+  changeType: string
+  diffSummary?: string
+  contentSnapshot?: string
+  proposalId?: number
+  operator?: string
+  createTime?: string
+}
+
+export interface RegressionCase {
+  id?: number
+  caseNo: string
+  caseKind: string
+  scene: string
+  instruction: string
+  expectedRoute?: string
+  permMethod?: string
+  expectDenied?: number
+  enabled?: number
+  lastResult?: string
+  lastRunAt?: string
+}
+
+export interface RegressionReport {
+  total: number
+  pass: number
+  fail: number
+  skip: number
+  passRate: number
+  costMs: number
+  runAt?: string
+  cases: Array<RegressionCase & { actualRoute?: string; result?: string }>
+}
+
+export function submitFeedbackApi(data: { sourceType: string; sourceId: number; runId?: string; rating: 1 | -1; dimension?: string; comment?: string }) {
+  return post<AgentFeedback>('/v1/ai/self-iteration/feedback', data)
+}
+
+export function feedbackStatsApi() {
+  return get<{ total: number; positive: number; negative: number; approvalRate: number }>('/v1/ai/self-iteration/feedback/stats')
+}
+
+export function listProposalsApi(status?: string) {
+  const params = new URLSearchParams()
+  if (status) params.set('status', status)
+  return get<SoulPatchProposal[]>(`/v1/ai/self-iteration/proposals?${params.toString()}`)
+}
+
+export function adoptProposalApi(id: number, note?: string) {
+  return post<{ soulVersion: string; changeLogId: number; path: string }>(`/v1/ai/self-iteration/proposals/${id}/adopt`, note ? { note } : undefined)
+}
+
+export function rejectProposalApi(id: number, note?: string) {
+  return post<void>(`/v1/ai/self-iteration/proposals/${id}/reject`, note ? { note } : undefined)
+}
+
+export function iterateNowApi() {
+  return post<{ period: string; negativeCount: number; failedCount: number; proposalsCreated: number }>('/v1/ai/self-iteration/iterate')
+}
+
+export function soulVersionsApi() {
+  return get<SoulChangeLog[]>('/v1/ai/self-iteration/soul/versions')
+}
+
+export function soulRollbackApi(version: string) {
+  return post<{ soulVersion: string; rollbackFrom: string }>(`/v1/ai/self-iteration/soul/rollback/${version}`)
+}
+
+export function regressionRunApi() {
+  return post<RegressionReport>('/v1/ai/self-iteration/regression/run')
+}
+
+export function regressionCasesApi() {
+  return get<RegressionCase[]>('/v1/ai/self-iteration/regression/cases')
+}
+
+// ==================== 审计链联查（V2.0 铁律五） ====================
+
+export interface AuditChainRow {
+  chainType: string
+  runId?: string
+  refId: string
+  action: string
+  detailKey?: string
+  detail?: string
+  isError: number
+  durationMs?: number
+  userId?: number
+  createTime: string
+}
+
+export function auditChainApi(runId?: string) {
+  const params = new URLSearchParams()
+  if (runId) params.set('runId', runId)
+  return get<{ runId?: string; total: number; errorCount: number; rows: AuditChainRow[] }>(`/v1/ai/audit-chain?${params.toString()}`)
+}
+
+
 // ==================== 流程定义 ====================
 
 export function createWorkflowApi(data: { name: string; description?: string; graph?: string }) {

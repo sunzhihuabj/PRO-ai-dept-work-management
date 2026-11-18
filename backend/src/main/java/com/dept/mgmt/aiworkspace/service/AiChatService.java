@@ -200,6 +200,34 @@ public class AiChatService {
     }
 
     /**
+     * V2.0 D7 回归集路由纯判定（不落库、不调模型、不执行）：
+     * 与 routeAndReply 规则层同源——WEBSEARCH → ADVISOR → WORKFLOW → DELEGATE（强触发）→ OPS（技能卡）→ GENERAL。
+     * OPS 真实判定在 tryOps 内为 LLM decide，此处用技能卡触发词预筛近似（同一数据源）；
+     * AGENT_TASK/INTENT_RESCUE 属 LLM 意图层，归入 GENERAL 兜底桶。
+     */
+    public String dryRoute(String content) {
+        if (!StringUtils.hasText(content)) {
+            return "GENERAL";
+        }
+        if (WEBSEARCH_PATTERN.matcher(content).find()) {
+            return "WEBSEARCH";
+        }
+        if (ADVISOR_PATTERN.matcher(content).find()) {
+            return "ADVISOR";
+        }
+        if (WF_CREATE_PATTERN.matcher(content).find()) {
+            return "WORKFLOW";
+        }
+        if (hermesDelegateService.shouldDelegate(content)) {
+            return "DELEGATE";
+        }
+        if (systemOpsService.hasOpsTrigger(content)) {
+            return "OPS";
+        }
+        return "GENERAL";
+    }
+
+    /**
      * M5 联网检索：提取检索词 → 脱敏出网检索 → 结果交 LLM 总结回复。
      * 检索失败降级为通用对话（返回 null），绝不假造结果。
      */
