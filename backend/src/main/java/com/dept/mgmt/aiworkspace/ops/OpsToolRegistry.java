@@ -88,6 +88,8 @@ public class OpsToolRegistry {
     private final ProjectMapper projectMapper;
     private final SysUserMapper userMapper;
     private final ContractMapper contractMapper;
+    private final com.dept.mgmt.mapper.FileInfoMapper fileInfoMapper;
+    private final com.dept.mgmt.mapper.FileVersionMapper fileVersionMapper;
     private final ObjectMapper objectMapper;
 
     private final Map<String, OpsTool> tools = new LinkedHashMap<>();
@@ -110,6 +112,7 @@ public class OpsToolRegistry {
         registerCostTools();
         registerAftermarketTools();
         registerArchiveTools();
+        registerFileTools();
         registerCollabTools();
         log.info("AI 系统操作工具注册完成: {} 个", tools.size());
     }
@@ -759,6 +762,91 @@ public class OpsToolRegistry {
                 .desc("查询逾期未归还的档案借阅").readOnly(true).params(List.of())
                 .executor((p, u) -> renderList(archiveService.overdueBorrows(), "borrow",
                         cols("archiveId=档案ID", "borrower=借阅人", "purpose=用途", "dueDate=应还日期", "status=状态"), true))
+                .build());
+    }
+
+    // ---------- 文件（V2.0 M3 全生命周期） ----------
+
+    private void registerFileTools() {
+        tool(OpsTool.builder().name("file.list").module("文件管理").title("查询文件")
+                .desc("按文件名关键词/项目/归档状态查询文件清单").readOnly(true)
+                .params(List.of(
+                        OpsParam.builder().name("keyword").type("string").desc("文件名关键词").build(),
+                        OpsParam.builder().name("projectId").type("number").desc("项目ID").build(),
+                        OpsParam.builder().name("onlyArchived").type("boolean").desc("仅看已归档").build()))
+                .executor((p, u) -> {
+                    LambdaQueryWrapper<com.dept.mgmt.entity.FileInfo> qw = new LambdaQueryWrapper<com.dept.mgmt.entity.FileInfo>()
+                            .orderByDesc(com.dept.mgmt.entity.FileInfo::getCreateTime)
+                            .last("LIMIT 20");
+                    if (p.containsKey("keyword")) {
+                        qw.like(com.dept.mgmt.entity.FileInfo::getFileName, str(p, "keyword"));
+                    }
+                    if (p.containsKey("projectId")) {
+                        qw.eq(com.dept.mgmt.entity.FileInfo::getProjectId, num(p, "projectId").longValue());
+                    }
+                    if (p.containsKey("onlyArchived") && Boolean.parseBoolean(str(p, "onlyArchived"))) {
+                        qw.eq(com.dept.mgmt.entity.FileInfo::getIsArchive, 1);
+                    }
+                    return renderList(fileInfoMapper.selectList(qw), "file",
+                            cols("id=ID", "fileName=文件名", "fileType=分类", "version=版本",
+                                    "fileSize=大小", "isArchive=归档", "createTime=上传时间"), true);
+                })
+                .build());
+
+        tool(OpsTool.builder().name("file.version.list").module("文件管理").title("文件版本历史")
+                .desc("查询指定文件的版本链（同名重传自动版本递增，可回溯全部历史）").readOnly(true)
+                .params(List.of(OpsParam.builder().name("fileId").type("number").required(true).desc("文件ID").build()))
+                .executor((p, u) -> {
+                    com.dept.mgmt.entity.FileInfo info = fileInfoMapper.selectById(num(p, "fileId").longValue());
+                    if (info == null) {
+                        throw new BusinessException(404, "文件不存在: " + num(p, "fileId"));
+                    }
+                    return "当前版本 " + info.getVersion() + "（" + info.getFileName() + "）\n"
+                            + renderList(fileVersionMapper.selectList(new LambdaQueryWrapper<com.dept.mgmt.entity.FileVersion>()
+                                    .eq(com.dept.mgmt.entity.FileVersion::getFileId, num(p, "fileId").longValue())
+                                    .orderByDesc(com.dept.mgmt.entity.FileVersion::getVersionNumber)), "version",
+                            cols("versionNumber=版本号", "versionLabel=版本标签", "fileSize=大小",
+                                    "changeDesc=变更说明", "createBy=操作人", "createTime=时间"), true);
+                })
+                .build());
+
+        tool(OpsTool.builder().name("file.category.bind").module("文件管理").title("文件分类调整")
+                .desc("调整文件的归档分类（需用户确认后执行）").readOnly(false)
+                .params(List.of(
+                        OpsParam.builder().name("fileId").type("number").required(true).desc("文件ID").build(),
+                        OpsParam.builder().name("category").type("string").required(true).desc("目标分类（文件类型标签）").build()))
+                .executor((p, u) -> {
+                    com.dept.mgmt.entity.FileInfo info = fileInfoMapper.selectById(num(p, "fileId").longValue());
+                    if (info == null) {
+                        throw new BusinessException(404, "文件不存在: " + num(p, "fileId"));
+                    }
+                    String old = info.getFileType();
+                    info.setFileType(str(p, "category"));
+                    fileInfoMapper.updateById(info);
+                    return "文件 " + info.getFileName() + "（ID=" + info.getId() + "）分类已调整：" + old + " → " + str(p, "category");
+                })
+                .precheck((p, u) -> fileInfoMapper.selectById(num(p, "fileId").longValue()) == null
+                        ? "文件不存在: " + num(p, "fileId") : null)
+                .build());
+
+        tool(OpsTool.builder().name("archive.filing").module("档案管理").title("档案归档登记")
+                .desc("登记新档案入库（题名/类型/介质/存放位置，需用户确认后执行；纸质与双轨介质必须登记存放位置）").readOnly(false)
+                .params(List.of(
+                        OpsParam.builder().name("title").type("string").required(true).desc("档案题名").build(),
+                        OpsParam.builder().name("archiveType").type("string").required(true).desc("档案类型")
+                                .enums(List.of("CONTRACT", "SCHEME", "DRAWING", "RECORD", "ACCEPTANCE")).build(),
+                        OpsParam.builder().name("medium").type("string").required(true).desc("载体介质")
+                                .enums(List.of("ELECTRONIC", "PAPER", "DUAL")).build(),
+                        OpsParam.builder().name("projectId").type("number").desc("关联项目ID").build(),
+                        OpsParam.builder().name("location").type("string").desc("实物存放位置（纸质/双轨必填）").build(),
+                        OpsParam.builder().name("remark").type("string").desc("备注").build()))
+                .executor((p, u) -> {
+                    Long id = archiveService.registerArchive(
+                            p.containsKey("projectId") ? num(p, "projectId").longValue() : null,
+                            str(p, "archiveType"), str(p, "title"), str(p, "medium"),
+                            str(p, "location"), str(p, "remark"));
+                    return "档案已登记入库（ID=" + id + "）";
+                })
                 .build());
     }
 

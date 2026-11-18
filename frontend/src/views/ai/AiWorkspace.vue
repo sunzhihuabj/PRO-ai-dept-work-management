@@ -294,8 +294,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onActivated, onDeactivated, onUnmounted, ref } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { computed, nextTick, onActivated, onDeactivated, onMounted, onUnmounted, ref } from 'vue'
+import { ElMessage, ElMessageBox, ElNotification } from 'element-plus'
 import {
   Back, ChatDotRound, Close, Cpu, Delete, DocumentCopy, Download, Edit, Fold, Expand, MagicStick,
   Microphone, Operation, Paperclip, Picture, Plus, Promotion, RefreshRight, Search, Service,
@@ -314,6 +314,7 @@ import { listWorkflowsApi, type WfWorkflow } from '@/api/aiws'
 import { getMyTasksApi, getAutonomyPoliciesApi, type AgentTask } from '@/api/agent'
 import { uploadContractDocApi } from '@/api/contract'
 import { collectScreenDigest } from '@/utils/screenReader'
+import { useUserStore } from '@/store/user'
 import {
   createRecognizer, loadAutoSpeak, saveAutoSpeak, speak, stopSpeaking, ttsAvailable
 } from '@/utils/speech'
@@ -484,6 +485,47 @@ function refreshSide() {
 }
 
 onActivated(refreshSide)
+
+// ==================== M4 SSE：Hermes 事件实时预警（风险 Toast） ====================
+const userStore = useUserStore()
+let sseSource: EventSource | null = null
+
+const SSE_TOAST: Record<string, { title: string; type: 'warning' | 'success' | 'error' }> = {
+  'run.failed': { title: 'Hermes 任务执行失败', type: 'error' },
+  'approval.request': { title: 'Hermes 请求敏感操作授权', type: 'warning' },
+  'run.completed': { title: 'Hermes 任务执行完成', type: 'success' }
+}
+
+function connectHermesSse() {
+  if (sseSource || !userStore.token) return
+  try {
+    sseSource = new EventSource(`/api/v1/ai/ws/hermes/stream?token=${userStore.token}`)
+    for (const [evt, cfg] of Object.entries(SSE_TOAST)) {
+      sseSource.addEventListener(evt, (e: MessageEvent) => {
+        let detail = ''
+        try {
+          const d = JSON.parse(e.data || '{}')
+          detail = d.preview || (d.tool ? `工具 ${d.tool}` : '')
+        } catch { /* ignore */ }
+        ElNotification({ title: cfg.title, message: detail.slice(0, 120), type: cfg.type, duration: 6000 })
+        if (autoSpeak.value && ttsOk && evt === 'approval.request') {
+          speak('注意，AI Agent 员工请求敏感操作授权，请前往处理')
+        }
+        refreshSide()
+      })
+    }
+    sseSource.onerror = () => {
+      // EventSource 自动重连；连续失败时浏览器原生处理
+    }
+  } catch { /* SSE 不可用时静默降级 */ }
+}
+
+function disconnectHermesSse() {
+  sseSource?.close()
+  sseSource = null
+}
+
+onMounted(connectHermesSse)
 // 离开工作台：停止语音输入与朗读（E2/E3 外设收尾）
 onDeactivated(() => {
   if (listening.value) { recognizer.stop(); listening.value = false }
@@ -493,6 +535,7 @@ onDeactivated(() => {
 onUnmounted(() => {
   if (listening.value) { recognizer.stop(); listening.value = false }
   stopSpeaking()
+  disconnectHermesSse()
 })
 
 // ==================== 会话 ====================

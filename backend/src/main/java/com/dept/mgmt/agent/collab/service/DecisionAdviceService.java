@@ -50,6 +50,11 @@ public class DecisionAdviceService {
     public static final String SCENE_TASK_STATUS_CHANGED = "TASK_STATUS_CHANGED";
     public static final String SCENE_PROJECT_PROGRESS = "PROJECT_PROGRESS";
     public static final String SCENE_TOOL_APPROVAL = "TOOL_APPROVAL";
+
+    /** V2.0 M4：超期任务催办（ProcessGovernanceService 扫描） */
+    public static final String SCENE_TASK_OVERDUE_REMIND = "TASK_OVERDUE_REMIND";
+    /** V2.0 M4：流程健康度巡检预警（工作日 SLA 巡检） */
+    public static final String SCENE_PROCESS_SLA_WARNING = "PROCESS_SLA_WARNING";
     /** B5：Hermes run 审批中断（waiting_for_approval）映射建议 */
     public static final String SCENE_HERMES_APPROVAL = "HERMES_APPROVAL";
 
@@ -419,6 +424,18 @@ public class DecisionAdviceService {
     }
 
     // ==================== 内部实现 ====================
+
+    /**
+     * 治理类建议统一入口（V2.0 M4：超期催办/健康度巡检）——复用内部 advice 落库 + 站内信推送，
+     * 纯建议（不需审批），置信度 1.0（规则确定），风险级别由调用方指定或默认 MEDIUM。
+     */
+    public void createGovernanceAdvice(String scene, String sourceType, Long sourceId,
+                                       String title, String body, Long targetUserId,
+                                       Map<String, Object> structured) {
+        advice(scene, sourceType, sourceId, null, title, "WARNING", body,
+                structured == null ? Map.of() : structured,
+                1.0, "MEDIUM", false, null, null, List.of(), targetUserId, 24);
+    }
 
     /** 统一建议落库 + 站内信推送 */
     private void advice(String scene, String sourceType, Long sourceId, String bizNo, String title,

@@ -77,6 +77,11 @@ public class HermesDelegateService {
     private final AiConversationMapper conversationMapper;
     private final HermesRunEventMapper runEventMapper;
     private final com.dept.mgmt.agent.collab.service.DecisionAdviceService adviceService;
+    private final HermesSseService sseService;
+
+    /** SSE 实时推送白名单（V2.0 M4：异常/授权/完成三类即时提示） */
+    private static final Set<String> SSE_PUSH_TYPES = Set.of(
+            "run.failed", "approval.request", "run.completed");
 
     /** 轮询节奏与等待上限（与 app.hermes 对齐，B5 审批检测轮询复用） */
     @Value("${app.hermes.poll-interval-ms:2000}")
@@ -102,12 +107,14 @@ public class HermesDelegateService {
                                  AiMessageMapper messageMapper,
                                  AiConversationMapper conversationMapper,
                                  HermesRunEventMapper runEventMapper,
-                                 com.dept.mgmt.agent.collab.service.DecisionAdviceService adviceService) {
+                                 com.dept.mgmt.agent.collab.service.DecisionAdviceService adviceService,
+                                 HermesSseService sseService) {
         this.hermesService = hermesService;
         this.messageMapper = messageMapper;
         this.conversationMapper = conversationMapper;
         this.runEventMapper = runEventMapper;
         this.adviceService = adviceService;
+        this.sseService = sseService;
     }
 
     /**
@@ -142,7 +149,7 @@ public class HermesDelegateService {
         // 后台：事件流消费（独立线程）+ 轮询至终态并回写结果（不阻塞 chat HTTP 线程）
         Long convId = conv.getId();
         Long uid = userId;
-        eventsExecutor.submit(() -> consumeAndStoreEvents(runId));
+        eventsExecutor.submit(() -> consumeAndStoreEvents(runId, uid));
         pollExecutor.submit(() -> pollAndWriteBack(convId, runId, uid));
         log.info("对话已委托 Hermes: conv={}, runId={}", convId, runId);
         return card;
@@ -176,7 +183,7 @@ public class HermesDelegateService {
      * 噪声事件（message.delta/reasoning.available 等逐 token 流）不入库，(run_id, seq) 幂等去重；
      * 事件流失败静默降级——不影响 pollAndWriteBack 终态轮询回写
      */
-    private void consumeAndStoreEvents(String runId) {
+    private void consumeAndStoreEvents(String runId, Long userId) {
         hermesService.consumeEvents(runId, ev -> {
             String type = String.valueOf(ev.get("event"));
             if (!STORED_EVENT_TYPES.contains(type)) {
@@ -199,6 +206,17 @@ public class HermesDelegateService {
             } catch (Exception dup) {
                 // (run_id, seq) 冲突 = 重连重放已落库事件，幂等跳过
                 log.debug("Hermes run 事件重复跳过: runId={}, seq={}", runId, e.getSeq());
+            }
+            // V2.0 M4：异常/授权/完成事件实时 SSE 推送（前端风险 Toast，失败不影响主流程）
+            if (userId != null && SSE_PUSH_TYPES.contains(type)) {
+                try {
+                    sseService.push(userId, type, java.util.Map.of(
+                            "runId", runId, "event", type,
+                            "tool", e.getTool() == null ? "" : e.getTool(),
+                            "preview", e.getPreview() == null ? "" : abbreviate(e.getPreview(), 160)));
+                } catch (Exception pe) {
+                    log.debug("SSE 推送失败（忽略）: runId={}, type={}", runId, type);
+                }
             }
         });
     }

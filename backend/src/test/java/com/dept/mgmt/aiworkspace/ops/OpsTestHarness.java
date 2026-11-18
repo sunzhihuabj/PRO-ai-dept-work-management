@@ -92,7 +92,9 @@ public class OpsTestHarness {
                 mock(com.dept.mgmt.tender.collect.service.TenderCollectService.class),
                 mock(com.dept.mgmt.tender.collect.service.TenderPlatformService.class),
                 designService, workshopService, deliveryService, ecnService, costService, aftermarketService,
-                archiveService, eventService, kbService, projectMapper, userMapper, contractMapper, objectMapper);
+                archiveService, eventService, kbService, projectMapper, userMapper, contractMapper,
+                mock(com.dept.mgmt.mapper.FileInfoMapper.class), mock(com.dept.mgmt.mapper.FileVersionMapper.class),
+                objectMapper);
         registry.init();
         skillCards = new OpsSkillCards(registry);
         service = new SystemOpsService(registry, skillCards, pendingStore, gateway, messageMapper,

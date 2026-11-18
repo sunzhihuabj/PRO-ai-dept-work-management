@@ -112,12 +112,16 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     }
 
     /**
-     * 从请求头中解析Token
+     * 从请求头中解析Token；SSE（EventSource 无法携带 Authorization 头）允许 query 参数兜底。
      */
     private String resolveToken(HttpServletRequest request) {
         String bearerToken = request.getHeader("Authorization");
         if (StringUtils.hasText(bearerToken) && bearerToken.startsWith("Bearer ")) {
             return bearerToken.substring(7);
+        }
+        // V2.0 M4：SSE 下行通道 EventSource 鉴权兜底（/stream 端点）
+        if (request.getRequestURI().endsWith("/v1/ai/ws/hermes/stream")) {
+            return request.getParameter("token");
         }
         return null;
     }

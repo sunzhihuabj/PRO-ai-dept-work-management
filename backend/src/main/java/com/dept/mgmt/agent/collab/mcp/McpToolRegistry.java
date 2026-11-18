@@ -34,6 +34,7 @@ public class McpToolRegistry {
     private final com.dept.mgmt.agent.service.MasterAgentService masterAgentService;
     private final McpOpsBridge opsBridge;
     private final com.dept.mgmt.aiworkspace.service.WebSearchService webSearchService;
+    private final com.dept.mgmt.aiworkspace.service.ProcessGovernanceService governanceService;
     private final Map<String, CapabilityHandler> handlers;
 
     private final Map<String, McpTool> tools;
@@ -44,6 +45,7 @@ public class McpToolRegistry {
                            com.dept.mgmt.agent.service.MasterAgentService masterAgentService,
                            McpOpsBridge opsBridge,
                            com.dept.mgmt.aiworkspace.service.WebSearchService webSearchService,
+                           com.dept.mgmt.aiworkspace.service.ProcessGovernanceService governanceService,
                            List<CapabilityHandler> handlerBeans) {
         this.taskService = taskService;
         this.projectService = projectService;
@@ -52,6 +54,7 @@ public class McpToolRegistry {
         this.masterAgentService = masterAgentService;
         this.opsBridge = opsBridge;
         this.webSearchService = webSearchService;
+        this.governanceService = governanceService;
         this.handlers = handlerBeans.stream()
                 .collect(Collectors.toMap(CapabilityHandler::capabilityCode, Function.identity()));
         // A3：手写核心 8 工具 + Ops 只读工具自动桥接（McpOpsBridge 内部已去重）
@@ -189,7 +192,17 @@ public class McpToolRegistry {
                         "联网检索（V2.0 M5 脱敏出网）：返回 {query, sanitized, hitTypes, results[{title,url,snippet}]}；检索词含客户名/金额/证件号时服务端自动脱敏后才出网，全程留痕",
                         McpTool.objectSchema(Map.of(
                                 "query", Map.of("type", "string", "description", "检索词（可含敏感信息，服务端强制脱敏后出网）")), List.of("query")),
-                        args -> webSearchService.search(requireStr(args, "query"), identityOr(args))));
+                        args -> webSearchService.search(requireStr(args, "query"), identityOr(args))),
+
+                // ---- V2.0 M4 流程管控（催办/健康度只读） ----
+                new McpTool("task.overdue.list",
+                        "查询超期未完成任务清单（deadline 已过且状态未完成，含超期天数明细；V2.0 M4 催办数据源）",
+                        McpTool.objectSchema(Map.of(), null),
+                        args -> governanceService.slaReport()),
+                new McpTool("process.sla.report",
+                        "流程健康度报告（超期任务统计 + 在途审批超 72h SLA 统计 + 明细 top20；工作日巡检同源数据）",
+                        McpTool.objectSchema(Map.of(), null),
+                        args -> governanceService.slaReport()));
     }
 
     private static long requireLong(Map<String, Object> args, String key) {
