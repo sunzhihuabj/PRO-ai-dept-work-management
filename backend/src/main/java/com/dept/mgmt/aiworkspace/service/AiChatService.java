@@ -182,13 +182,15 @@ public class AiChatService {
         if (WF_CREATE_PATTERN.matcher(content).find()) {
             return handleWorkflowIntent(conv, content);
         }
-        AiMessage assistantMsg = systemOpsService.tryOps(conv, content, current());
+        // C4 路由优先级修正：显式委托触发词（如「委托AI Agent员工…」）是强意图——
+        // 用户明确要求 Hermes Agent 自主执行，必须优先于 Ops 单轮判定
+        //（修复前「委托…创建任务」被 Ops 抢先判为 task.create 待确认卡片，委托层永远不可达）。
+        AiMessage assistantMsg = hermesDelegateService.tryDelegate(conv, content, userId, current().getUsername());
         if (assistantMsg == null) {
-            assistantMsg = tryAgentTask(conv, content, userId);
+            assistantMsg = systemOpsService.tryOps(conv, content, current());
         }
         if (assistantMsg == null) {
-            LoginUser u = current();
-            assistantMsg = hermesDelegateService.tryDelegate(conv, content, u.getUserId(), u.getUsername());
+            assistantMsg = tryAgentTask(conv, content, userId);
         }
         if (assistantMsg == null) {
             assistantMsg = intentRescue(conv, content, userId);
